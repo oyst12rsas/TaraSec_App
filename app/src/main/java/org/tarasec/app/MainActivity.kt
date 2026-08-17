@@ -58,7 +58,7 @@ private fun TaraSecSetupScreen() {
         OutlinedTextField(
             value = dbServer,
             onValueChange = { dbServer = it },
-            label = { Text("DB server IP") },
+            label = { Text("DB server host / URL") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
@@ -75,23 +75,28 @@ private fun TaraSecSetupScreen() {
         Button(
             enabled = !testing,
             onClick = {
-                val host = dbServer.trim()
-                    .removePrefix("http://")
-                    .removePrefix("https://")
-                    .trimEnd('/')
-
-                if (host.isBlank()) {
-                    status = "Enter a DB server IP first."
+                val entered = dbServer.trim().trimEnd('/')
+                if (entered.isBlank()) {
+                    status = "Enter a DB server host first."
                     return@Button
                 }
 
+                val baseUrl = when {
+                    entered.startsWith("https://", ignoreCase = true) -> entered
+                    entered.startsWith("http://", ignoreCase = true) -> {
+                        status = "Unencrypted HTTP is not allowed. Use HTTPS."
+                        return@Button
+                    }
+                    else -> "https://$entered"
+                }
+
                 testing = true
-                status = "Connecting to $host..."
+                status = "Connecting securely to $baseUrl..."
 
                 Thread {
                     var connection: HttpURLConnection? = null
                     try {
-                        val url = URL("http://$host/script/appSetup.php")
+                        val url = URL("$baseUrl/script/appSetup.php")
                         connection = url.openConnection() as HttpURLConnection
                         connection.requestMethod = "GET"
                         connection.connectTimeout = 5000
@@ -116,16 +121,16 @@ private fun TaraSecSetupScreen() {
                         activity.runOnUiThread {
                             gateway = seenGateway
                             status = if (seenGateway.isNotBlank()) {
-                                "Connected. DB server sees gateway/client as $seenGateway" +
+                                "Secure connection established. DB server sees gateway/client as $seenGateway" +
                                     if (serverTime.isNotBlank()) " (server $serverTime)" else ""
                             } else {
-                                "Connected, but DB server did not return a gateway address."
+                                "Secure connection established, but DB server did not return a gateway address."
                             }
                             testing = false
                         }
                     } catch (e: Exception) {
                         activity.runOnUiThread {
-                            status = "Connection failed: ${e.message ?: e.javaClass.simpleName}"
+                            status = "Secure connection failed: ${e.message ?: e.javaClass.simpleName}"
                             testing = false
                         }
                     } finally {
@@ -134,7 +139,7 @@ private fun TaraSecSetupScreen() {
                 }.start()
             }
         ) {
-            Text(if (testing) "Testing..." else "Save / test setup")
+            Text(if (testing) "Testing..." else "Save / test secure setup")
         }
 
         Text(status)
