@@ -49,6 +49,9 @@ private fun TaraSecSetupScreen() {
     var infectionStatus by remember { mutableStateOf("Infection status not checked") }
     var severity by remember { mutableStateOf(0) }
     var infected by remember { mutableStateOf(false) }
+    var assessmentSource by remember { mutableStateOf("") }
+    var unitId by remember { mutableStateOf<Int?>(null) }
+    var referenceId by remember { mutableStateOf<Int?>(null) }
     var testing by remember { mutableStateOf(false) }
 
     fun gatewayRequest(action: String) {
@@ -68,7 +71,8 @@ private fun TaraSecSetupScreen() {
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = if (action == "clear") "POST" else "GET"
                 connection.connectTimeout = 5000
-                connection.readTimeout = 5000
+                // B7 may wait briefly for the traffic/tag record to arrive.
+                connection.readTimeout = 10000
                 connection.useCaches = false
                 if (action == "clear") {
                     connection.doOutput = true
@@ -90,23 +94,37 @@ private fun TaraSecSetupScreen() {
 
                 val nowInfected = json.optBoolean("infected", false)
                 val nowSeverity = json.optInt("severity", 0)
-                val count = json.optInt("infection_count", 0)
+                val source = json.optString("source", "")
                 val clientIp = json.optString("client_ip", "")
+                val unitIp = json.optString("unit_ip", "")
                 val cleared = json.optInt("cleared", 0)
+                val returnedUnitId = if (json.isNull("unitId")) null else json.optInt("unitId")
+                val returnedReferenceId = if (json.isNull("referenceId")) null else json.optInt("referenceId")
 
                 activity.runOnUiThread {
                     infected = nowInfected
                     severity = nowSeverity
+                    assessmentSource = source
+                    unitId = returnedUnitId
+                    referenceId = returnedReferenceId
+
+                    val identity = buildString {
+                        if (returnedUnitId != null) append(" unitId $returnedUnitId")
+                        if (returnedReferenceId != null) append(" referenceId $returnedReferenceId")
+                        if (unitIp.isNotBlank()) append(" unit $unitIp")
+                        if (isEmpty() && clientIp.isNotBlank()) append(" client $clientIp")
+                    }
+                    val sourceText = if (source.isNotBlank()) " from $source" else ""
+
                     infectionStatus = when {
-                        action == "clear" && cleared > 0 && !nowInfected ->
-                            "Unit declared clear. Gateway deactivated $cleared infection record(s)."
-                        action == "clear" && cleared == 0 && !nowInfected ->
-                            "Unit is already clear."
+                        action == "clear" && cleared > 0 ->
+                            "Gateway deactivated $cleared local infection record(s). Current assessment: severity $nowSeverity$sourceText.$identity"
+                        action == "clear" && cleared == 0 ->
+                            "No active local infection record needed clearing. Current assessment: severity $nowSeverity$sourceText.$identity"
                         nowInfected ->
-                            "Gateway reports this unit infected: severity $nowSeverity, $count active record(s)" +
-                                if (clientIp.isNotBlank()) " (client $clientIp)" else ""
+                            "Gateway assessment: infected, severity $nowSeverity$sourceText.$identity"
                         else ->
-                            "Gateway reports this unit clear" + if (clientIp.isNotBlank()) " (client $clientIp)" else ""
+                            "Gateway assessment: clear, severity $nowSeverity$sourceText.$identity"
                     }
                     testing = false
                 }
@@ -222,7 +240,9 @@ private fun TaraSecSetupScreen() {
 
         Text("Unit infection status", style = MaterialTheme.typography.titleMedium)
         Text(infectionStatus)
-        if (infected) Text("Severity: $severity")
+        Text("Severity: $severity" + if (assessmentSource.isNotBlank()) " ($assessmentSource)" else "")
+        if (unitId != null) Text("unitId: $unitId")
+        if (referenceId != null) Text("referenceId: $referenceId")
 
         Button(
             enabled = !testing && gateway.isNotBlank(),
