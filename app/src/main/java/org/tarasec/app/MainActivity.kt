@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -44,11 +46,85 @@ private fun TaraSecSetupScreen() {
     var dbServer by remember { mutableStateOf("100.68.126.0") }
     var gateway by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Not connected") }
+    var infectionStatus by remember { mutableStateOf("Infection status not checked") }
+    var severity by remember { mutableStateOf(0) }
+    var infected by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
+
+    fun gatewayRequest(action: String) {
+        val gatewayHost = gateway.trim()
+        if (gatewayHost.isBlank()) {
+            infectionStatus = "Connect to the DB server first so TaraSec can learn the gateway IP."
+            return
+        }
+
+        testing = true
+        infectionStatus = if (action == "clear") "Declaring this unit clear..." else "Checking gateway infection status..."
+
+        Thread {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("https://$gatewayHost/script/appInfection.php")
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = if (action == "clear") "POST" else "GET"
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.useCaches = false
+                if (action == "clear") {
+                    connection.doOutput = true
+                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    connection.outputStream.use { it.write("action=clear".toByteArray(Charsets.UTF_8)) }
+                }
+
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) {
+                    throw IllegalStateException("Gateway returned HTTP $code: $body")
+                }
+
+                val json = JSONObject(body)
+                if (!json.optBoolean("ok", false)) {
+                    throw IllegalStateException(json.optString("error", "Gateway rejected request"))
+                }
+
+                val nowInfected = json.optBoolean("infected", false)
+                val nowSeverity = json.optInt("severity", 0)
+                val count = json.optInt("infection_count", 0)
+                val clientIp = json.optString("client_ip", "")
+                val cleared = json.optInt("cleared", 0)
+
+                activity.runOnUiThread {
+                    infected = nowInfected
+                    severity = nowSeverity
+                    infectionStatus = when {
+                        action == "clear" && cleared > 0 && !nowInfected ->
+                            "Unit declared clear. Gateway deactivated $cleared infection record(s)."
+                        action == "clear" && cleared == 0 && !nowInfected ->
+                            "Unit is already clear."
+                        nowInfected ->
+                            "Gateway reports this unit infected: severity $nowSeverity, $count active record(s)" +
+                                if (clientIp.isNotBlank()) " (client $clientIp)" else ""
+                        else ->
+                            "Gateway reports this unit clear" + if (clientIp.isNotBlank()) " (client $clientIp)" else ""
+                    }
+                    testing = false
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    infectionStatus = "Gateway request failed: ${e.message ?: e.javaClass.simpleName}"
+                    testing = false
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -143,5 +219,23 @@ private fun TaraSecSetupScreen() {
         }
 
         Text(status)
+
+        Text("Unit infection status", style = MaterialTheme.typography.titleMedium)
+        Text(infectionStatus)
+        if (infected) Text("Severity: $severity")
+
+        Button(
+            enabled = !testing && gateway.isNotBlank(),
+            onClick = { gatewayRequest("status") }
+        ) {
+            Text("Check infection status")
+        }
+
+        Button(
+            enabled = !testing && gateway.isNotBlank() && infected,
+            onClick = { gatewayRequest("clear") }
+        ) {
+            Text("Declare this unit clear")
+        }
     }
 }
