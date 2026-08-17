@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,7 +19,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,9 +40,11 @@ class MainActivity : ComponentActivity() {
 
 @androidx.compose.runtime.Composable
 private fun TaraSecSetupScreen() {
+    val activity = LocalContext.current as Activity
     var dbServer by remember { mutableStateOf("100.68.126.0") }
-    var gateway by remember { mutableStateOf("10.100.0.1") }
+    var gateway by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Not connected") }
+    var testing by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -59,15 +66,75 @@ private fun TaraSecSetupScreen() {
         OutlinedTextField(
             value = gateway,
             onValueChange = { gateway = it },
-            label = { Text("Gateway IP") },
+            label = { Text("Gateway IP seen by DB server") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            readOnly = true
         )
 
-        Button(onClick = {
-            status = "Configured DB server $dbServer and gateway $gateway. Connectivity comes in A3."
-        }) {
-            Text("Save / test setup")
+        Button(
+            enabled = !testing,
+            onClick = {
+                val host = dbServer.trim()
+                    .removePrefix("http://")
+                    .removePrefix("https://")
+                    .trimEnd('/')
+
+                if (host.isBlank()) {
+                    status = "Enter a DB server IP first."
+                    return@Button
+                }
+
+                testing = true
+                status = "Connecting to $host..."
+
+                Thread {
+                    var connection: HttpURLConnection? = null
+                    try {
+                        val url = URL("http://$host/script/appSetup.php")
+                        connection = url.openConnection() as HttpURLConnection
+                        connection.requestMethod = "GET"
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        connection.useCaches = false
+
+                        val code = connection.responseCode
+                        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+                        if (code !in 200..299) {
+                            throw IllegalStateException("DB server returned HTTP $code: $body")
+                        }
+
+                        val json = JSONObject(body)
+                        if (!json.optBoolean("ok", false)) {
+                            throw IllegalStateException(json.optString("error", "DB server rejected setup request"))
+                        }
+
+                        val seenGateway = json.optString("gateway_ip", "")
+                        val serverTime = json.optString("server_time", "")
+                        activity.runOnUiThread {
+                            gateway = seenGateway
+                            status = if (seenGateway.isNotBlank()) {
+                                "Connected. DB server sees gateway/client as $seenGateway" +
+                                    if (serverTime.isNotBlank()) " (server $serverTime)" else ""
+                            } else {
+                                "Connected, but DB server did not return a gateway address."
+                            }
+                            testing = false
+                        }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            status = "Connection failed: ${e.message ?: e.javaClass.simpleName}"
+                            testing = false
+                        }
+                    } finally {
+                        connection?.disconnect()
+                    }
+                }.start()
+            }
+        ) {
+            Text(if (testing) "Testing..." else "Save / test setup")
         }
 
         Text(status)
