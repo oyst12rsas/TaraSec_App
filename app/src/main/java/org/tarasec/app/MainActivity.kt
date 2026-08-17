@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
 @androidx.compose.runtime.Composable
 private fun TaraSecSetupScreen() {
     val activity = LocalContext.current as Activity
-    var dbServer by remember { mutableStateOf("100.68.126.0") }
+    var dbServer by remember { mutableStateOf("http://100.68.126.0") }
     var gateway by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Not connected") }
     var infectionStatus by remember { mutableStateOf("Infection status not checked") }
@@ -54,6 +54,9 @@ private fun TaraSecSetupScreen() {
     var referenceId by remember { mutableStateOf<Int?>(null) }
     var testing by remember { mutableStateOf(false) }
 
+    fun selectedScheme(): String =
+        if (dbServer.trim().startsWith("https://", ignoreCase = true)) "https" else "http"
+
     fun gatewayRequest(action: String) {
         val gatewayHost = gateway.trim()
         if (gatewayHost.isBlank()) {
@@ -61,13 +64,14 @@ private fun TaraSecSetupScreen() {
             return
         }
 
+        val scheme = selectedScheme()
         testing = true
         infectionStatus = if (action == "clear") "Declaring this unit clear..." else "Checking gateway infection status..."
 
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                val url = URL("https://$gatewayHost/script/appInfection.php")
+                val url = URL("$scheme://$gatewayHost/script/appInfection.php")
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = if (action == "clear") "POST" else "GET"
                 connection.connectTimeout = 5000
@@ -152,10 +156,21 @@ private fun TaraSecSetupScreen() {
         OutlinedTextField(
             value = dbServer,
             onValueChange = { dbServer = it },
-            label = { Text("DB server host / URL") },
+            label = { Text("DB server URL (http:// or https://)") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
+
+        Text(
+            "Demo network: Traffic through the VPN is already encrypted. Demo servers may therefore use HTTP and may not listen on HTTPS port 443. Use http:// for these servers.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (dbServer.trim().startsWith("http://", ignoreCase = true)) {
+            Text(
+                "HTTP should only be used when the connection is protected by the VPN.",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
 
         OutlinedTextField(
             value = gateway,
@@ -171,21 +186,19 @@ private fun TaraSecSetupScreen() {
             onClick = {
                 val entered = dbServer.trim().trimEnd('/')
                 if (entered.isBlank()) {
-                    status = "Enter a DB server host first."
+                    status = "Enter a DB server URL first."
+                    return@Button
+                }
+                if (!entered.startsWith("https://", ignoreCase = true) &&
+                    !entered.startsWith("http://", ignoreCase = true)
+                ) {
+                    status = "Include http:// or https:// so TaraSec knows which transport to use."
                     return@Button
                 }
 
-                val baseUrl = when {
-                    entered.startsWith("https://", ignoreCase = true) -> entered
-                    entered.startsWith("http://", ignoreCase = true) -> {
-                        status = "Unencrypted HTTP is not allowed. Use HTTPS."
-                        return@Button
-                    }
-                    else -> "https://$entered"
-                }
-
+                val baseUrl = entered
                 testing = true
-                status = "Connecting securely to $baseUrl..."
+                status = "Connecting to $baseUrl..."
 
                 Thread {
                     var connection: HttpURLConnection? = null
@@ -215,16 +228,16 @@ private fun TaraSecSetupScreen() {
                         activity.runOnUiThread {
                             gateway = seenGateway
                             status = if (seenGateway.isNotBlank()) {
-                                "Secure connection established. DB server sees gateway/client as $seenGateway" +
+                                "Connection established over ${selectedScheme().uppercase()}. DB server sees gateway/client as $seenGateway" +
                                     if (serverTime.isNotBlank()) " (server $serverTime)" else ""
                             } else {
-                                "Secure connection established, but DB server did not return a gateway address."
+                                "Connection established, but DB server did not return a gateway address."
                             }
                             testing = false
                         }
                     } catch (e: Exception) {
                         activity.runOnUiThread {
-                            status = "Secure connection failed: ${e.message ?: e.javaClass.simpleName}"
+                            status = "Connection failed: ${e.message ?: e.javaClass.simpleName}"
                             testing = false
                         }
                     } finally {
@@ -233,7 +246,7 @@ private fun TaraSecSetupScreen() {
                 }.start()
             }
         ) {
-            Text(if (testing) "Testing..." else "Save / test secure setup")
+            Text(if (testing) "Testing..." else "Save / test setup")
         }
 
         Text(status)
