@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -28,8 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.net.CookieHandler
@@ -47,9 +44,7 @@ class MainActivity : ComponentActivity() {
             CookieHandler.setDefault(CookieManager(null, CookiePolicy.ACCEPT_ALL))
         }
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) { TaraSecApp() }
-            }
+            MaterialTheme { Surface(modifier = Modifier.fillMaxSize()) { TaraSecApp() } }
         }
     }
 }
@@ -78,17 +73,19 @@ private fun TaraSecApp() {
     var lastMeaningfulJson by remember { mutableStateOf<String?>(null) }
     val pollInFlight = remember { AtomicBoolean(false) }
 
-    var managerKey by remember { mutableStateOf("") }
-    var managerStatus by remember { mutableStateOf("Not signed in") }
+    var managerEmail by remember { mutableStateOf("") }
+    var managerRequestId by remember { mutableStateOf<Int?>(null) }
+    var managerRequestToken by remember { mutableStateOf("") }
+    var managerCredential by remember { mutableStateOf("") }
+    var managerEmailVerified by remember { mutableStateOf(false) }
+    var managerGatewayApproved by remember { mutableStateOf(false) }
+    var managerCredentialReady by remember { mutableStateOf(false) }
+    var managerRejected by remember { mutableStateOf(false) }
     var managerAuthenticated by remember { mutableStateOf(false) }
-    var managerLabel by remember { mutableStateOf("") }
+    var managerStatus by remember { mutableStateOf("No manager access request") }
 
     fun selectedScheme() = if (dbServer.trim().startsWith("https://", true)) "https" else "http"
-
-    fun gatewayBaseUrl(): String? {
-        val host = gateway.trim()
-        return if (host.isBlank()) null else "${selectedScheme()}://$host"
-    }
+    fun gatewayBaseUrl(): String? = gateway.trim().takeIf { it.isNotBlank() }?.let { "${selectedScheme()}://$it" }
 
     fun meaningful(json: JSONObject): String {
         val copy = JSONObject(json.toString())
@@ -122,10 +119,7 @@ private fun TaraSecApp() {
 
     fun gatewayRequest(action: String, polling: Boolean = false) {
         val base = gatewayBaseUrl()
-        if (base == null) {
-            infectionStatus = "Connect to the DB server first so TaraSec can learn the gateway IP."
-            return
-        }
+        if (base == null) { infectionStatus = "Connect to the DB server first so TaraSec can learn the gateway IP."; return }
         if (polling && !pollInFlight.compareAndSet(false, true)) return
         if (!polling) busy = true
         Thread {
@@ -161,18 +155,16 @@ private fun TaraSecApp() {
 
     fun managerRequest(action: String) {
         val base = gatewayBaseUrl()
-        if (base == null) {
-            managerStatus = "Connect to the DB server first so TaraSec can learn the gateway IP."
-            return
-        }
-        if (action == "login" && managerKey.isBlank()) {
-            managerStatus = "Enter the manager/owner key."
-            return
-        }
+        if (base == null) { managerStatus = "Connect to the DB server first so TaraSec can learn the gateway IP."; return }
+        if (action == "request" && managerEmail.isBlank()) { managerStatus = "Enter your email address."; return }
+        if (action == "status" && (managerRequestId == null || managerRequestToken.isBlank())) { managerStatus = "Create a manager request first."; return }
+        if (action == "login" && managerCredential.isBlank()) { managerStatus = "Manager credential has not been generated yet."; return }
 
         busy = true
         managerStatus = when (action) {
-            "login" -> "Signing in to gateway..."
+            "request" -> "Creating manager access request..."
+            "status" -> "Checking manager approval status..."
+            "login" -> "Activating approved manager session..."
             "logout" -> "Signing out..."
             else -> "Checking manager session..."
         }
@@ -180,66 +172,84 @@ private fun TaraSecApp() {
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = URL("$base/script/managerAuth.php").openConnection() as HttpURLConnection
+                val query = if (action == "status") {
+                    "?action=status&requestId=$managerRequestId&requestToken=${URLEncoder.encode(managerRequestToken, Charsets.UTF_8.name())}"
+                } else if (action == "session") "?action=session" else ""
+                connection = URL("$base/script/managerAuth.php$query").openConnection() as HttpURLConnection
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
                 connection.useCaches = false
 
-                if (action == "login" || action == "logout") {
+                if (action == "request" || action == "login" || action == "logout") {
                     connection.requestMethod = "POST"
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                    val data = if (action == "login") {
-                        "action=login&key=${URLEncoder.encode(managerKey, Charsets.UTF_8.name())}"
-                    } else {
-                        "action=logout"
+                    val data = when (action) {
+                        "request" -> "action=request&email=${URLEncoder.encode(managerEmail.trim(), Charsets.UTF_8.name())}"
+                        "login" -> "action=login&key=${URLEncoder.encode(managerCredential, Charsets.UTF_8.name())}"
+                        else -> "action=logout"
                     }
                     connection.outputStream.use { it.write(data.toByteArray(Charsets.UTF_8)) }
-                } else {
-                    connection.requestMethod = "GET"
                 }
 
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 val json = if (body.isBlank()) JSONObject() else JSONObject(body)
-
                 if (code !in 200..299 || !json.optBoolean("ok", false)) {
                     val error = json.optString("error", "HTTP $code")
-                    throw IllegalStateException(
-                        when (error) {
-                            "invalid_manager_key" -> "Manager key was not accepted by this gateway."
-                            "manager_auth_unavailable" -> "Manager authentication is not configured on this gateway."
-                            else -> "Gateway rejected manager sign-in: $error"
-                        }
-                    )
+                    throw IllegalStateException(when (error) {
+                        "invalid_email" -> "Enter a valid email address."
+                        "manager_not_approved" -> "Manager access is not fully approved yet."
+                        "request_not_found" -> "This manager request is no longer available."
+                        "manager_auth_unavailable" -> "Manager authentication is not available on this gateway."
+                        else -> "Gateway manager request failed: $error"
+                    })
                 }
 
-                val authenticated = json.optBoolean("authenticated", false)
-                val manager = json.optJSONObject("manager")
-                val label = manager?.optString("label", "").orEmpty()
-
                 activity.runOnUiThread {
-                    managerAuthenticated = authenticated
-                    managerLabel = label
-                    if (authenticated) {
-                        managerKey = ""
-                        managerStatus = if (label.isNotBlank()) "Signed in as $label." else "Manager session authenticated."
-                    } else {
-                        managerStatus = "Not signed in"
-                        managerLabel = ""
+                    when (action) {
+                        "request" -> {
+                            managerRequestId = json.optInt("requestId")
+                            managerRequestToken = json.optString("requestToken", "")
+                            managerEmail = json.optString("email", managerEmail)
+                            managerEmailVerified = false
+                            managerGatewayApproved = false
+                            managerCredentialReady = false
+                            managerRejected = false
+                            managerStatus = "Request created. Waiting for email and gateway admin confirmation."
+                        }
+                        "status" -> {
+                            managerEmailVerified = json.optBoolean("emailVerified", false)
+                            managerGatewayApproved = json.optBoolean("gatewayApproved", false)
+                            managerCredentialReady = json.optBoolean("credentialReady", false)
+                            managerRejected = json.optBoolean("rejected", false)
+                            val returnedCredential = json.optString("credential", "")
+                            if (returnedCredential.isNotBlank()) managerCredential = returnedCredential
+                            managerStatus = when {
+                                managerRejected -> "Manager request was rejected by the gateway."
+                                json.optBoolean("active", false) -> "Both confirmations received. Manager access is ready to activate."
+                                else -> "Waiting for required confirmations."
+                            }
+                        }
+                        "login" -> {
+                            managerAuthenticated = json.optBoolean("authenticated", false)
+                            managerStatus = if (managerAuthenticated) "Manager access active." else "Manager access not active."
+                        }
+                        "logout" -> {
+                            managerAuthenticated = false
+                            managerStatus = "Signed out."
+                        }
+                        "session" -> {
+                            managerAuthenticated = json.optBoolean("authenticated", false)
+                            managerStatus = if (managerAuthenticated) "Existing manager session is active." else "No active manager session."
+                        }
                     }
                     busy = false
                 }
             } catch (e: Exception) {
-                activity.runOnUiThread {
-                    if (action != "status") managerAuthenticated = false
-                    managerStatus = e.message ?: "Manager request failed"
-                    busy = false
-                }
-            } finally {
-                connection?.disconnect()
-            }
+                activity.runOnUiThread { managerStatus = e.message ?: "Manager request failed"; busy = false }
+            } finally { connection?.disconnect() }
         }.start()
     }
 
@@ -297,10 +307,7 @@ private fun TaraSecApp() {
                 Text("Severity: $severity" + if (assessmentSource.isNotBlank()) " ($assessmentSource)" else "")
                 unitId?.let { Text("unitId: $it") }
                 referenceId?.let { Text("referenceId: $it") }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(autoRefresh, { autoRefresh = it })
-                    Text("Auto refresh")
-                }
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(autoRefresh, { autoRefresh = it }); Text("Auto refresh") }
                 OutlinedTextField(intervalText, { intervalText = it.filter(Char::isDigit) }, label = { Text("Polling interval (ms, minimum 50)") }, singleLine = true)
                 Text("Polls: $polls   Changes: $changes   Last response: ${lastLatencyMs?.let { "$it ms" } ?: "-"}", style = MaterialTheme.typography.bodySmall)
                 Button(enabled = !busy && gateway.isNotBlank(), onClick = { gatewayRequest("status") }) { Text("Check infection status") }
@@ -311,23 +318,21 @@ private fun TaraSecApp() {
 
             AppPage.MANAGER -> {
                 Text("Node Owner / Manager", style = MaterialTheme.typography.titleMedium)
-                Text("Management functions are intentionally separate from the unit-side infection demo.")
-                Text("Authenticate with a key configured locally on this gateway. The key is sent only for sign-in; later manager calls use the authenticated session.", style = MaterialTheme.typography.bodySmall)
+                Text("Manager access needs two independent confirmations: control of the email address and approval by a logged-in administrator of this gateway.", style = MaterialTheme.typography.bodySmall)
 
-                if (!managerAuthenticated) {
-                    OutlinedTextField(
-                        value = managerKey,
-                        onValueChange = { managerKey = it },
-                        label = { Text("Manager / owner key") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-                    )
-                    Button(enabled = !busy && gateway.isNotBlank(), onClick = { managerRequest("login") }) { Text("Manager sign-in") }
-                    Button(enabled = !busy && gateway.isNotBlank(), onClick = { managerRequest("status") }) { Text("Check existing session") }
+                if (managerRequestId == null && !managerAuthenticated) {
+                    OutlinedTextField(managerEmail, { managerEmail = it }, label = { Text("Email address") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Button(enabled = !busy && gateway.isNotBlank(), onClick = { managerRequest("request") }) { Text("Request manager access") }
+                    Button(enabled = !busy && gateway.isNotBlank(), onClick = { managerRequest("session") }) { Text("Check existing session") }
+                } else if (!managerAuthenticated) {
+                    Text("Email: $managerEmail")
+                    Text("Email verification: ${if (managerEmailVerified) "Confirmed" else "Waiting"}")
+                    Text("Gateway admin confirmation: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
+                    Text("Manager credential: ${if (managerCredentialReady) "Ready" else "Generating"}")
+                    Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Refresh approval status") }
+                    Button(enabled = !busy && managerEmailVerified && managerGatewayApproved && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Activate manager access") }
                 } else {
-                    Text(if (managerLabel.isNotBlank()) "Authenticated manager: $managerLabel" else "Manager authenticated")
+                    Text("Manager access active for $managerEmail")
                     Button(enabled = !busy, onClick = { managerRequest("logout") }) { Text("Sign out") }
                 }
 
