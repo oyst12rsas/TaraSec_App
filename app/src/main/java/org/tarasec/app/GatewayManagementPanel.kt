@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun GatewayManagementPanel(baseUrl: String) {
@@ -45,7 +46,7 @@ fun GatewayManagementPanel(baseUrl: String) {
         }.start()
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f))) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Gateway", style = MaterialTheme.typography.titleMedium)
         status?.let { gateway ->
             Text(gateway.name)
@@ -62,7 +63,7 @@ fun GatewayManagementPanel(baseUrl: String) {
             }
             if (planned.isNotEmpty()) Text("Next: ${planned.joinToString()}", style = MaterialTheme.typography.bodySmall)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f)), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(enabled = !loading, onClick = { refresh() }) {
                 Text(if (loading) "Refreshing..." else "Refresh gateway")
             }
