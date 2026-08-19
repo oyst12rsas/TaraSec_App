@@ -20,9 +20,9 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun GatewayManagementPanel(baseUrl: String) {
     val activity = LocalContext.current as Activity
-    var status by remember { mutableStateOf<ManagedGatewayStatus?>(null) }
-    var message by remember { mutableStateOf("Gateway management status not loaded") }
-    var loading by remember { mutableStateOf(false) }
+    var status by remember(baseUrl) { mutableStateOf<ManagedGatewayStatus?>(null) }
+    var message by remember(baseUrl) { mutableStateOf("Gateway management status not loaded") }
+    var loading by remember(baseUrl) { mutableStateOf(false) }
 
     fun refresh() {
         if (loading) return
@@ -48,6 +48,7 @@ fun GatewayManagementPanel(baseUrl: String) {
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Gateway", style = MaterialTheme.typography.titleMedium)
+        Text(baseUrl, style = MaterialTheme.typography.bodySmall)
         status?.let { gateway ->
             Text(gateway.name)
             Text("Manager: ${gateway.managerEmail}", style = MaterialTheme.typography.bodySmall)
