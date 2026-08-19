@@ -200,13 +200,14 @@ private fun TaraSecApp() {
         val base = gatewayBaseUrl()
         if (base == null) { managerStatus = "Connect to the DB server first so TaraSec can learn the gateway IP."; return }
         if (action == "request" && managerEmail.isBlank()) { managerStatus = "Enter your email address."; return }
-        if (action == "status" && (managerRequestId == null || managerRequestToken.isBlank())) { managerStatus = "Create a manager request first."; return }
+        if ((action == "status" || action == "resend") && (managerRequestId == null || managerRequestToken.isBlank())) { managerStatus = "Create a manager request first."; return }
         if (action == "login" && managerCredential.isBlank()) { managerStatus = "Manager credential has not been generated yet."; return }
 
         busy = true
         managerStatus = when (action) {
             "request" -> "Creating manager access request..."
             "status" -> "Checking manager approval status..."
+            "resend" -> "Queuing a new verification email..."
             "login" -> "Activating approved manager session..."
             "logout" -> "Signing out..."
             else -> "Checking manager session..."
@@ -218,17 +219,19 @@ private fun TaraSecApp() {
                 val query = if (action == "status") {
                     "?action=status&requestId=$managerRequestId&requestToken=${URLEncoder.encode(managerRequestToken, Charsets.UTF_8.name())}"
                 } else if (action == "session") "?action=session" else ""
-                connection = URL("$base/script/managerAuth.php$query").openConnection() as HttpURLConnection
+                val endpoint = if (action == "resend") "managerResend.php" else "managerAuth.php"
+                connection = URL("$base/script/$endpoint$query").openConnection() as HttpURLConnection
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
                 connection.useCaches = false
 
-                if (action == "request" || action == "login" || action == "logout") {
+                if (action == "request" || action == "resend" || action == "login" || action == "logout") {
                     connection.requestMethod = "POST"
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                     val data = when (action) {
                         "request" -> "action=request&email=${URLEncoder.encode(managerEmail.trim(), Charsets.UTF_8.name())}"
+                        "resend" -> "requestId=$managerRequestId&requestToken=${URLEncoder.encode(managerRequestToken, Charsets.UTF_8.name())}"
                         "login" -> "action=login&key=${URLEncoder.encode(managerCredential, Charsets.UTF_8.name())}"
                         else -> "action=logout"
                     }
@@ -245,6 +248,9 @@ private fun TaraSecApp() {
                         "invalid_email" -> "Enter a valid email address."
                         "manager_not_approved" -> "Manager access is not fully approved yet."
                         "request_not_found" -> "This manager request is no longer available."
+                        "email_already_verified" -> "This email address is already verified. Refresh approval status."
+                        "request_rejected" -> "This manager request was rejected by the gateway."
+                        "resend_not_available" -> "Verification email cannot be resent for this request."
                         "manager_auth_unavailable" -> "Manager authentication is not available on this gateway."
                         else -> "Gateway manager request failed: $error"
                     })
@@ -274,6 +280,9 @@ private fun TaraSecApp() {
                                 json.optBoolean("active", false) -> "Both confirmations received. Manager access is ready to activate."
                                 else -> "Waiting for required confirmations."
                             }
+                        }
+                        "resend" -> {
+                            managerStatus = "A new verification email has been queued. The previous verification link is no longer valid."
                         }
                         "login" -> {
                             managerAuthenticated = json.optBoolean("authenticated", false)
@@ -373,7 +382,12 @@ private fun TaraSecApp() {
                     Text("Email verification: ${if (managerEmailVerified) "Confirmed" else "Waiting"}")
                     Text("Gateway admin confirmation: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
                     Text("Manager credential: ${if (managerCredentialReady) "Ready" else "Generating"}")
-                    Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Refresh approval status") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Refresh approval status") }
+                        if (!managerEmailVerified && !managerRejected) {
+                            Button(enabled = !busy, onClick = { managerRequest("resend") }) { Text("Resend verification email") }
+                        }
+                    }
                     Button(enabled = !busy && managerEmailVerified && managerGatewayApproved && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Activate manager access") }
                 } else {
                     Text("MANAGER ACCESS ACTIVE", style = MaterialTheme.typography.titleMedium)
