@@ -1,0 +1,216 @@
+package org.tarasec.app
+
+import android.app.Activity
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+private data class AiHistoryItem(
+    val id: Int?,
+    val created: String,
+    val fundingMode: String,
+    val assessment: JSONObject
+)
+
+@Composable
+fun ManagerAiPanel(
+    gatewayBaseUrl: String?,
+    managerAuthenticated: Boolean
+) {
+    val activity = LocalContext.current as Activity
+    var loading by remember { mutableStateOf(false) }
+    var loadedOnce by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("AI assessment not loaded") }
+    var latest by remember { mutableStateOf<JSONObject?>(null) }
+    var latestTime by remember { mutableStateOf("") }
+    var fundingMode by remember { mutableStateOf("") }
+    var quotaText by remember { mutableStateOf("") }
+    var history by remember { mutableStateOf<List<AiHistoryItem>>(emptyList()) }
+    var showHistory by remember { mutableStateOf(false) }
+
+    fun loadAi() {
+        val base = gatewayBaseUrl
+        if (!managerAuthenticated) {
+            status = "Manager access must be active before AI assessments can be viewed."
+            return
+        }
+        if (base.isNullOrBlank()) {
+            status = "Gateway is not configured."
+            return
+        }
+        if (loading) return
+        loading = true
+        status = "Loading AI assessment..."
+        Thread {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = URL("$base/script/managerAi.php").openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 5000
+                connection.readTimeout = 10000
+                connection.useCaches = false
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val json = if (body.isBlank()) JSONObject() else JSONObject(body)
+                if (code !in 200..299 || !json.optBoolean("ok", false)) {
+                    val error = json.optString("error", "HTTP $code")
+                    throw IllegalStateException(when (error) {
+                        "manager_session_required", "manager_session_invalid" -> "Manager session is not active."
+                        "manager_access_no_longer_active" -> "Manager access is no longer active on this gateway."
+                        "manager_ai_unavailable" -> "Gateway AI assessment service is unavailable."
+                        else -> "AI request failed: $error"
+                    })
+                }
+
+                val latestJson = json.optJSONObject("gatewayAssessment")
+                val time = json.optString("gatewayAssessmentTime", "")
+                val meta = json.optJSONObject("gatewayAssessmentMeta")
+                val funding = meta?.optString("fundingMode", "").orEmpty()
+                val quota = meta?.optJSONObject("quota")
+                val qText = if (quota != null) {
+                    val used = quota.optInt("used", -1)
+                    val limit = quota.optInt("limit", -1)
+                    if (used >= 0 && limit >= 0) "$used / $limit calls used today" else ""
+                } else ""
+
+                val parsedHistory = mutableListOf<AiHistoryItem>()
+                val arr: JSONArray = json.optJSONArray("gatewayAssessmentHistory") ?: JSONArray()
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val assessment = item.optJSONObject("assessment") ?: continue
+                    parsedHistory += AiHistoryItem(
+                        id = if (item.isNull("aiResponseId")) null else item.optInt("aiResponseId"),
+                        created = item.optString("created", ""),
+                        fundingMode = item.optString("fundingMode", ""),
+                        assessment = assessment
+                    )
+                }
+
+                activity.runOnUiThread {
+                    latest = latestJson
+                    latestTime = time
+                    fundingMode = funding
+                    quotaText = qText
+                    history = parsedHistory
+                    status = if (latestJson == null) "No gateway AI assessment is available yet." else "Latest gateway AI assessment"
+                    loading = false
+                    loadedOnce = true
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    status = e.message ?: "AI assessment request failed"
+                    loading = false
+                    loadedOnce = true
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
+    }
+
+    LaunchedEffect(managerAuthenticated, gatewayBaseUrl) {
+        if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank() && !loadedOnce) loadAi()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider()
+        Text("AI Assessment", style = MaterialTheme.typography.titleMedium)
+        Text("Gateway-local AI combines local security evidence with TaraSec network context. AI findings are supporting evidence, not a confirmed infection state.", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(enabled = managerAuthenticated && !loading && !gatewayBaseUrl.isNullOrBlank(), onClick = { loadAi() }) {
+                Text(if (loading) "Loading..." else "Refresh AI assessment")
+            }
+            if (history.size > 1) {
+                Button(enabled = !loading, onClick = { showHistory = !showHistory }) {
+                    Text(if (showHistory) "Hide history" else "Assessment history (${history.size})")
+                }
+            }
+        }
+        Text(status)
+
+        latest?.let { assessment ->
+            val severity = assessment.optInt("event_severity", assessment.optInt("severity", 0))
+            val category = assessment.optString("category", "unknown")
+            val confidenceRaw = assessment.optDouble("confidence", Double.NaN)
+            val confidence = if (confidenceRaw.isNaN()) "-" else String.format("%.0f%%", confidenceRaw * 100.0)
+            val summary = assessment.optString("summary", "")
+            val reasoning = assessment.optString("reasoning", "")
+            val action = assessment.optString("recommended_action", "")
+
+            Text("Severity: $severity / 10")
+            Text("Category: $category")
+            Text("Confidence: $confidence")
+            if (latestTime.isNotBlank()) Text("Assessed: $latestTime", style = MaterialTheme.typography.bodySmall)
+            if (fundingMode.isNotBlank()) Text("AI mode: ${fundingMode.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+            if (quotaText.isNotBlank()) Text(quotaText, style = MaterialTheme.typography.bodySmall)
+            if (summary.isNotBlank()) {
+                Text("Summary", style = MaterialTheme.typography.labelLarge)
+                Text(summary)
+            }
+            if (reasoning.isNotBlank()) {
+                Text("Reasoning", style = MaterialTheme.typography.labelLarge)
+                Text(reasoning, style = MaterialTheme.typography.bodySmall)
+            }
+            if (action.isNotBlank()) {
+                Text("Recommended action", style = MaterialTheme.typography.labelLarge)
+                Text(action)
+            }
+
+            val units = assessment.optJSONArray("unit_assessments") ?: JSONArray()
+            if (units.length() > 0) {
+                Text("Unit findings (${units.length()})", style = MaterialTheme.typography.labelLarge)
+                for (i in 0 until minOf(units.length(), 10)) {
+                    val unit = units.optJSONObject(i) ?: continue
+                    val owner = unit.optString("owner_id", "?")
+                    val unitId = unit.optString("unit_id", "?")
+                    val unitSeverity = unit.optInt("severity", 0)
+                    val unitSummary = unit.optString("summary", "")
+                    Text("Owner $owner · Unit $unitId · severity $unitSeverity" + if (unitSummary.isNotBlank()) " — $unitSummary" else "", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            val clusters = assessment.optJSONArray("botnet_clusters") ?: JSONArray()
+            if (clusters.length() > 0) {
+                Text("Botnet / coordinated-activity candidates (${clusters.length()})", style = MaterialTheme.typography.labelLarge)
+                for (i in 0 until minOf(clusters.length(), 5)) {
+                    val cluster = clusters.optJSONObject(i) ?: continue
+                    val name = cluster.optString("candidate_key", cluster.optString("name", "Candidate ${i + 1}"))
+                    val clusterSummary = cluster.optString("summary", "")
+                    Text(name + if (clusterSummary.isNotBlank()) " — $clusterSummary" else "", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        if (showHistory) {
+            HorizontalDivider()
+            Text("Assessment history", style = MaterialTheme.typography.titleSmall)
+            history.take(20).forEach { item ->
+                val a = item.assessment
+                val sev = a.optInt("event_severity", a.optInt("severity", 0))
+                val cat = a.optString("category", "unknown")
+                val summary = a.optString("summary", "")
+                val id = item.id?.let { "#$it " } ?: ""
+                Text("$id${item.created} · severity $sev · $cat" + if (summary.isNotBlank()) " — $summary" else "", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
