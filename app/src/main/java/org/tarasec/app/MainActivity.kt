@@ -378,6 +378,7 @@ private fun TaraSecApp() {
                 } else {
                     Text("MANAGER ACCESS ACTIVE", style = MaterialTheme.typography.titleMedium)
                     Text("Authenticated manager: $managerEmail")
+                    gatewayBaseUrl()?.let { GatewayManagementPanel(it) }
                     Text("Assistance requests created here are posted to this gateway and remain under the gateway's local management authority.", style = MaterialTheme.typography.bodySmall)
 
                     OutlinedTextField(assistanceIp, { assistanceIp = it }, label = { Text("IP requiring assistance") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
