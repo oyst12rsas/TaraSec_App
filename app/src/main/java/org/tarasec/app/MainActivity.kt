@@ -84,6 +84,12 @@ private fun TaraSecApp() {
     var managerAuthenticated by remember { mutableStateOf(false) }
     var managerStatus by remember { mutableStateOf("No manager access request") }
 
+    var assistanceIp by remember { mutableStateOf("") }
+    var assistancePort by remember { mutableStateOf("0") }
+    var assistanceThreshold by remember { mutableStateOf("5") }
+    var assistanceStatus by remember { mutableStateOf("No assistance request submitted") }
+    var assistanceItems by remember { mutableStateOf<List<AssistanceRequestItem>>(emptyList()) }
+
     fun selectedScheme() = if (dbServer.trim().startsWith("https://", true)) "https" else "http"
     fun gatewayBaseUrl(): String? = gateway.trim().takeIf { it.isNotBlank() }?.let { "${selectedScheme()}://$it" }
 
@@ -149,6 +155,43 @@ private fun TaraSecApp() {
             } finally {
                 connection?.disconnect()
                 if (polling) pollInFlight.set(false)
+            }
+        }.start()
+    }
+
+    fun assistanceRequest(action: String) {
+        val base = gatewayBaseUrl()
+        if (base == null) { assistanceStatus = "Gateway is not configured."; return }
+        if (!managerAuthenticated) { assistanceStatus = "Manager access must be active first."; return }
+        busy = true
+        assistanceStatus = if (action == "create") "Submitting assistance request..." else "Loading assistance requests..."
+        Thread {
+            try {
+                if (action == "create") {
+                    val port = assistancePort.toIntOrNull()
+                    val threshold = assistanceThreshold.toIntOrNull()
+                    if (port == null || port !in 0..65535) throw IllegalArgumentException("Port must be between 0 and 65535.")
+                    if (threshold == null || threshold !in 0..10) throw IllegalArgumentException("Threat threshold must be between 0 and 10.")
+                    val created = AssistanceClient.create(base, assistanceIp.trim(), port, threshold)
+                    val list = AssistanceClient.list(base)
+                    activity.runOnUiThread {
+                        assistanceItems = list
+                        assistanceStatus = "Assistance request #${created.id} submitted to this gateway."
+                        busy = false
+                    }
+                } else {
+                    val list = AssistanceClient.list(base)
+                    activity.runOnUiThread {
+                        assistanceItems = list
+                        assistanceStatus = "Loaded ${list.size} assistance request(s)."
+                        busy = false
+                    }
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    assistanceStatus = e.message ?: "Assistance request failed"
+                    busy = false
+                }
             }
         }.start()
     }
@@ -234,10 +277,11 @@ private fun TaraSecApp() {
                         }
                         "login" -> {
                             managerAuthenticated = json.optBoolean("authenticated", false)
-                            managerStatus = if (managerAuthenticated) "Manager access active." else "Manager access not active."
+                            managerStatus = if (managerAuthenticated) "MANAGER ACCESS ACTIVE on this gateway." else "Manager access not active."
                         }
                         "logout" -> {
                             managerAuthenticated = false
+                            assistanceItems = emptyList()
                             managerStatus = "Signed out."
                         }
                         "session" -> {
@@ -332,13 +376,25 @@ private fun TaraSecApp() {
                     Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Refresh approval status") }
                     Button(enabled = !busy && managerEmailVerified && managerGatewayApproved && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Activate manager access") }
                 } else {
-                    Text("Manager access active for $managerEmail")
-                    Button(enabled = !busy, onClick = { managerRequest("logout") }) { Text("Sign out") }
+                    Text("MANAGER ACCESS ACTIVE", style = MaterialTheme.typography.titleMedium)
+                    Text("Authenticated manager: $managerEmail")
+                    Text("Assistance requests created here are posted to this gateway and remain under the gateway's local management authority.", style = MaterialTheme.typography.bodySmall)
+
+                    OutlinedTextField(assistanceIp, { assistanceIp = it }, label = { Text("IP requiring assistance") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(assistancePort, { assistancePort = it.filter(Char::isDigit) }, label = { Text("Port (0 = all ports)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(assistanceThreshold, { assistanceThreshold = it.filter(Char::isDigit) }, label = { Text("Threat threshold (0-10)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !busy, onClick = { assistanceRequest("create") }) { Text("Request assistance") }
+                        Button(enabled = !busy, onClick = { assistanceRequest("list") }) { Text("Refresh requests") }
+                    }
+                    Text(assistanceStatus)
+                    assistanceItems.take(10).forEach { item ->
+                        Text("#${item.id} ${item.ip}:${item.port} threshold ${item.threshold} — ${if (item.sentPartners) "sent to partners" else if (item.handled) "handled" else "pending"}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(enabled = !busy, onClick = { managerRequest("logout") }) { Text("Sign out manager") }
                 }
 
                 Text(managerStatus)
-                Text("A6: Assistance Requests will appear here after manager authentication.")
-                Button(enabled = false, onClick = {}) { Text("Assistance Requests (A6 pending)") }
             }
         }
     }
