@@ -38,6 +38,7 @@ fun ManagerAiPanel(
     val activity = LocalContext.current as Activity
     var loading by remember { mutableStateOf(false) }
     var loadedOnce by remember { mutableStateOf(false) }
+    var loadedBaseUrl by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("AI assessment not loaded") }
     var latest by remember { mutableStateOf<JSONObject?>(null) }
     var latestTime by remember { mutableStateOf("") }
@@ -53,7 +54,7 @@ fun ManagerAiPanel(
             return
         }
         if (base.isNullOrBlank()) {
-            status = "Gateway is not configured."
+            status = "Installation is not configured."
             return
         }
         if (loading) return
@@ -75,8 +76,8 @@ fun ManagerAiPanel(
                     val error = json.optString("error", "HTTP $code")
                     throw IllegalStateException(when (error) {
                         "manager_session_required", "manager_session_invalid" -> "Manager session is not active."
-                        "manager_access_no_longer_active" -> "Manager access is no longer active on this gateway."
-                        "manager_ai_unavailable" -> "Gateway AI assessment service is unavailable."
+                        "manager_access_no_longer_active" -> "Manager access is no longer active on this installation."
+                        "manager_ai_unavailable" -> "Installation AI assessment service is unavailable."
                         else -> "AI request failed: $error"
                     })
                 }
@@ -111,15 +112,17 @@ fun ManagerAiPanel(
                     fundingMode = funding
                     quotaText = qText
                     history = parsedHistory
-                    status = if (latestJson == null) "No gateway AI assessment is available yet." else "Latest gateway AI assessment"
+                    status = if (latestJson == null) "No installation AI assessment is available yet." else "Latest installation AI assessment"
                     loading = false
                     loadedOnce = true
+                    loadedBaseUrl = base
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
                     status = e.message ?: "AI assessment request failed"
                     loading = false
                     loadedOnce = true
+                    loadedBaseUrl = base
                 }
             } finally {
                 connection?.disconnect()
@@ -128,13 +131,27 @@ fun ManagerAiPanel(
     }
 
     LaunchedEffect(managerAuthenticated, gatewayBaseUrl) {
-        if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank() && !loadedOnce) loadAi()
+        if (gatewayBaseUrl != loadedBaseUrl) {
+            loading = false
+            loadedOnce = false
+            latest = null
+            latestTime = ""
+            fundingMode = ""
+            quotaText = ""
+            history = emptyList()
+            showHistory = false
+            status = "AI assessment not loaded for this installation"
+            loadedBaseUrl = gatewayBaseUrl
+        }
+        if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank() && !loadedOnce) {
+            loadAi()
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         HorizontalDivider()
         Text("AI Assessment", style = MaterialTheme.typography.titleMedium)
-        Text("Gateway-local AI combines local security evidence with TaraSec network context. AI findings are supporting evidence, not a confirmed infection state.", style = MaterialTheme.typography.bodySmall)
+        Text("Installation-local AI combines local security evidence with TaraSec network context. AI findings are supporting evidence, not a confirmed infection state.", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = managerAuthenticated && !loading && !gatewayBaseUrl.isNullOrBlank(), onClick = { loadAi() }) {
                 Text(if (loading) "Loading..." else "Refresh AI assessment")
