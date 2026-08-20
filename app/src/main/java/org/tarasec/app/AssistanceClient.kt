@@ -13,6 +13,7 @@ data class AssistanceRequestItem(
     val threshold: Int,
     val handled: Boolean,
     val sentPartners: Boolean,
+    val deliveryState: String,
     val comment: String
 )
 
@@ -68,15 +69,19 @@ object AssistanceClient {
         val code = c.responseCode
         val stream = if (code in 200..299) c.inputStream else c.errorStream
         val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        val json = if (body.isBlank()) JSONObject() else JSONObject(body)
+        val json = try {
+            if (body.isBlank()) JSONObject() else JSONObject(body)
+        } catch (_: Exception) {
+            throw IllegalStateException("Assistance endpoint returned non-JSON response (HTTP $code): ${body.take(120)}")
+        }
         if (code !in 200..299 || !json.optBoolean("ok", false)) {
             val error = json.optString("error", "HTTP $code")
             throw IllegalStateException(when (error) {
                 "manager_auth_required" -> "Manager login is required before requesting assistance."
-                "invalid_ip" -> "Enter a valid IPv4 address."
+                "invalid_ip" -> "The registered installation has an invalid service/request IP."
                 "invalid_port" -> "Port must be between 0 and 65535."
                 "invalid_threshold" -> "Threat threshold must be between 0 and 10."
-                "assistance_unavailable" -> "Assistance requests are not available on this gateway."
+                "assistance_unavailable" -> "Assistance requests are not available on this installation."
                 else -> "Assistance request failed: $error"
             })
         }
@@ -91,6 +96,7 @@ object AssistanceClient {
         threshold = json.optInt("threshold", 0),
         handled = json.optBoolean("handled", false),
         sentPartners = json.optBoolean("sentPartners", false),
+        deliveryState = json.optString("deliveryState", if (json.optBoolean("sentPartners", false)) "db_accepted" else "local_pending"),
         comment = json.optString("comment", "")
     )
 }
