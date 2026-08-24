@@ -18,87 +18,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import org.json.JSONObject
-import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.InetAddress
-import java.net.Socket
-import java.net.URL
 
-private data class DemoTarget(val name: String, val ip: String)
-
-private data class DemoObservation(
-    val reachable: Boolean,
-    val infected: Boolean,
-    val severity: Int,
-    val clientIp: String,
-    val unitId: Int?,
-    val source: String,
-    val error: String = ""
-)
-
-private object DemoClient {
-    fun status(baseUrl: String): DemoObservation = request(baseUrl, clear = false)
-
-    fun clear(baseUrl: String): DemoObservation = request(baseUrl, clear = true)
-
-    private fun request(baseUrl: String, clear: Boolean): DemoObservation {
-        val base = normaliseBase(baseUrl)
-        val suffix = if (clear) "?action=clear" else "?action=status"
-        var c: HttpURLConnection? = null
-        return try {
-            c = URL("$base/script/appInfection.php$suffix").openConnection() as HttpURLConnection
-            c.connectTimeout = 3000
-            c.readTimeout = 5000
-            c.useCaches = false
-            c.setRequestProperty("Accept", "application/json")
-            if (clear) {
-                c.requestMethod = "POST"
-                c.doOutput = true
-                c.outputStream.use { it.write(ByteArray(0)) }
-            }
-            val code = c.responseCode
-            val body = (if (code in 200..299) c.inputStream else c.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val json = if (body.isBlank()) JSONObject() else JSONObject(body)
-            if (code !in 200..299 || !json.optBoolean("ok", false)) {
-                DemoObservation(false, false, 0, "", null, "", json.optString("error", "HTTP $code"))
-            } else {
-                DemoObservation(
-                    reachable = true,
-                    infected = json.optBoolean("infected", false),
-                    severity = json.optInt("severity", 0),
-                    clientIp = json.optString("client_ip", ""),
-                    unitId = json.optInt("unitId", 0).takeIf { it > 0 },
-                    source = json.optString("source", "")
-                )
-            }
-        } catch (e: Exception) {
-            DemoObservation(false, false, 0, "", null, "", e.message ?: e.javaClass.simpleName)
-        } finally {
-            c?.disconnect()
-        }
-    }
-
-    fun triggerSinkhole() {
-        // A short TCP attempt is enough to exercise the existing TaraSec sinkhole path.
-        // No malware or privileged Android networking is involved; failure/timeout is expected.
-        try {
-            Socket().use { socket ->
-                socket.connect(java.net.InetSocketAddress("10.47.99.99", 22), 1200)
-            }
-        } catch (_: Exception) {
-            // Expected: the sinkhole deliberately does not behave like a normal service.
-        }
-    }
-
-    fun normaliseIpOrUrl(value: String): String {
-        val v = value.trim()
-        if (v.startsWith("http://", true) || v.startsWith("https://", true)) return v.trimEnd('/')
-        return "http://$v"
-    }
-
-    private fun normaliseBase(value: String): String = normaliseIpOrUrl(value)
+@Composable
+fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
+    val activity = LocalContext.current as Activity
+    var target by remember { mutableStateOf(DemoClient.presets.first()) }
+    var targetIp by remember { mutableStateOf(target.ip) }
+    var discoveredName by remember { mutableStateOf(target.name) }
+    var gatewayState by remember { mutableStateOf<DemoThreatStatus?>(null) }
+    var receiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("Choose a destination and check the TaraSec path.") }
 
     fun validIpv4(value: String): Boolean = try {
         val a = InetAddress.getByName(value.trim())
@@ -106,41 +38,29 @@ private object DemoClient {
     } catch (_: Exception) {
         false
     }
-}
 
-@Composable
-fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
-    val activity = LocalContext.current as Activity
-    val presets = remember {
-        listOf(
-            DemoTarget("Tomato", "100.68.22.33"),
-            DemoTarget("Roquefort", "100.68.176.110"),
-            DemoTarget("Camembert", "100.68.149.164"),
-            DemoTarget("Gouda", "100.68.51.247")
-        )
-    }
-
-    var targetName by remember { mutableStateOf("Tomato") }
-    var targetIp by remember { mutableStateOf("100.68.22.33") }
-    var gatewayState by remember { mutableStateOf<DemoObservation?>(null) }
-    var receiverState by remember { mutableStateOf<DemoObservation?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("Choose a destination and check the TaraSec path.") }
+    fun currentTarget(): DemoTarget = DemoTarget(
+        DemoClient.presets.firstOrNull { it.ip == targetIp.trim() }?.name ?: "Custom node",
+        targetIp.trim()
+    )
 
     fun refresh(after: String = "Status updated") {
         if (busy) return
-        if (!DemoClient.validIpv4(targetIp)) {
+        val t = currentTarget()
+        if (!validIpv4(t.ip)) {
             message = "Enter a valid IPv4 address for the receiving node."
             return
         }
         busy = true
         Thread {
-            val gateway = gatewayBaseUrl?.takeIf { it.isNotBlank() }?.let { DemoClient.status(it) }
-            val receiver = DemoClient.status(DemoClient.normaliseIpOrUrl(targetIp))
+            val identity = DemoClient.probe(t)
+            val gateway = gatewayBaseUrl?.takeIf { it.isNotBlank() }?.let { DemoClient.threatStatusBase(it) }
+            val receiver = DemoClient.threatStatus(t)
             activity.runOnUiThread {
+                discoveredName = identity.nodeName
                 gatewayState = gateway
                 receiverState = receiver
-                message = after
+                message = if (identity.reachable) after else "Destination reached poorly: ${identity.message}"
                 busy = false
             }
         }.start()
@@ -148,21 +68,24 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
 
     fun infect() {
         if (busy) return
-        if (!DemoClient.validIpv4(targetIp)) {
+        val t = currentTarget()
+        if (!validIpv4(t.ip)) {
             message = "Enter a valid IPv4 address for the receiving node."
             return
         }
         busy = true
         message = "Sending a safe sinkhole probe through the active WireGuard/TaraSec route…"
         Thread {
-            DemoClient.triggerSinkhole()
+            val trigger = DemoClient.triggerSinkhole()
             try { Thread.sleep(2500L) } catch (_: InterruptedException) { }
-            val gateway = gatewayBaseUrl?.takeIf { it.isNotBlank() }?.let { DemoClient.status(it) }
-            val receiver = DemoClient.status(DemoClient.normaliseIpOrUrl(targetIp))
+            val identity = DemoClient.probe(t)
+            val gateway = gatewayBaseUrl?.takeIf { it.isNotBlank() }?.let { DemoClient.threatStatusBase(it) }
+            val receiver = DemoClient.threatStatus(t)
             activity.runOnUiThread {
+                discoveredName = identity.nodeName
                 gatewayState = gateway
                 receiverState = receiver
-                message = "Safe test sent. The receiver result is queried independently."
+                message = "$trigger. Receiver result queried independently."
                 busy = false
             }
         }.start()
@@ -170,16 +93,16 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
 
     fun clear() {
         if (busy) return
-        if (!DemoClient.validIpv4(targetIp)) {
+        val t = currentTarget()
+        if (!validIpv4(t.ip)) {
             message = "Enter a valid IPv4 address for the receiving node."
             return
         }
         busy = true
         message = "Clearing this unit's demo state…"
         Thread {
-            val gateway = gatewayBaseUrl?.takeIf { it.isNotBlank() }?.let { DemoClient.clear(it) }
-            val receiver = DemoClient.clear(DemoClient.normaliseIpOrUrl(targetIp))
-            try { Thread.sleep(800L) } catch (_: InterruptedException) { }
+            val gateway = gatewayBaseUrl?.takeIf { it.isNotBlank() }?.let { DemoClient.threatStatusBase(it, clear = true) }
+            val receiver = DemoClient.clear(t)
             activity.runOnUiThread {
                 gatewayState = gateway
                 receiverState = receiver
@@ -197,19 +120,29 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
         )
 
         Text("Receiving node", style = MaterialTheme.typography.titleMedium)
-        presets.forEach { target ->
+        DemoClient.presets.forEach { preset ->
             OutlinedButton(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = { targetName = target.name; targetIp = target.ip }
+                onClick = {
+                    target = preset
+                    targetIp = preset.ip
+                    discoveredName = preset.name
+                    gatewayState = null
+                    receiverState = null
+                }
             ) {
-                Text((if (target.ip == targetIp) "✓ " else "") + "${target.name} · ${target.ip}")
+                Text((if (preset.ip == targetIp) "✓ " else "") + "${preset.name} · ${preset.ip}")
             }
         }
+
         OutlinedTextField(
             value = targetIp,
             onValueChange = {
-                targetIp = it.trim()
-                targetName = presets.firstOrNull { p -> p.ip == targetIp }?.name ?: "Custom node"
+                targetIp = it.filter { c -> c.isDigit() || c == '.' }
+                target = currentTarget()
+                discoveredName = target.name
+                gatewayState = null
+                receiverState = null
             },
             label = { Text("Other TaraSec node IP") },
             modifier = Modifier.fillMaxWidth(),
@@ -217,48 +150,52 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
         )
 
         Text("Path", style = MaterialTheme.typography.titleMedium)
-        Text("Phone → ${gatewayName ?: "gateway selected by WireGuard"} → $targetName")
-        if (!gatewayBaseUrl.isNullOrBlank()) {
-            Text("Gateway management: $gatewayBaseUrl", style = MaterialTheme.typography.bodySmall)
-        } else {
-            Text("No gateway management URL is registered in the app. The test traffic still follows the active WireGuard route.", style = MaterialTheme.typography.bodySmall)
+        Text("Phone → ${gatewayName ?: "gateway selected by WireGuard"} → $discoveredName")
+        Text("Destination: ${targetIp.trim()}", style = MaterialTheme.typography.bodySmall)
+        if (gatewayBaseUrl.isNullOrBlank()) {
+            Text("Gateway management is not registered in the app; test traffic still follows the active WireGuard route.", style = MaterialTheme.typography.bodySmall)
         }
 
         gatewayState?.let { state ->
-            TaraSectionCard(title = gatewayName ?: "Gateway", subtitle = "What the local gateway reports for this app/unit") {
+            TaraSectionCard(title = gatewayName ?: "Gateway", subtitle = "Local gateway view of this app/unit") {
                 TaraStatusRow("Reachable", if (state.reachable) "Yes" else "No")
                 if (state.reachable) {
                     TaraStatusRow("Unit state", if (state.infected) "🔴 INFECTED" else "🟢 CLEAN")
                     TaraStatusRow("Severity", state.severity.toString())
                     state.unitId?.let { TaraStatusRow("Unit ID", it.toString()) }
                     if (state.source.isNotBlank()) TaraStatusRow("Evidence", state.source)
-                } else if (state.error.isNotBlank()) Text(state.error, style = MaterialTheme.typography.bodySmall)
+                } else if (state.message.isNotBlank()) Text(state.message, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         receiverState?.let { state ->
-            TaraSectionCard(title = targetName, subtitle = "Independent observation from $targetIp") {
+            TaraSectionCard(title = discoveredName, subtitle = "Independent observation from ${targetIp.trim()}") {
                 TaraStatusRow("Reachable", if (state.reachable) "Yes" else "No")
                 if (state.reachable) {
                     TaraStatusRow("Reports this unit", if (state.infected) "🔴 INFECTED" else "🟢 CLEAN")
                     TaraStatusRow("Severity", state.severity.toString())
-                    if (state.clientIp.isNotBlank()) TaraStatusRow("Observed source", state.clientIp)
+                    if (state.publicIp.isNotBlank()) TaraStatusRow("Observed source", "${state.publicIp}:${state.publicPort}")
                     state.unitId?.let { TaraStatusRow("Resolved unit ID", it.toString()) }
                     if (state.source.isNotBlank()) TaraStatusRow("Evidence", state.source)
-                } else if (state.error.isNotBlank()) Text(state.error, style = MaterialTheme.typography.bodySmall)
+                } else if (state.message.isNotBlank()) Text(state.message, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(enabled = !busy, onClick = { refresh() }) { Text("Check") }
+            Button(enabled = !busy, onClick = { refresh() }) { Text(if (busy) "Working…" else "Check") }
             Button(enabled = !busy, onClick = { infect() }) { Text("Mark infected") }
         }
         Button(enabled = !busy, onClick = { clear() }, modifier = Modifier.fillMaxWidth()) {
             Text("Clear my demo state")
         }
+
         Text(message, style = MaterialTheme.typography.bodySmall)
         Text(
-            "Each phone is evaluated independently. Multiple testers can use the same gateway at the same time without sharing demo state when unit resolution is working correctly.",
+            "Custom IP is a normal mode: testers may install their own TaraSec node, gateway and LAN. The app does not need that topology pre-programmed; the active network setup determines the route.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Multiple phones should remain isolated by TaraSec unit identity even when they share the same gateway. That is intentionally part of this demo test.",
             style = MaterialTheme.typography.bodySmall
         )
     }
