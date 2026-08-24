@@ -62,6 +62,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
         onDispose{running.set(false);worker.interrupt()}
     }
 
+    @Composable
     fun debugStatus(title:String, state:DemoThreatStatus) {
         TaraSectionCard(title="$title debug", subtitle="Exact app status request") {
             TaraStatusRow("Polled at", state.polledAt.ifBlank { "n/a" })
