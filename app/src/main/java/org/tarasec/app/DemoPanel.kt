@@ -27,7 +27,7 @@ import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
-fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
+fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Boolean = false) {
     val activity = LocalContext.current as Activity
     var target by remember { mutableStateOf(DemoClient.presets.first()) }
     var targetIp by remember { mutableStateOf(target.ip) }
@@ -91,11 +91,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
 
         gatewayState?.let{gateway->
             TaraSectionCard(title=gatewayName?:"Gateway",subtitle="getTagData() on gateway"){TaraStatusRow("Reachable",if(gateway.reachable)"Yes" else "No");if(gateway.reachable){TaraStatusRow("Unit state",if(gateway.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",gateway.severity.toString());if(gateway.source.isNotBlank())TaraStatusRow("Evidence",gateway.source)}else if(gateway.message.isNotBlank())Text(gateway.message,style=MaterialTheme.typography.bodySmall)}
-            debugStatus(gatewayName?:"Gateway", gateway)
+            if (showDebugInfo) debugStatus(gatewayName?:"Gateway", gateway)
         }
         receiverState?.let{receiver->
             TaraSectionCard(title=discoveredName,subtitle="getTagData() on ${targetIp.trim()}"){TaraStatusRow("Reachable",if(receiver.reachable)"Yes" else "No");if(receiver.reachable){TaraStatusRow("Reports this unit",if(receiver.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",receiver.severity.toString());if(receiver.publicIp.isNotBlank())TaraStatusRow("Observed source","${receiver.publicIp}:${receiver.publicPort}");if(receiver.source.isNotBlank())TaraStatusRow("Evidence",receiver.source)}else if(receiver.message.isNotBlank())Text(receiver.message,style=MaterialTheme.typography.bodySmall)}
-            debugStatus(discoveredName, receiver)
+            if (showDebugInfo) debugStatus(discoveredName, receiver)
         }
         Button(enabled=!busy,onClick={refresh()},modifier=Modifier.fillMaxWidth()){Text(if(busy)"Working…" else "Refresh now")}
         Text(message,style=MaterialTheme.typography.bodySmall)
