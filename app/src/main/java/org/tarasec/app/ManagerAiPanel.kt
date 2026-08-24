@@ -137,9 +137,11 @@ fun ManagerAiPanel(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-        // Keep the first manager view deliberately familiar with the Gatekeeper
-        // web status page. Selection affects this installation only; global threat
-        // watching remains independent in MainActivity.
+        if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank()) {
+            GatewayManagementPanel(gatewayBaseUrl)
+        }
+
+        // Keep the detailed gateway/site status under the capability summary.
         ServerStatusPanel(gatewayBaseUrl, managerAuthenticated)
 
         TaraSectionCard(
