@@ -3,14 +3,11 @@ package org.tarasec.app
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,7 +29,6 @@ import java.net.URL
 
 private val GatekeeperGreen = Color(0xFFAFB99D)
 private val GatekeeperBorder = Color(0xFF8C4B4B)
-private val GatekeeperLink = Color(0xFF5A18A8)
 private val DotGreen = Color(0xFF59E02D)
 private val DotYellow = Color(0xFFFFD22E)
 private val DotRed = Color(0xFFFF4B24)
@@ -105,13 +100,15 @@ private fun statusDots(site: StatusSite): List<DotState> {
 
     val disk = j.optString("df", "").trim().split(Regex("\\s+"))
     dots += if (disk.size >= 2) {
-        val total = sizeToKb(disk[0]); val used = sizeToKb(disk[1])
+        val total = sizeToKb(disk[0])
+        val used = sizeToKb(disk[1])
         intervalDot(if (total > 0) used * 100.0 / total else 100.0, 70.0, 90.0)
     } else DotState.YELLOW
 
     val mem = j.optString("mem", "").split('/')
     dots += if (mem.size == 2) {
-        val free = sizeToKb(mem[0]); val total = sizeToKb(mem[1])
+        val free = sizeToKb(mem[0])
+        val total = sizeToKb(mem[1])
         intervalDot(if (total > 0) (total - free) * 100.0 / total else 100.0, 80.0, 95.0)
     } else DotState.YELLOW
 
@@ -131,15 +128,54 @@ private fun Dot(state: DotState) {
         DotState.YELLOW -> DotYellow
         DotState.RED -> DotRed
     }
-    Text("●", color = color)
+    Text("●", color = color, style = MaterialTheme.typography.titleMedium)
 }
 
 @Composable
 private fun SiteStatusDots(site: StatusSite) {
-    val dots = statusDots(site)
-    Column {
-        Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) { dots.take(9).forEach { Dot(it) } }
-        Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) { dots.drop(9).forEach { Dot(it) } }
+    statusDots(site).chunked(6).forEach { rowDots ->
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            rowDots.forEach { Dot(it) }
+        }
+    }
+}
+
+@Composable
+private fun StatusSiteCard(site: StatusSite) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, GatekeeperBorder)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            if (site.local) "This gateway — ${site.name}" else site.name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        if (site.ip.isNotBlank()) {
+            Text("IP: ${site.ip}", style = MaterialTheme.typography.bodyMedium)
+        }
+        Text("Status", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        SiteStatusDots(site)
+    }
+}
+
+@Composable
+private fun ActiveUnitCard(unit: ActiveUnit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.Black)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(unit.hostname.ifBlank { "Unnamed unit" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (unit.vendor.isNotBlank()) Text("Vendor: ${unit.vendor}")
+        if (unit.lastIp.isNotBlank()) Text("IP: ${unit.lastIp}")
+        if (unit.mac.isNotBlank()) Text("MAC: ${unit.mac}", style = MaterialTheme.typography.bodySmall)
+        if (unit.lastSeen.isNotBlank()) Text("Last seen: ${unit.lastSeen}", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -167,7 +203,9 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                 val code = c.responseCode
                 val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
                 val json = if (body.isBlank()) JSONObject() else JSONObject(body)
-                if (code !in 200..299 || !json.optBoolean("ok", false)) throw IllegalStateException(json.optString("error", "HTTP $code"))
+                if (code !in 200..299 || !json.optBoolean("ok", false)) {
+                    throw IllegalStateException(json.optString("error", "HTTP $code"))
+                }
 
                 fun parseSite(o: JSONObject, local: Boolean) = StatusSite(
                     name = o.optString("name", if (local) "Gateway" else "Site"),
@@ -185,7 +223,15 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                     val arr = json.optJSONArray("activeUnits") ?: JSONArray()
                     for (i in 0 until arr.length()) {
                         val o = arr.optJSONObject(i) ?: continue
-                        add(ActiveUnit(o.optString("hostname"), o.optString("vendor"), o.optString("mac"), o.optString("lastSeen"), o.optString("lastIp")))
+                        add(
+                            ActiveUnit(
+                                o.optString("hostname"),
+                                o.optString("vendor"),
+                                o.optString("mac"),
+                                o.optString("lastSeen"),
+                                o.optString("lastIp")
+                            )
+                        )
                     }
                 }
                 activity.runOnUiThread {
@@ -197,71 +243,68 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                     loading = false
                 }
             } catch (e: Exception) {
-                activity.runOnUiThread { message = "Status unavailable: ${e.message}"; loading = false }
-            } finally { c?.disconnect() }
+                activity.runOnUiThread {
+                    message = "Status unavailable: ${e.message}"
+                    loading = false
+                }
+            } finally {
+                c?.disconnect()
+            }
         }.start()
     }
 
     LaunchedEffect(gatewayBaseUrl, managerAuthenticated) {
         if (gatewayBaseUrl != loadedBase) {
-            localSite = null; sites = emptyList(); units = emptyList(); loadedBase = gatewayBaseUrl
+            localSite = null
+            sites = emptyList()
+            units = emptyList()
+            loadedBase = gatewayBaseUrl
         }
         if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank()) load()
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth().background(GatekeeperGreen).padding(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(GatekeeperGreen)
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(localSite?.let { "${it.name}${if (it.ip.isNotBlank()) " (${it.ip.substringAfterLast('.')})" else ""}" } ?: "Server status",
-            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Text(
+            "Status",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
 
-        Text("Involved sites:", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Text("NOTE ! If you have problems opening these, check that your VPN Allowed IPs contain 100.68.0.0/16.")
-
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
-            Column(Modifier.width(610.dp).border(1.dp, GatekeeperBorder)) {
-                Row(Modifier.fillMaxWidth()) {
-                    listOf("Site" to 150.dp, "IP" to 130.dp, "Status *)" to 180.dp, "Gatekeeper" to 150.dp).forEach { (label, w) ->
-                        Text(label, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                            modifier = Modifier.width(w).border(0.5.dp, GatekeeperBorder).padding(12.dp))
-                    }
-                }
-                (listOfNotNull(localSite) + sites).forEach { site ->
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(if (site.local) "Me (${site.name})" else site.name, modifier = Modifier.width(150.dp).border(0.5.dp, GatekeeperBorder).padding(12.dp), textAlign = TextAlign.Center)
-                        Text(site.ip, modifier = Modifier.width(130.dp).border(0.5.dp, GatekeeperBorder).padding(12.dp), textAlign = TextAlign.Center)
-                        Column(modifier = Modifier.width(180.dp).border(0.5.dp, GatekeeperBorder).padding(8.dp)) { SiteStatusDots(site) }
-                        Text(if (site.local) "" else "[go to]", color = GatekeeperLink, modifier = Modifier.width(150.dp).border(0.5.dp, GatekeeperBorder).padding(12.dp), textAlign = TextAlign.Center)
-                    }
-                }
-            }
+        val allSites = listOfNotNull(localSite) + sites
+        if (allSites.isEmpty()) {
+            Text("No gateway status reported yet.")
+        } else {
+            allSites.forEach { site -> StatusSiteCard(site) }
         }
-        Text("*) Dots: status age, tarakernel, taralink, crontasks, dmesg, traffic data, SQL connections, boot/updates, load, disk, memory, rsyslog, services and active users.")
 
-        Text("Active units (connected clients in sub network):", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        if (units.isEmpty()) Text("No active units reported.") else {
-            Row(Modifier.horizontalScroll(rememberScrollState())) {
-                Column(Modifier.width(760.dp).border(1.dp, Color.Black)) {
-                    Row {
-                        listOf("Hostname" to 150.dp, "Vendor" to 180.dp, "Mac" to 150.dp, "Last seen" to 150.dp, "Last IP" to 130.dp).forEach { (label, w) ->
-                            Text(label, fontWeight = FontWeight.Bold, modifier = Modifier.width(w).border(0.5.dp, Color.Black).padding(6.dp))
-                        }
-                    }
-                    units.forEach { u ->
-                        Row {
-                            listOf(u.hostname to 150.dp, u.vendor to 180.dp, u.mac to 150.dp, u.lastSeen to 150.dp, u.lastIp to 130.dp).forEach { (value, w) ->
-                                Text(value, modifier = Modifier.width(w).border(0.5.dp, Color.Black).padding(6.dp))
-                            }
-                        }
-                    }
-                }
-            }
+        Text(
+            "Dots show status age, TaraKernel, TaraLink, scheduled tasks, dmesg, traffic, SQL, boot/updates, load, disk, memory, rsyslog, services and active users.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Text(
+            "Units",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text("Active clients on this installation", style = MaterialTheme.typography.bodySmall)
+
+        if (units.isEmpty()) {
+            Text("No active units reported.")
+        } else {
+            units.forEach { unit -> ActiveUnitCard(unit) }
         }
-        Button(enabled = managerAuthenticated && !loading && !gatewayBaseUrl.isNullOrBlank(), onClick = { load() }) {
+
+        Button(
+            enabled = managerAuthenticated && !loading && !gatewayBaseUrl.isNullOrBlank(),
+            onClick = { load() }
+        ) {
             Text(if (loading) "Refreshing…" else "Refresh status")
         }
         Text(message, style = MaterialTheme.typography.bodySmall)
