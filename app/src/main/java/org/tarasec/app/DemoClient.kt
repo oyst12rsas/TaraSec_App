@@ -5,6 +5,7 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.net.URLEncoder
 
 data class DemoTarget(val name: String, val ip: String)
 
@@ -98,21 +99,31 @@ object DemoClient {
         }
     }
 
-    // Use the existing TaraSec demo mechanism rather than inventing an Android
-    // database mutation. The request is sent to the gateway; reportHacking()
-    // then exercises the normal report -> gateway infection -> tagging path.
-    fun markInfected(gatewayBaseUrl: String): String {
+    fun setGatewayInfected(gatewayBaseUrl: String, infected: Boolean): String {
         var c: HttpURLConnection? = null
         return try {
             val base = normaliseBase(gatewayBaseUrl)
-            c = URL("$base/gatekeeper/index.php?f=selfRegInfected&conf=1").openConnection() as HttpURLConnection
+            c = URL("$base/script/appInfectionControl.php").openConnection() as HttpURLConnection
             c.connectTimeout = 3000
             c.readTimeout = 7000
             c.useCaches = false
+            c.requestMethod = "POST"
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            c.setRequestProperty("Accept", "application/json")
+            val body = "infected=" + URLEncoder.encode(if (infected) "1" else "0", Charsets.UTF_8.name())
+            c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = c.responseCode
-            if (code in 200..299) "Infection reported through TaraSec gateway" else "Gateway returned HTTP $code"
+            val reply = (if (code in 200..299) c.inputStream else c.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val json = runCatching { JSONObject(reply) }.getOrNull()
+            if (code in 200..299 && json?.optBoolean("ok", false) == true) {
+                json.optString("message", if (infected) "Infection requested" else "Clean requested")
+            } else {
+                json?.optString("error", "Gateway returned HTTP $code") ?: "Gateway returned HTTP $code"
+            }
         } catch (e: Exception) {
-            "Could not report infection: ${e.message ?: "unknown error"}"
+            "Could not change gateway state: ${e.message ?: "unknown error"}"
         } finally {
             c?.disconnect()
         }
