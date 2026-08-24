@@ -35,8 +35,6 @@ object DemoClient {
     )
 
     fun probe(target: DemoTarget): DemoProbeResult {
-        // TaraSec never chooses the gateway here. Android/WireGuard routing decides
-        // how the destination is reached. The node only identifies itself.
         var c: HttpURLConnection? = null
         try {
             c = URL("http://${target.ip}/script/appNode.php").openConnection() as HttpURLConnection
@@ -48,8 +46,7 @@ object DemoClient {
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code in 200..299) {
                 val json = runCatching { JSONObject(body) }.getOrNull()
-                val discovered = json?.optString("name", "")?.takeIf { it.isNotBlank() }
-                    ?: target.name
+                val discovered = json?.optString("name", "")?.takeIf { it.isNotBlank() } ?: target.name
                 return DemoProbeResult(target, true, discovered, "TaraSec node reachable")
             }
             return DemoProbeResult(target, false, message = "HTTP $code")
@@ -65,13 +62,25 @@ object DemoClient {
         }
     }
 
-    fun threatStatus(target: DemoTarget): DemoThreatStatus {
+    fun threatStatus(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}", false)
+
+    fun clear(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}", true)
+
+    fun threatStatusBase(baseUrl: String, clear: Boolean = false): DemoThreatStatus {
         var c: HttpURLConnection? = null
         try {
-            c = URL("http://${target.ip}/script/appInfection.php?action=status").openConnection() as HttpURLConnection
+            val base = normaliseBase(baseUrl)
+            val suffix = if (clear) "?action=clear" else "?action=status"
+            c = URL("$base/script/appInfection.php$suffix").openConnection() as HttpURLConnection
             c.connectTimeout = 3000
             c.readTimeout = 5000
             c.useCaches = false
+            c.setRequestProperty("Accept", "application/json")
+            if (clear) {
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.outputStream.use { it.write(ByteArray(0)) }
+            }
             val code = c.responseCode
             val body = (if (code in 200..299) c.inputStream else c.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -95,13 +104,16 @@ object DemoClient {
     }
 
     fun triggerSinkhole(): String {
-        // A connection attempt is enough to exercise the real TaraSec sinkhole path.
-        // Whether the socket itself succeeds is irrelevant; the traffic is the test.
         return try {
             Socket().use { socket -> socket.connect(InetSocketAddress("10.47.99.99", 80), 2000) }
             "Safe sinkhole traffic sent"
         } catch (_: Exception) {
             "Safe sinkhole traffic generated; waiting for TaraSec reporting"
         }
+    }
+
+    private fun normaliseBase(value: String): String {
+        val v = value.trim().trimEnd('/')
+        return if (v.startsWith("http://", true) || v.startsWith("https://", true)) v else "http://$v"
     }
 }
