@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,11 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,12 +54,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppPage { SETUP, UNITS, MANAGER }
+private enum class AppPage { UNITS, DEMO, MANAGER, SETUP }
 
 @androidx.compose.runtime.Composable
 private fun TaraSecApp() {
     val activity = LocalContext.current as Activity
     var page by remember { mutableStateOf(AppPage.UNITS) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
     var installations by remember { mutableStateOf(InstallationStore.load(activity)) }
     var selectedInstallationId by remember {
@@ -354,7 +359,38 @@ private fun TaraSecApp() {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
+            Box {
+                TextButton(onClick = { menuExpanded = true }) {
+                    Text("☰", style = MaterialTheme.typography.headlineSmall)
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Status / Units") },
+                        onClick = { page = AppPage.UNITS; menuExpanded = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Demo") },
+                        onClick = { page = AppPage.DEMO; menuExpanded = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("AI / Assistance") },
+                        onClick = { page = AppPage.MANAGER; menuExpanded = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Setup") },
+                        onClick = { page = AppPage.SETUP; menuExpanded = false }
+                    )
+                }
+            }
+        }
 
         if (activeThreats.isNotEmpty()) {
             Text("THREAT WARNING — ${activeThreats.size} registered installation(s) need attention", style = MaterialTheme.typography.titleMedium)
@@ -378,13 +414,7 @@ private fun TaraSecApp() {
                     Text((if (installation.id == selectedInstallationId) "✓ " else "") + installation.name)
                 }
             }
-            Text("The checked installation is the context for Status, Units, AI and Assistance. Threat warnings still watch every registered installation.", style = MaterialTheme.typography.bodySmall)
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { page = AppPage.UNITS }) { Text("Status / Units") }
-            Button(onClick = { page = AppPage.MANAGER }) { Text("AI / Assistance") }
-            Button(onClick = { page = AppPage.SETUP }) { Text("Setup") }
+            Text("The checked installation is the context for Status, Units, AI, Assistance and Demo. Threat warnings still watch every registered installation.", style = MaterialTheme.typography.bodySmall)
         }
 
         HorizontalDivider()
@@ -408,6 +438,21 @@ private fun TaraSecApp() {
                             Text("Unlock ${installation.name}")
                         }
                     }
+                }
+            }
+
+            AppPage.DEMO -> {
+                val installation = selectedInstallation
+                Text("TaraSec Demo", style = MaterialTheme.typography.titleLarge)
+                if (installation == null) {
+                    Text("Select or register a TaraSec gateway before running the demo.")
+                    Button(onClick = { page = AppPage.SETUP }) { Text("Open Setup") }
+                } else {
+                    Text("Phone → ${installation.name} → receiving TaraSec node")
+                    Text(
+                        "This page will show the gateway's local infection state beside what an independent receiving node reports. The demo controls and live polling are the next step.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
 
