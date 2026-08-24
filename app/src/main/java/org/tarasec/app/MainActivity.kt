@@ -442,18 +442,10 @@ private fun TaraSecApp() {
             }
 
             AppPage.DEMO -> {
-                val installation = selectedInstallation
-                Text("TaraSec Demo", style = MaterialTheme.typography.titleLarge)
-                if (installation == null) {
-                    Text("Select or register a TaraSec gateway before running the demo.")
-                    Button(onClick = { page = AppPage.SETUP }) { Text("Open Setup") }
-                } else {
-                    Text("Phone → ${installation.name} → receiving TaraSec node")
-                    Text(
-                        "This page will show the gateway's local infection state beside what an independent receiving node reports. The demo controls and live polling are the next step.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+                DemoPanel(
+                    gatewayName = selectedInstallation?.name,
+                    gatewayBaseUrl = selectedInstallation?.managementBaseUrl
+                )
             }
 
             AppPage.MANAGER -> {
