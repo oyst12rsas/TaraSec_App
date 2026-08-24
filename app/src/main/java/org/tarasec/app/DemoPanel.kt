@@ -62,6 +62,16 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
         onDispose{running.set(false);worker.interrupt()}
     }
 
+    fun debugStatus(title:String, state:DemoThreatStatus) {
+        TaraSectionCard(title="$title debug", subtitle="Exact app status request") {
+            TaraStatusRow("Polled at", state.polledAt.ifBlank { "n/a" })
+            TaraStatusRow("HTTP", if (state.httpCode > 0) state.httpCode.toString() else "n/a")
+            Text("Endpoint: ${state.endpoint.ifBlank { "n/a" }}", style=MaterialTheme.typography.bodySmall)
+            Text("Raw JSON:", style=MaterialTheme.typography.bodySmall)
+            Text(state.rawJson.ifBlank { "(no response body)" }, style=MaterialTheme.typography.bodySmall)
+        }
+    }
+
     Column(verticalArrangement=Arrangement.spacedBy(12.dp),modifier=Modifier.fillMaxWidth()) {
         Text("TaraSec Demo",style=MaterialTheme.typography.titleLarge)
         Text("WireGuard determines the route. Every displayed infection state is fetched from getTagData() on the node whose status is being shown.",style=MaterialTheme.typography.bodySmall)
@@ -78,8 +88,14 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?) {
         }
         Text(if(state==null)"Waiting for gateway…" else if(!state.reachable)"Gateway status unavailable" else "Reported by gateway: ${if(state.infected)"INFECTED" else "CLEAN"} · severity ${state.severity}",style=MaterialTheme.typography.bodySmall)
 
-        gatewayState?.let{gateway->TaraSectionCard(title=gatewayName?:"Gateway",subtitle="getTagData() on gateway"){TaraStatusRow("Reachable",if(gateway.reachable)"Yes" else "No");if(gateway.reachable){TaraStatusRow("Unit state",if(gateway.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",gateway.severity.toString());if(gateway.source.isNotBlank())TaraStatusRow("Evidence",gateway.source)}else if(gateway.message.isNotBlank())Text(gateway.message,style=MaterialTheme.typography.bodySmall)}}
-        receiverState?.let{receiver->TaraSectionCard(title=discoveredName,subtitle="getTagData() on ${targetIp.trim()}"){TaraStatusRow("Reachable",if(receiver.reachable)"Yes" else "No");if(receiver.reachable){TaraStatusRow("Reports this unit",if(receiver.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",receiver.severity.toString());if(receiver.publicIp.isNotBlank())TaraStatusRow("Observed source","${receiver.publicIp}:${receiver.publicPort}");if(receiver.source.isNotBlank())TaraStatusRow("Evidence",receiver.source)}else if(receiver.message.isNotBlank())Text(receiver.message,style=MaterialTheme.typography.bodySmall)}}
+        gatewayState?.let{gateway->
+            TaraSectionCard(title=gatewayName?:"Gateway",subtitle="getTagData() on gateway"){TaraStatusRow("Reachable",if(gateway.reachable)"Yes" else "No");if(gateway.reachable){TaraStatusRow("Unit state",if(gateway.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",gateway.severity.toString());if(gateway.source.isNotBlank())TaraStatusRow("Evidence",gateway.source)}else if(gateway.message.isNotBlank())Text(gateway.message,style=MaterialTheme.typography.bodySmall)}
+            debugStatus(gatewayName?:"Gateway", gateway)
+        }
+        receiverState?.let{receiver->
+            TaraSectionCard(title=discoveredName,subtitle="getTagData() on ${targetIp.trim()}"){TaraStatusRow("Reachable",if(receiver.reachable)"Yes" else "No");if(receiver.reachable){TaraStatusRow("Reports this unit",if(receiver.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",receiver.severity.toString());if(receiver.publicIp.isNotBlank())TaraStatusRow("Observed source","${receiver.publicIp}:${receiver.publicPort}");if(receiver.source.isNotBlank())TaraStatusRow("Evidence",receiver.source)}else if(receiver.message.isNotBlank())Text(receiver.message,style=MaterialTheme.typography.bodySmall)}
+            debugStatus(discoveredName, receiver)
+        }
         Button(enabled=!busy,onClick={refresh()},modifier=Modifier.fillMaxWidth()){Text(if(busy)"Working…" else "Refresh now")}
         Text(message,style=MaterialTheme.typography.bodySmall)
         Text("The radio selection is not stored in the app. It follows the gateway's reported state, so changes made in Gatekeeper should appear here automatically as well.",style=MaterialTheme.typography.bodySmall)
