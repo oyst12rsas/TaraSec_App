@@ -62,25 +62,20 @@ object DemoClient {
         }
     }
 
-    fun threatStatus(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}", false)
+    // Status is always evaluated remotely. appInfection.php is deliberately a
+    // JSON view of that node's getTagData(), so Android displays the same
+    // assessment as visiting the node in a browser.
+    fun threatStatus(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}")
 
-    fun clear(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}", true)
-
-    fun threatStatusBase(baseUrl: String, clear: Boolean = false): DemoThreatStatus {
+    fun threatStatusBase(baseUrl: String): DemoThreatStatus {
         var c: HttpURLConnection? = null
         try {
             val base = normaliseBase(baseUrl)
-            val suffix = if (clear) "?action=clear" else "?action=status"
-            c = URL("$base/script/appInfection.php$suffix").openConnection() as HttpURLConnection
+            c = URL("$base/script/appInfection.php").openConnection() as HttpURLConnection
             c.connectTimeout = 3000
             c.readTimeout = 5000
             c.useCaches = false
             c.setRequestProperty("Accept", "application/json")
-            if (clear) {
-                c.requestMethod = "POST"
-                c.doOutput = true
-                c.outputStream.use { it.write(ByteArray(0)) }
-            }
             val code = c.responseCode
             val body = (if (code in 200..299) c.inputStream else c.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -90,7 +85,7 @@ object DemoClient {
                 reachable = json.optBoolean("ok", false),
                 infected = json.optBoolean("infected", false),
                 severity = json.optInt("severity", 0),
-                unitId = if (json.isNull("unitId")) null else json.optInt("unitId"),
+                unitId = null,
                 publicIp = json.optString("client_ip", ""),
                 publicPort = json.optInt("client_port", 0),
                 source = json.optString("source", "none"),
@@ -103,12 +98,23 @@ object DemoClient {
         }
     }
 
-    fun triggerSinkhole(): String {
+    // Use the existing TaraSec demo mechanism rather than inventing an Android
+    // database mutation. The request is sent to the gateway; reportHacking()
+    // then exercises the normal report -> gateway infection -> tagging path.
+    fun markInfected(gatewayBaseUrl: String): String {
+        var c: HttpURLConnection? = null
         return try {
-            Socket().use { socket -> socket.connect(InetSocketAddress("10.47.99.99", 80), 2000) }
-            "Safe sinkhole traffic sent"
-        } catch (_: Exception) {
-            "Safe sinkhole traffic generated; waiting for TaraSec reporting"
+            val base = normaliseBase(gatewayBaseUrl)
+            c = URL("$base/gatekeeper/index.php?f=selfRegInfected&conf=1").openConnection() as HttpURLConnection
+            c.connectTimeout = 3000
+            c.readTimeout = 7000
+            c.useCaches = false
+            val code = c.responseCode
+            if (code in 200..299) "Infection reported through TaraSec gateway" else "Gateway returned HTTP $code"
+        } catch (e: Exception) {
+            "Could not report infection: ${e.message ?: "unknown error"}"
+        } finally {
+            c?.disconnect()
         }
     }
 
