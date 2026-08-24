@@ -6,6 +6,9 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class DemoTarget(val name: String, val ip: String)
 
@@ -24,7 +27,11 @@ data class DemoThreatStatus(
     val publicIp: String,
     val publicPort: Int,
     val source: String,
-    val message: String = ""
+    val message: String = "",
+    val polledAt: String = "",
+    val endpoint: String = "",
+    val httpCode: Int = 0,
+    val rawJson: String = ""
 )
 
 object DemoClient {
@@ -70,17 +77,25 @@ object DemoClient {
 
     fun threatStatusBase(baseUrl: String): DemoThreatStatus {
         var c: HttpURLConnection? = null
+        val polledAt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+        val base = normaliseBase(baseUrl)
+        val endpoint = "$base/script/appInfection.php"
         try {
-            val base = normaliseBase(baseUrl)
-            c = URL("$base/script/appInfection.php").openConnection() as HttpURLConnection
+            c = URL(endpoint).openConnection() as HttpURLConnection
             c.connectTimeout = 3000
             c.readTimeout = 5000
             c.useCaches = false
             c.setRequestProperty("Accept", "application/json")
+            c.setRequestProperty("Cache-Control", "no-cache")
             val code = c.responseCode
             val body = (if (code in 200..299) c.inputStream else c.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) return DemoThreatStatus(false, false, 0, null, "", 0, "none", "HTTP $code")
+            if (code !in 200..299) {
+                return DemoThreatStatus(
+                    false, false, 0, null, "", 0, "none",
+                    "HTTP $code", polledAt, endpoint, code, body
+                )
+            }
             val json = JSONObject(body)
             return DemoThreatStatus(
                 reachable = json.optBoolean("ok", false),
@@ -90,10 +105,17 @@ object DemoClient {
                 publicIp = json.optString("client_ip", ""),
                 publicPort = json.optInt("client_port", 0),
                 source = json.optString("source", "none"),
-                message = json.optString("error", "")
+                message = json.optString("error", ""),
+                polledAt = polledAt,
+                endpoint = endpoint,
+                httpCode = code,
+                rawJson = body
             )
         } catch (e: Exception) {
-            return DemoThreatStatus(false, false, 0, null, "", 0, "none", e.message ?: "Status failed")
+            return DemoThreatStatus(
+                false, false, 0, null, "", 0, "none",
+                e.message ?: "Status failed", polledAt, endpoint, 0, ""
+            )
         } finally {
             c?.disconnect()
         }
