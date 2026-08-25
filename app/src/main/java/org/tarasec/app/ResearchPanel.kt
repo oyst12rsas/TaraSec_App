@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,6 +22,7 @@ fun ResearchPanel() {
     val activity = LocalContext.current as Activity
     var enabled by remember { mutableStateOf(ResearchPreferences.participationEnabled(activity)) }
     var discountOptIn by remember { mutableStateOf(ResearchPreferences.discountOptIn(activity)) }
+    var paymentMethod by remember { mutableStateOf(PaymentPreferences.preferredMethod(activity)) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -94,6 +96,34 @@ fun ResearchPanel() {
             ) {
                 Text(if (discountOptIn) "Leave discount program" else "Join discount program")
             }
+        }
+
+        TaraSectionCard(
+            title = "Payment options",
+            subtitle = "Preferred method for hotspot access and research discounts"
+        ) {
+            Text(
+                "TaraSec can present payment methods supplied by the hotspot's payment platform. No card or wallet credentials are stored in the TaraSec app.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            TaraPaymentMethod.entries.forEach { method ->
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        paymentMethod = method
+                        PaymentPreferences.setPreferredMethod(activity, method)
+                    }
+                ) {
+                    Text((if (paymentMethod == method) "✓ " else "") + method.title)
+                }
+                if (paymentMethod == method) {
+                    Text(method.note, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Text(
+                "Planned payment platform: Braintree/PayPal. Google Pay can be used from Android; PayPal can use the provider checkout; Apple Pay is offered through the hotspot web checkout on supported Apple devices.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
 
         Button(
