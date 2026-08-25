@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,11 +13,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun ResearchPanel() {
-    var enabled by remember { mutableStateOf(false) }
+    val activity = LocalContext.current as Activity
+    var enabled by remember { mutableStateOf(ResearchPreferences.participationEnabled(activity)) }
+    var discountOptIn by remember { mutableStateOf(ResearchPreferences.discountOptIn(activity)) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -63,16 +67,49 @@ fun ResearchPanel() {
             )
         }
 
+        TaraSectionCard(
+            title = "Discounted internet access",
+            subtitle = "Optional reward for voluntary research participation"
+        ) {
+            Text(
+                "Hotspots and internet providers may later offer discounted access to users who voluntarily contribute approved research measurements. " +
+                    "The provider controls the actual discount and availability. Research participation remains optional and can be turned off."
+            )
+            Text(
+                if (enabled && discountOptIn)
+                    "Discount participation: eligible to be considered when a hotspot/provider offers a research discount."
+                else if (enabled)
+                    "Research is enabled, but discount participation is not selected."
+                else
+                    "Enable Research protection before opting in for research-linked discounts.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Button(
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    discountOptIn = !discountOptIn
+                    ResearchPreferences.setDiscountOptIn(activity, discountOptIn)
+                }
+            ) {
+                Text(if (discountOptIn) "Leave discount program" else "Join discount program")
+            }
+        }
+
         Button(
             modifier = Modifier.fillMaxWidth(),
-            onClick = { enabled = !enabled }
+            onClick = {
+                enabled = !enabled
+                ResearchPreferences.setParticipationEnabled(activity, enabled)
+                if (!enabled) discountOptIn = false
+            }
         ) {
             Text(if (enabled) "Disable Research protection" else "Enable Research protection")
         }
 
         Text(
             if (enabled)
-                "Research protection selected. Android VPN packet capture will be activated here once the packet service is connected."
+                "Research protection is enabled. Android VPN packet capture will be activated here once the packet service is connected."
             else
                 "Research protection is off. Normal TaraSec management continues unchanged.",
             style = MaterialTheme.typography.bodySmall
