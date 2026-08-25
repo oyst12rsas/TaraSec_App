@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppPage { UNITS, DEMO, MANAGER, SETUP }
+private enum class AppPage { UNITS, DEMO, RESEARCH, MANAGER, SETUP }
 
 @androidx.compose.runtime.Composable
 private fun TaraSecApp() {
@@ -381,6 +381,10 @@ private fun TaraSecApp() {
                         onClick = { page = AppPage.DEMO; menuExpanded = false }
                     )
                     DropdownMenuItem(
+                        text = { Text("Research") },
+                        onClick = { page = AppPage.RESEARCH; menuExpanded = false }
+                    )
+                    DropdownMenuItem(
                         text = { Text("AI / Assistance") },
                         onClick = { page = AppPage.MANAGER; menuExpanded = false }
                     )
@@ -447,6 +451,8 @@ private fun TaraSecApp() {
                     gatewayBaseUrl = selectedInstallation?.managementBaseUrl
                 )
             }
+
+            AppPage.RESEARCH -> ResearchPanel()
 
             AppPage.MANAGER -> {
                 val installation = selectedInstallation
