@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -18,11 +19,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun ResearchPanel() {
+fun ResearchPanel(paymentBaseUrl: String? = null) {
     val activity = LocalContext.current as Activity
     var enabled by remember { mutableStateOf(ResearchPreferences.participationEnabled(activity)) }
     var discountOptIn by remember { mutableStateOf(ResearchPreferences.discountOptIn(activity)) }
     var paymentMethod by remember { mutableStateOf(PaymentPreferences.preferredMethod(activity)) }
+    var paymentStatus by remember { mutableStateOf<PaymentBackendStatus?>(null) }
+
+    LaunchedEffect(paymentBaseUrl) {
+        val base = paymentBaseUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        Thread {
+            val status = PaymentClient.status(base)
+            activity.runOnUiThread { paymentStatus = status }
+        }.start()
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -120,8 +130,23 @@ fun ResearchPanel() {
                     Text(method.note, style = MaterialTheme.typography.bodySmall)
                 }
             }
+
+            val status = paymentStatus
             Text(
-                "Planned payment platform: Braintree/PayPal. Google Pay can be used from Android; PayPal can use the provider checkout; Apple Pay is offered through the hotspot web checkout on supported Apple devices.",
+                when {
+                    paymentBaseUrl.isNullOrBlank() -> "Select a registered installation to check payment availability."
+                    status == null -> "Checking payment backend…"
+                    !status.reachable -> "Payment backend unavailable: ${status.message}"
+                    status.configured -> "${status.provider.ifBlank { "Payment" }} ${status.environment} backend ready."
+                    else -> "Payment backend found but not configured yet: ${status.message}"
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (status?.methods?.isNotEmpty() == true) {
+                Text("Backend methods: ${status.methods.joinToString()}", style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "Google Pay can be used from Android; PayPal can use provider checkout; Apple Pay is offered through hotspot web checkout on supported Apple devices.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
