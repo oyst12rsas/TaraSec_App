@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Boolean = false) {
     val activity = LocalContext.current as Activity
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
+    val displayGatewayName = gatewayName?.takeIf { it.isNotBlank() } ?: "TaraSec gateway"
     var target by remember { mutableStateOf(DemoClient.presets.first()) }
     var targetIp by remember { mutableStateOf(target.ip) }
     var discoveredName by remember { mutableStateOf(target.name) }
@@ -52,10 +53,10 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         if(busy)return
         val base=localGatewayBase?:run{message="No local Wi-Fi gateway detected. Connect the phone to a TaraSec hotspot first.";return}
         val current=gatewayState; if(current!=null&&current.reachable&&current.infected==infected)return
-        busy=true; message=if(infected)"Marking this phone infected on the local gateway…" else "Marking this phone clean on the local gateway…"
+        busy=true; message=if(infected)"Registering this phone as infected on the local TaraSec gateway…" else "Marking this phone clean on the local TaraSec gateway…"
         Thread { val result=DemoClient.setGatewayInfected(base,infected); try{Thread.sleep(if(infected)1200L else 500L)}catch(_:InterruptedException){}
             val t=currentTarget(); val identity=if(validIpv4(t.ip))DemoClient.probe(t)else null; val gateway=DemoClient.threatStatusBase(base); val receiver=if(validIpv4(t.ip))DemoClient.threatStatus(t)else null
-            activity.runOnUiThread { if(identity!=null)discoveredName=identity.nodeName; gatewayState=gateway; if(receiver!=null)receiverState=receiver; message=result+if(gateway.infected==infected)" — local gateway confirmed this phone" else " — waiting for local gateway state"; busy=false }
+            activity.runOnUiThread { if(identity!=null)discoveredName=identity.nodeName; gatewayState=gateway; if(receiver!=null)receiverState=receiver; message=result+if(gateway.infected==infected)" — gateway confirmed this phone" else " — waiting for gateway state"; busy=false }
         }.start()
     }
 
@@ -77,14 +78,22 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
     Column(verticalArrangement=Arrangement.spacedBy(12.dp),modifier=Modifier.fillMaxWidth()) {
         Text("TaraSec Demo",style=MaterialTheme.typography.titleLarge)
-        Text("This phone is marked clean/infected on the local TaraSec gateway. Traffic to the receiving TaraSec node is then used to demonstrate propagation of the tag.",style=MaterialTheme.typography.bodySmall)
+        Text("The phone does not tag itself. Its TaraSec gateway registers the phone in internalInfections and applies the infection state to traffic leaving that gateway. The receiving TaraSec node can then observe the tag.",style=MaterialTheme.typography.bodySmall)
+
+        TaraSectionCard(title=displayGatewayName, subtitle="Gateway role in this demo") {
+            TaraStatusRow("Role", "Registers this phone's infection state")
+            TaraStatusRow("Current local endpoint", localGatewayBase ?: "not detected")
+            Text("In the Squash → Tomato demonstration, Squash is the gateway and Tomato is the receiving node. When testing through another TaraSec hotspot, that local gateway performs the same registration role.",style=MaterialTheme.typography.bodySmall)
+        }
+
         Text("Receiving node",style=MaterialTheme.typography.titleMedium)
         DemoClient.presets.forEach{preset->OutlinedButton(modifier=Modifier.fillMaxWidth(),onClick={target=preset;targetIp=preset.ip;discoveredName=preset.name;gatewayState=null;receiverState=null}){Text((if(preset.ip==targetIp)"✓ " else "")+"${preset.name} · ${preset.ip}")}}
         OutlinedTextField(value=targetIp,onValueChange={targetIp=it.filter{c->c.isDigit()||c=='.'};target=currentTarget();discoveredName=target.name;gatewayState=null;receiverState=null},label={Text("Other TaraSec node IP")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+
         Text("Path",style=MaterialTheme.typography.titleMedium)
-        Text("Phone → ${localGatewayBase ?: "local gateway not detected"} → $discoveredName")
-        if (!gatewayName.isNullOrBlank()) Text("Selected owned installation: $gatewayName",style=MaterialTheme.typography.bodySmall)
-        Text("Destination: ${targetIp.trim()}",style=MaterialTheme.typography.bodySmall)
+        Text("Phone → $displayGatewayName → $discoveredName")
+        Text("The infection record is stored on the phone's current TaraSec gateway. Current endpoint: ${localGatewayBase ?: "not detected"}",style=MaterialTheme.typography.bodySmall)
+        Text("Receiving destination: ${targetIp.trim()}",style=MaterialTheme.typography.bodySmall)
 
         Text("This phone",style=MaterialTheme.typography.titleMedium)
         val state=gatewayState
@@ -92,18 +101,18 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.wrapContentHeight()) { RadioButton(selected=state?.reachable==true&&!state.infected,enabled=state?.reachable==true&&!busy,onClick={setPhoneState(false)}); Text("Clean") }
             Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.wrapContentHeight()) { RadioButton(selected=state?.reachable==true&&state.infected,enabled=state?.reachable==true&&!busy,onClick={setPhoneState(true)}); Text("Infected") }
         }
-        Text(if(state==null)"Waiting for local gateway…" else if(!state.reachable)"Local gateway status unavailable" else "Local gateway reports this phone: ${if(state.infected)"INFECTED" else "CLEAN"} · severity ${state.severity}",style=MaterialTheme.typography.bodySmall)
+        Text(if(state==null)"Waiting for local gateway…" else if(!state.reachable)"Local gateway status unavailable" else "$displayGatewayName reports this phone: ${if(state.infected)"INFECTED" else "CLEAN"} · severity ${state.severity}",style=MaterialTheme.typography.bodySmall)
 
         gatewayState?.let{gateway->
-            TaraSectionCard(title="This phone",subtitle="getTagData() through ${localGatewayBase ?: "local gateway"}"){TaraStatusRow("Gateway reachable",if(gateway.reachable)"Yes" else "No");if(gateway.reachable){TaraStatusRow("Phone state",if(gateway.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",gateway.severity.toString());if(gateway.source.isNotBlank())TaraStatusRow("Evidence",gateway.source)}else if(gateway.message.isNotBlank())Text(gateway.message,style=MaterialTheme.typography.bodySmall)}
-            if (showDebugInfo) debugStatus("This phone", gateway)
+            TaraSectionCard(title=displayGatewayName,subtitle="Phone infection registered on gateway"){TaraStatusRow("Gateway reachable",if(gateway.reachable)"Yes" else "No");if(gateway.reachable){TaraStatusRow("Registered phone state",if(gateway.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",gateway.severity.toString());if(gateway.source.isNotBlank())TaraStatusRow("Evidence",gateway.source)}else if(gateway.message.isNotBlank())Text(gateway.message,style=MaterialTheme.typography.bodySmall)}
+            if (showDebugInfo) debugStatus(displayGatewayName, gateway)
         }
         receiverState?.let{receiver->
-            TaraSectionCard(title=discoveredName,subtitle="getTagData() on ${targetIp.trim()}"){TaraStatusRow("Reachable",if(receiver.reachable)"Yes" else "No");if(receiver.reachable){TaraStatusRow("Reports this phone",if(receiver.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",receiver.severity.toString());if(receiver.publicIp.isNotBlank())TaraStatusRow("Observed source","${receiver.publicIp}:${receiver.publicPort}");if(receiver.source.isNotBlank())TaraStatusRow("Evidence",receiver.source)}else if(receiver.message.isNotBlank())Text(receiver.message,style=MaterialTheme.typography.bodySmall)}
+            TaraSectionCard(title=discoveredName,subtitle="Receiving TaraSec node"){TaraStatusRow("Reachable",if(receiver.reachable)"Yes" else "No");if(receiver.reachable){TaraStatusRow("Reports this phone",if(receiver.infected)"🔴 INFECTED" else "🟢 CLEAN");TaraStatusRow("Severity",receiver.severity.toString());if(receiver.publicIp.isNotBlank())TaraStatusRow("Observed source","${receiver.publicIp}:${receiver.publicPort}");if(receiver.source.isNotBlank())TaraStatusRow("Evidence",receiver.source)}else if(receiver.message.isNotBlank())Text(receiver.message,style=MaterialTheme.typography.bodySmall)}
             if (showDebugInfo) debugStatus(discoveredName, receiver)
         }
         Button(enabled=!busy,onClick={refresh()},modifier=Modifier.fillMaxWidth()){Text(if(busy)"Working…" else "Refresh now")}
         Text(message,style=MaterialTheme.typography.bodySmall)
-        Text("The app does not store the radio selection. It reads this phone's state back from the local gateway's internalInfections/getTagData() result.",style=MaterialTheme.typography.bodySmall)
+        Text("The app does not store the radio selection. It reads the phone's state back from the local gateway's internalInfections/getTagData() result.",style=MaterialTheme.typography.bodySmall)
     }
 }
