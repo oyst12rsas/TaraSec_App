@@ -70,16 +70,22 @@ object DemoClient {
         }
     }
 
-    // Status is always evaluated remotely. appInfection.php is deliberately a
-    // JSON view of that node's getTagData(), so Android displays the same
-    // assessment as visiting the node in a browser.
     fun threatStatus(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}")
 
-    fun threatStatusBase(baseUrl: String): DemoThreatStatus {
+    fun threatStatusBase(baseUrl: String): DemoThreatStatus =
+        readThreatStatus(baseUrl, "appInfection.php")
+
+    // For the phone itself, read the gateway's direct internalInfections row.
+    // Do not let a fresh severity-0 traffic record override the explicit local
+    // Clean/Infected toggle. Remote receivers still use appInfection.php/getTagData().
+    fun localThreatStatusBase(baseUrl: String): DemoThreatStatus =
+        readThreatStatus(baseUrl, "appLocalInfection.php")
+
+    private fun readThreatStatus(baseUrl: String, script: String): DemoThreatStatus {
         var c: HttpURLConnection? = null
         val polledAt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
         val base = normaliseBase(baseUrl)
-        val endpoint = "$base/script/appInfection.php"
+        val endpoint = "$base/script/$script"
         try {
             c = URL(endpoint).openConnection() as HttpURLConnection
             c.connectTimeout = 3000
@@ -91,10 +97,7 @@ object DemoClient {
             val body = (if (code in 200..299) c.inputStream else c.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
-                return DemoThreatStatus(
-                    false, false, 0, null, "", 0, "none",
-                    "HTTP $code", polledAt, endpoint, code, body
-                )
+                return DemoThreatStatus(false, false, 0, null, "", 0, "none", "HTTP $code", polledAt, endpoint, code, body)
             }
             val json = JSONObject(body)
             return DemoThreatStatus(
@@ -112,10 +115,7 @@ object DemoClient {
                 rawJson = body
             )
         } catch (e: Exception) {
-            return DemoThreatStatus(
-                false, false, 0, null, "", 0, "none",
-                e.message ?: "Status failed", polledAt, endpoint, 0, ""
-            )
+            return DemoThreatStatus(false, false, 0, null, "", 0, "none", e.message ?: "Status failed", polledAt, endpoint, 0, "")
         } finally {
             c?.disconnect()
         }
