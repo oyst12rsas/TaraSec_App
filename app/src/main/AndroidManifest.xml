@@ -13,6 +13,9 @@
             android:name=".MainActivity"
             android:exported="false" />
         <activity
+            android:name=".SubscriberHomeActivity"
+            android:exported="false" />
+        <activity
             android:name=".SecureLauncherActivity"
             android:exported="true">
             <intent-filter>
