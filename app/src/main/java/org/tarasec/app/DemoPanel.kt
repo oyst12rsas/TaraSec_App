@@ -41,7 +41,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     }
     val selectedGatewayName = selectedInstallation?.name
         ?: gatewayName?.takeIf { it.isNotBlank() }
-        ?: "No remote gateway selected"
+        ?: "Squash"
     val selectedServiceIp = selectedInstallation?.serviceIp?.trim()?.takeIf { it.isNotBlank() }
     val selectedServiceBase = selectedServiceIp?.let {
         if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it"
@@ -178,8 +178,6 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
         TaraSectionCard(title = "Local Wi-Fi hotspot", subtitle = "First hop from this phone") {
             TaraStatusRow("Endpoint", localGatewayBase ?: "not detected")
-            // If Android has a Wi-Fi default gateway, that hop exists. Do not call
-            // the hotspot unreachable merely because a TaraSec PHP status API failed.
             TaraStatusRow("Wi-Fi route", if (localGatewayBase != null) "Active" else "Not detected")
             localState?.let {
                 TaraStatusRow("TaraSec status API", if (it.reachable) "Reachable" else "Unavailable")
@@ -191,7 +189,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             TaraStatusRow("Service IP", selectedServiceIp ?: "not configured")
             val selected = selectedGatewayState
             val vpnText = when {
-                selectedServiceBase == null -> "VPN gateway not configured / not required"
+                selectedServiceBase == null -> "Gateway selected, but VPN service IP is not configured"
                 selected?.reachable == true -> "VPN / gateway path active"
                 selected == null -> "Checking selected gateway…"
                 else -> "VPN appears to be off — turn on your VPN"
@@ -234,8 +232,6 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             singleLine = true
         )
 
-        // Put receiver reachability near the selector so it cannot be mistaken for
-        // the VPN-gateway result or hidden far below the page.
         TaraSectionCard(title = discoveredName, subtitle = "Receiving TaraSec node") {
             TaraStatusRow("Destination", targetIp.trim())
             TaraStatusRow(
@@ -261,13 +257,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
 
         Text("Path", style = MaterialTheme.typography.titleMedium)
-        Text(
-            if (selectedServiceBase != null) {
-                "Phone → local Wi-Fi hotspot → $selectedGatewayName → $discoveredName"
-            } else {
-                "Phone → local Wi-Fi hotspot → $discoveredName"
-            }
-        )
+        Text("Phone → local Wi-Fi hotspot → $selectedGatewayName → $discoveredName")
         Text(
             "The VPN indicator is based on the selected gateway's service IP, not its management/NetBird address.",
             style = MaterialTheme.typography.bodySmall
