@@ -18,7 +18,7 @@ object LocalGateway {
                 .mapNotNull { it.gateway }
                 .firstOrNull { it is Inet4Address }
                 ?.hostAddress
-            if (!gateway.isNullOrBlank()) return "http://$gateway"
+            if (!gateway.isNullOrBlank()) return "http://$gateway:8080"
         }
         return null
     }
