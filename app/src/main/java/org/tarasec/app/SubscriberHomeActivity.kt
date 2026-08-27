@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,11 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +55,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
     var hotspots by remember { mutableStateOf<List<DirectoryHotspot>>(emptyList()) }
     var directoryStatus by remember { mutableStateOf("Finding TaraSec hotspots...") }
     var loading by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
     fun refreshDirectory() {
         if (loading) return
@@ -83,7 +88,64 @@ private fun SubscriberHome(openConsole: () -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
+            Box {
+                TextButton(onClick = { menuExpanded = true }) {
+                    Text("☰", style = MaterialTheme.typography.headlineSmall)
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Find TaraSec WiFi") },
+                        onClick = {
+                            menuExpanded = false
+                            refreshDirectory()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("My access") },
+                        onClick = {
+                            menuExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Status / Units") },
+                        onClick = {
+                            menuExpanded = false
+                            openConsole()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Security Demo") },
+                        onClick = {
+                            menuExpanded = false
+                            openConsole()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("AI / Assistance") },
+                        onClick = {
+                            menuExpanded = false
+                            openConsole()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Setup / My hotspots") },
+                        onClick = {
+                            menuExpanded = false
+                            openConsole()
+                        }
+                    )
+                }
+            }
+        }
+
         Text("Find secure Internet access", style = MaterialTheme.typography.titleLarge)
         Text(
             "When you are not directly connected to one of your own TaraSec installations, finding a participating hotspot is the main experience.",
