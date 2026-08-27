@@ -31,9 +31,6 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     val activity = LocalContext.current as Activity
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
 
-    // The management URL may be reachable through NetBird and therefore must not
-    // be used as proof that the user's WireGuard/VPN path is active. The selected
-    // installation's serviceIp is the data-plane address used for the VPN check.
     val selectedInstallation = remember {
         val items = InstallationStore.load(activity)
         val selectedId = InstallationStore.selectedId(activity)
@@ -75,7 +72,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
         Thread {
             val identity = DemoClient.probe(t)
-            val local = localGatewayBase?.let { DemoClient.threatStatusBase(it) }
+            val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
             val selected = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
             val receiver = DemoClient.threatStatus(t)
             activity.runOnUiThread {
@@ -103,10 +100,10 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
         Thread {
             val result = DemoClient.setGatewayInfected(base, infected)
-            try { Thread.sleep(if (infected) 1200L else 500L) } catch (_: InterruptedException) {}
+            try { Thread.sleep(if (infected) 700L else 400L) } catch (_: InterruptedException) {}
             val t = currentTarget()
             val identity = if (validIpv4(t.ip)) DemoClient.probe(t) else null
-            val local = DemoClient.threatStatusBase(base)
+            val local = DemoClient.localThreatStatusBase(base)
             val selected = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
             val receiver = if (validIpv4(t.ip)) DemoClient.threatStatus(t) else null
             activity.runOnUiThread {
@@ -120,7 +117,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 message = result + if (local.infected == infected) {
                     " — local hotspot confirmed this phone"
                 } else {
-                    " — infection API has not confirmed the state yet"
+                    " — local infection record has not confirmed the state yet"
                 }
                 busy = false
             }
@@ -134,7 +131,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 val t = currentTarget()
                 if (validIpv4(t.ip)) {
                     val identity = DemoClient.probe(t)
-                    val local = localGatewayBase?.let { DemoClient.threatStatusBase(it) }
+                    val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
                     val selected = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
                     val receiver = DemoClient.threatStatus(t)
                     if (!running.get()) break
@@ -166,22 +163,14 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
     }
 
-    Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         Text("TaraSec Demo", style = MaterialTheme.typography.titleLarge)
-        Text(
-            "The app separates the local Wi-Fi hop, the optional TaraSec VPN gateway, and the receiving TaraSec node.",
-            style = MaterialTheme.typography.bodySmall
-        )
+        Text("The app separates the local Wi-Fi hop, the optional TaraSec VPN gateway, and the receiving TaraSec node.", style = MaterialTheme.typography.bodySmall)
 
         TaraSectionCard(title = "Local Wi-Fi hotspot", subtitle = "First hop from this phone") {
             TaraStatusRow("Endpoint", localGatewayBase ?: "not detected")
             TaraStatusRow("Wi-Fi route", if (localGatewayBase != null) "Active" else "Not detected")
-            localState?.let {
-                TaraStatusRow("TaraSec status API", if (it.reachable) "Reachable" else "Unavailable")
-            }
+            localState?.let { TaraStatusRow("TaraSec local state API", if (it.reachable) "Reachable" else "Unavailable") }
             Text("This is Cigar while connected to the Cigar hotspot.", style = MaterialTheme.typography.bodySmall)
         }
 
@@ -196,115 +185,71 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             }
             TaraStatusRow("VPN status", vpnText)
             if (selectedServiceBase != null && selected?.reachable == false) {
-                Text(
-                    "$selectedGatewayName is selected but its service address cannot be reached. Turn on the VPN if this gateway normally uses it.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text("$selectedGatewayName is selected but its service address cannot be reached. Turn on the VPN if this gateway normally uses it.", style = MaterialTheme.typography.bodySmall)
             }
         }
 
         Text("Receiving node", style = MaterialTheme.typography.titleMedium)
         DemoClient.presets.forEach { preset ->
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    target = preset
-                    targetIp = preset.ip
-                    discoveredName = preset.name
-                    receiverProbe = null
-                    receiverState = null
-                }
-            ) {
-                Text((if (preset.ip == targetIp) "✓ " else "") + "${preset.name} · ${preset.ip}")
-            }
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                target = preset; targetIp = preset.ip; discoveredName = preset.name; receiverProbe = null; receiverState = null
+            }) { Text((if (preset.ip == targetIp) "✓ " else "") + "${preset.name} · ${preset.ip}") }
         }
         OutlinedTextField(
             value = targetIp,
             onValueChange = {
                 targetIp = it.filter { c -> c.isDigit() || c == '.' }
-                target = currentTarget()
-                discoveredName = target.name
-                receiverProbe = null
-                receiverState = null
+                target = currentTarget(); discoveredName = target.name; receiverProbe = null; receiverState = null
             },
-            label = { Text("Other TaraSec node IP") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            label = { Text("Other TaraSec node IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true
         )
 
         TaraSectionCard(title = discoveredName, subtitle = "Receiving TaraSec node") {
             TaraStatusRow("Destination", targetIp.trim())
-            TaraStatusRow(
-                "Reachable",
-                when (receiverProbe?.reachable) {
-                    true -> "Yes"
-                    false -> "No"
-                    null -> "Checking…"
-                }
-            )
+            TaraStatusRow("Reachable", when (receiverProbe?.reachable) { true -> "Yes"; false -> "No"; null -> "Checking…" })
             receiverState?.let { receiver ->
                 if (receiver.reachable) {
                     TaraStatusRow("Reports this phone", if (receiver.infected) "🔴 INFECTED" else "🟢 CLEAN")
                     TaraStatusRow("Severity", receiver.severity.toString())
-                    if (receiver.publicIp.isNotBlank()) {
-                        TaraStatusRow("Observed source", "${receiver.publicIp}:${receiver.publicPort}")
-                    }
+                    if (receiver.publicIp.isNotBlank()) TaraStatusRow("Observed source", "${receiver.publicIp}:${receiver.publicPort}")
                     if (receiver.source.isNotBlank()) TaraStatusRow("Evidence", receiver.source)
-                } else if (receiver.message.isNotBlank()) {
-                    Text(receiver.message, style = MaterialTheme.typography.bodySmall)
-                }
+                } else if (receiver.message.isNotBlank()) Text(receiver.message, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         Text("Path", style = MaterialTheme.typography.titleMedium)
         Text("Phone → local Wi-Fi hotspot → $selectedGatewayName → $discoveredName")
-        Text(
-            "The VPN indicator is based on the selected gateway's service IP, not its management/NetBird address.",
-            style = MaterialTheme.typography.bodySmall
-        )
+        Text("The VPN indicator is based on the selected gateway's service IP, not its management/NetBird address.", style = MaterialTheme.typography.bodySmall)
 
         Text("This phone", style = MaterialTheme.typography.titleMedium)
         val state = localState
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentHeight()) {
-                RadioButton(
-                    selected = state?.reachable == true && !state.infected,
-                    enabled = localGatewayBase != null && !busy,
-                    onClick = { setPhoneState(false) }
-                )
+                RadioButton(selected = state?.reachable == true && !state.infected, enabled = localGatewayBase != null && !busy, onClick = { setPhoneState(false) })
                 Text("Clean")
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentHeight()) {
-                RadioButton(
-                    selected = state?.reachable == true && state.infected,
-                    enabled = localGatewayBase != null && !busy,
-                    onClick = { setPhoneState(true) }
-                )
+                RadioButton(selected = state?.reachable == true && state.infected, enabled = localGatewayBase != null && !busy, onClick = { setPhoneState(true) })
                 Text("Infected")
             }
         }
         Text(
             when {
                 localGatewayBase == null -> "No local Wi-Fi hotspot detected"
-                state == null -> "Waiting for local TaraSec status API…"
-                !state.reachable -> "Wi-Fi hotspot is connected, but its TaraSec status API is unavailable"
+                state == null -> "Waiting for local TaraSec state API…"
+                !state.reachable -> "Wi-Fi hotspot is connected, but its TaraSec local state API is unavailable"
                 else -> "Local hotspot reports this phone: ${if (state.infected) "INFECTED" else "CLEAN"} · severity ${state.severity}"
             },
             style = MaterialTheme.typography.bodySmall
         )
 
         if (showDebugInfo) {
+            localState?.let { debugStatus("This phone", it) }
             selectedGatewayState?.let { debugStatus(selectedGatewayName, it) }
             receiverState?.let { debugStatus(discoveredName, it) }
         }
 
-        Button(enabled = !busy, onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (busy) "Working…" else "Refresh now")
-        }
+        Button(enabled = !busy, onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Working…" else "Refresh now") }
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
 }
