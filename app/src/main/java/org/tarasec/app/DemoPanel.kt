@@ -48,9 +48,6 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var targetIp by remember { mutableStateOf(target.ip) }
     var discoveredName by remember { mutableStateOf(target.name) }
 
-    // localPhoneState is the phone as seen by the Wi-Fi hotspot (eg 192.168.50.161 on Cigar).
-    // vpnPhoneState is the same phone as seen by the selected TaraSec gateway over its active
-    // service/VPN path (eg 10.100.0.150 on Squash). The UI presents both as one "This phone".
     var localPhoneState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var vpnGatewayState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var vpnPhoneState by remember { mutableStateOf<DemoThreatStatus?>(null) }
@@ -255,6 +252,26 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     Text(receiver.message, style = MaterialTheme.typography.bodySmall)
                 }
             }
+        }
+
+        TaraSectionCard(
+            title = "Self-healing attribution",
+            subtitle = "False positives are evidence to correct, not permanent labels"
+        ) {
+            TaraStatusRow("Lifecycle", "Detect → attribute → reassess → correct")
+            TaraStatusRow("Audit rule", "Tagged packet accepted by receiver firewall")
+            Text(
+                "When a receiving TaraSec firewall accepts traffic that arrived with a threat tag, that acceptance can be sent to the DB server and back to the sender as contradictory audit evidence. One accepted packet does not automatically clear a unit, but repeated normal traffic can reduce confidence and trigger automatic rehabilitation.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                "The recovery engine can also compare a recently corrected destination with the earlier entered IP. Similar or transposed addresses, close timing and the same session can support a finding that the original attribution was a human input error.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                "Demo status: UI concept enabled. Receiver-accept audit reporting and automatic clearing require the matching gateway/DB protocol implementation.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
 
         Text("Current path", style = MaterialTheme.typography.titleMedium)
