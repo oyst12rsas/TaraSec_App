@@ -1,6 +1,9 @@
 package org.tarasec.app
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -52,6 +55,17 @@ class SubscriberHomeActivity : ComponentActivity() {
     }
 }
 
+private const val DIRECTORY_PREFS = "tarasec_directory_state"
+private const val PREF_DIRECTORY_REACHED = "directory_reached"
+private const val PREF_DIRECTORY_REACHED_WITH_VPN = "directory_reached_with_vpn"
+
+private fun vpnIsActive(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    return cm.allNetworks.any { network ->
+        cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+}
+
 @androidx.compose.runtime.Composable
 private fun SubscriberHome(openConsole: () -> Unit) {
     val activity = androidx.compose.ui.platform.LocalContext.current as ComponentActivity
@@ -68,8 +82,15 @@ private fun SubscriberHome(openConsole: () -> Unit) {
         loading = true
         directoryStatus = "Loading published TaraSec hotspots..."
         Thread {
+            val prefs = activity.getSharedPreferences(DIRECTORY_PREFS, Context.MODE_PRIVATE)
             try {
                 val result = HotspotDirectoryClient.list()
+                val vpnNow = vpnIsActive(activity)
+                prefs.edit()
+                    .putBoolean(PREF_DIRECTORY_REACHED, true)
+                    .putBoolean(PREF_DIRECTORY_REACHED_WITH_VPN, vpnNow)
+                    .apply()
+
                 activity.runOnUiThread {
                     hotspots = result
                     directoryStatus = when {
@@ -80,8 +101,19 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                     loading = false
                 }
             } catch (e: Exception) {
+                val reachedBefore = prefs.getBoolean(PREF_DIRECTORY_REACHED, false)
+                val previouslyNeededVpn = prefs.getBoolean(PREF_DIRECTORY_REACHED_WITH_VPN, false)
+                val vpnNow = vpnIsActive(activity)
+
                 activity.runOnUiThread {
-                    directoryStatus = e.message ?: "Published hotspot directory unavailable"
+                    directoryStatus = when {
+                        reachedBefore && previouslyNeededVpn && !vpnNow ->
+                            "The TaraSec hotspot directory worked before while a VPN was active, but no VPN is active now. TaraSec VPN/WireGuard may be turned off."
+                        !reachedBefore ->
+                            "Published hotspot directory is not reachable yet. This is a fresh installation, so TaraSec will not assume a VPN is required. Use Find nearby Wi-Fi to discover local hotspots while the public directory is unavailable."
+                        else ->
+                            e.message ?: "Published hotspot directory unavailable"
+                    }
                     loading = false
                 }
             }
