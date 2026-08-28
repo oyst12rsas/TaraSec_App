@@ -111,38 +111,50 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                 return@Thread
             }
 
-            var connection: HttpURLConnection? = null
-            try {
-                val endpoint = base.trimEnd('/') + "/script/appNode.php"
-                connection = URL(endpoint).openConnection() as HttpURLConnection
-                connection.connectTimeout = 2500
-                connection.readTimeout = 3500
-                connection.useCaches = false
-                connection.setRequestProperty("Accept", "application/json")
-                val code = connection.responseCode
-                val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val endpoints = listOf(
+                "/hotspot/tarasec_identity.php",
+                "/script/appNode.php"
+            )
+            var lastError: String? = null
+            var identified: JSONObject? = null
 
-                val json = runCatching { JSONObject(body) }.getOrNull()
-                val taraSec = code in 200..299 && json != null &&
-                    (json.optBoolean("ok", false) || json.has("name"))
-                val name = json?.optString("name", "")?.takeIf { it.isNotBlank() }
-
-                activity.runOnUiThread {
-                    connectedStatus = if (taraSec) {
-                        "Connected to TaraSec${name?.let { " gateway: $it" } ?: ""} · $base"
-                    } else {
-                        "Wi-Fi is connected through $base, but that gateway did not identify itself as TaraSec."
+            for (path in endpoints) {
+                var connection: HttpURLConnection? = null
+                try {
+                    connection = URL(base.trimEnd('/') + path).openConnection() as HttpURLConnection
+                    connection.connectTimeout = 2500
+                    connection.readTimeout = 3500
+                    connection.useCaches = false
+                    connection.setRequestProperty("Accept", "application/json")
+                    val code = connection.responseCode
+                    val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    val json = runCatching { JSONObject(body) }.getOrNull()
+                    val roleValue = json?.optString("role", "").orEmpty()
+                    val taraSec = code in 200..299 && json != null && json.optBoolean("ok", false) &&
+                        (roleValue.startsWith("tarasec-") || json.optString("service") == "tarasec")
+                    if (taraSec) {
+                        identified = json
+                        break
                     }
-                    detectingConnected = false
+                    lastError = "HTTP $code from $path"
+                } catch (e: Exception) {
+                    lastError = e.message ?: e.javaClass.simpleName
+                } finally {
+                    connection?.disconnect()
                 }
-            } catch (e: Exception) {
-                activity.runOnUiThread {
-                    connectedStatus = "Wi-Fi gateway found at $base, but TaraSec could not be confirmed: ${e.message ?: e.javaClass.simpleName}"
-                    detectingConnected = false
+            }
+
+            activity.runOnUiThread {
+                if (identified != null) {
+                    val name = identified!!.optString("name", "").takeIf { it.isNotBlank() }
+                    val detectedRole = identified!!.optString("role", "")
+                    val kind = if (detectedRole == "tarasec-hotspot") "TaraSec hotspot" else "TaraSec gateway"
+                    connectedStatus = "Connected to $kind${name?.let { ": $it" } ?: ""} · $base"
+                } else {
+                    connectedStatus = "Wi-Fi is connected through $base, but that gateway did not identify itself as TaraSec${lastError?.let { " ($it)" } ?: ""}."
                 }
-            } finally {
-                connection?.disconnect()
+                detectingConnected = false
             }
         }.start()
     }
