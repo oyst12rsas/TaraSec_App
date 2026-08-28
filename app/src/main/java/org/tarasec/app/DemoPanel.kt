@@ -54,7 +54,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var receiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var receiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("The Clean/Infected control always refers to this phone. TaraSec chooses the active gateway identity automatically.") }
+    var auditApproved by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("Start with this phone clean, then generate real SSH traffic through the selected gateway.") }
 
     fun validIpv4(value: String): Boolean = try {
         val a = InetAddress.getByName(value.trim())
@@ -115,39 +116,14 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
         val gatewayLabel = activeGatewayLabel()
         busy = true
-        message = if (infected) {
-            "Marking this phone infected through $gatewayLabel…"
-        } else {
-            "Marking this phone clean through $gatewayLabel…"
-        }
+        message = if (infected) "Marking this phone infected through $gatewayLabel…" else "Marking this phone clean through $gatewayLabel…"
         Thread {
             val result = DemoClient.setGatewayInfected(base, infected)
             try { Thread.sleep(if (infected) 700L else 400L) } catch (_: InterruptedException) {}
-
-            val t = currentTarget()
-            val identity = if (validIpv4(t.ip)) DemoClient.probe(t) else null
-            val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
-            val vpnGateway = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
-            val vpnPhone = if (vpnGateway?.reachable == true && selectedServiceBase != null) {
-                DemoClient.localThreatStatusBase(selectedServiceBase)
-            } else null
-            val receiver = if (validIpv4(t.ip)) DemoClient.threatStatus(t) else null
-            val confirmed = if (vpnGateway?.reachable == true && vpnPhone?.reachable == true) vpnPhone else local
-
+            pollAll()
             activity.runOnUiThread {
-                if (identity != null) {
-                    receiverProbe = identity
-                    discoveredName = identity.nodeName
-                }
-                localPhoneState = local
-                vpnGatewayState = vpnGateway
-                vpnPhoneState = vpnPhone
-                if (receiver != null) receiverState = receiver
-                message = result + if (confirmed?.infected == infected) {
-                    " — $gatewayLabel confirmed this phone"
-                } else {
-                    " — waiting for $gatewayLabel to confirm this phone"
-                }
+                if (!infected) auditApproved = false
+                message = result
                 busy = false
             }
         }.start()
@@ -167,50 +143,92 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
     }
 
-    @Composable
-    fun debugStatus(title: String, state: DemoThreatStatus) {
-        TaraSectionCard(title = "$title debug", subtitle = "Exact app status request") {
-            TaraStatusRow("Polled at", state.polledAt.ifBlank { "n/a" })
-            TaraStatusRow("HTTP", if (state.httpCode > 0) state.httpCode.toString() else "n/a")
-            Text("Endpoint: ${state.endpoint.ifBlank { "n/a" }}", style = MaterialTheme.typography.bodySmall)
-            Text("Raw JSON:", style = MaterialTheme.typography.bodySmall)
-            Text(state.rawJson.ifBlank { "(no response body)" }, style = MaterialTheme.typography.bodySmall)
-        }
+    val phoneState = activePhoneState()
+    val gatewayLabel = activeGatewayLabel()
+    val phase = when {
+        phoneState == null || !phoneState.reachable -> "CHECKING"
+        phoneState.infected && auditApproved -> "REASSESSING"
+        phoneState.infected -> "INFECTED"
+        auditApproved -> "REHABILITATED"
+        else -> "CLEAN"
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         Text("TaraSec Demo", style = MaterialTheme.typography.titleLarge)
         Text(
-            "You control one thing: this phone. TaraSec resolves whether its active security identity is on the local hotspot or on the selected VPN gateway.",
+            "Generate real SSH traffic and watch the same evidence propagate through the phone, gateway, receivers and Gatekeeper.",
             style = MaterialTheme.typography.bodySmall
         )
 
-        TaraSectionCard(title = "Local Wi-Fi hotspot", subtitle = "First hop from this phone") {
-            TaraStatusRow("Endpoint", localGatewayBase ?: "not detected")
-            TaraStatusRow("Wi-Fi route", if (localGatewayBase != null) "Active" else "Not detected")
-            localPhoneState?.let {
-                TaraStatusRow("Phone identity", it.publicIp.ifBlank { "unknown" })
-                TaraStatusRow("Local state API", if (it.reachable) "Reachable" else "Unavailable")
-            }
-            Text("This is Cigar while connected to the Cigar hotspot.", style = MaterialTheme.typography.bodySmall)
+        TaraSectionCard(title = "Live demo path", subtitle = "Phone → gateway → receiver") {
+            TaraStatusRow("Phone / unit", when (phase) {
+                "INFECTED", "REASSESSING" -> "🔴 INFECTED"
+                "CLEAN", "REHABILITATED" -> "🟢 CLEAN"
+                else -> "Checking…"
+            })
+            TaraStatusRow("Gateway", when (phase) {
+                "INFECTED" -> "🔴 $gatewayLabel · tagging subsequent traffic"
+                "REASSESSING" -> "🟠 $gatewayLabel · reassessing"
+                "REHABILITATED" -> "🟢 $gatewayLabel · threat tag withdrawn"
+                "CLEAN" -> "🟢 $gatewayLabel · no threat tag"
+                else -> "$gatewayLabel · checking"
+            })
+            TaraStatusRow("Receiver", "$discoveredName · ${targetIp.trim()}")
+            TaraStatusRow("Audit phase", phase)
+            Text("📱 Phone  →  🛡 $gatewayLabel  →  🖥 $discoveredName", style = MaterialTheme.typography.titleMedium)
         }
 
-        TaraSectionCard(title = selectedGatewayName, subtitle = "Selected TaraSec gateway / VPN path") {
-            TaraStatusRow("Service IP", selectedServiceIp ?: "not configured")
-            val vpnText = when {
-                selectedServiceBase == null -> "Gateway selected, but VPN service IP is not configured"
-                vpnGatewayState?.reachable == true -> "VPN / gateway path active"
-                vpnGatewayState == null -> "Checking selected gateway…"
-                else -> "VPN appears to be off — turn on your VPN"
-            }
-            TaraStatusRow("VPN status", vpnText)
-            if (vpnGatewayState?.reachable == true) {
-                vpnPhoneState?.let {
-                    TaraStatusRow("This phone at $selectedGatewayName", it.publicIp.ifBlank { "identity unavailable" })
+        TaraSectionCard(title = "1 · Start clean", subtitle = "Confirm the baseline before generating evidence") {
+            Text("The phone and gateway should both show CLEAN. You can also open Gatekeeper on the gateway and receivers to confirm the same state.", style = MaterialTheme.typography.bodySmall)
+            TaraStatusRow("Observed now", if (phoneState?.reachable == true && !phoneState.infected) "Ready · CLEAN" else "Waiting for CLEAN")
+        }
+
+        TaraSectionCard(title = "2 · SSH to rejecting Server A", subtitle = "Create real firewall rejection evidence") {
+            Text("Open an SSH client such as Termux and connect to the designated rejecting TaraSec server. Its iptables policy should reject the attempt and create the normal hackReport evidence.", style = MaterialTheme.typography.bodySmall)
+            Text("Expected result: Server A reports the event → the gateway learns the attribution → this phone becomes 🔴 INFECTED → subsequent traffic is tagged.", style = MaterialTheme.typography.bodySmall)
+            TaraStatusRow("Gateway result", if (phoneState?.reachable == true && phoneState.infected) "Observed · INFECTED / tagging" else "Waiting for Server A report")
+        }
+
+        TaraSectionCard(title = "3 · SSH to accepting Server B", subtitle = "Challenge the existing attribution") {
+            Text("With the phone already red, SSH to the designated accepting sandbox server. The connection may authenticate as a restricted demo user, but the traffic arrived carrying the existing TaraSec threat tag.", style = MaterialTheme.typography.bodySmall)
+            Text("Server B should therefore create a hackReport record for tagged traffic even though its local firewall accepted the connection.", style = MaterialTheme.typography.bodySmall)
+            TaraStatusRow("Selected receiver", when (receiverProbe?.reachable) { true -> "$discoveredName reachable"; false -> "$discoveredName unavailable"; null -> "Checking…" })
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = phoneState?.reachable == true && phoneState.infected && receiverProbe?.reachable == true,
+                onClick = {
+                    auditApproved = true
+                    message = "Firewall assessment approved for audit. Watch Gatekeeper Live Audit for the real backend evidence and current infection state."
                 }
-            } else if (selectedServiceBase != null && vpnGatewayState?.reachable == false) {
-                Text("$selectedGatewayName is selected but cannot currently be reached on its service path. Turn on the VPN if this gateway normally uses it.", style = MaterialTheme.typography.bodySmall)
+            ) {
+                Text("Server B accepted — approve audit")
             }
+        }
+
+        TaraSectionCard(title = "4 · Automatic audit", subtitle = "The expected end state is clean again") {
+            TaraStatusRow("Human / firewall confirmation", if (auditApproved) "APPROVED" else "Waiting")
+            TaraStatusRow("Current phone state", when {
+                phoneState?.reachable != true -> "Unavailable"
+                phoneState.infected -> "🔴 INFECTED"
+                else -> "🟢 CLEAN"
+            })
+            Text(
+                if (auditApproved && phoneState?.reachable == true && !phoneState.infected) {
+                    "Automatically rehabilitated: the gateway is clean again and the threat tag has been withdrawn. Historical hackReport evidence remains available in Gatekeeper."
+                } else if (auditApproved) {
+                    "Audit approved. The app keeps polling the real gateway state; it will only show rehabilitation when the backend actually clears the infection."
+                } else {
+                    "After approval, TaraSec should compare the original rejection with the accepted tagged traffic and any other evidence before changing the attribution."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        TaraSectionCard(title = "Verify in Gatekeeper", subtitle = "Independent view of the same records") {
+            Text("Open Gatekeeper on the gateway, Server A and Server B while running the demo. Use Gatekeeper → hackReports → watch live, or open index.php?f=liveAudit directly.", style = MaterialTheme.typography.bodySmall)
+            TaraStatusRow("Gateway", selectedServiceBase ?: localGatewayBase ?: "not detected")
+            TaraStatusRow("Receiver", "http://${targetIp.trim()}/gatekeeper/index.php?f=liveAudit")
+            Text("The live page shows the selected hackReport evidence beside its linked internalInfections record and refreshes once per second.", style = MaterialTheme.typography.bodySmall)
         }
 
         Text("Receiving node", style = MaterialTheme.typography.titleMedium)
@@ -248,48 +266,15 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     TaraStatusRow("Severity", receiver.severity.toString())
                     if (receiver.publicIp.isNotBlank()) TaraStatusRow("Observed source", "${receiver.publicIp}:${receiver.publicPort}")
                     if (receiver.source.isNotBlank()) TaraStatusRow("Evidence", receiver.source)
-                } else if (receiver.message.isNotBlank()) {
-                    Text(receiver.message, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
 
-        TaraSectionCard(
-            title = "Self-healing attribution",
-            subtitle = "False positives are evidence to correct, not permanent labels"
-        ) {
-            TaraStatusRow("Lifecycle", "Detect → attribute → reassess → correct")
-            TaraStatusRow("Audit rule", "Tagged packet accepted by receiver firewall")
-            Text(
-                "When a receiving TaraSec firewall accepts traffic that arrived with a threat tag, that acceptance can be sent to the DB server and back to the sender as contradictory audit evidence. One accepted packet does not automatically clear a unit, but repeated normal traffic can reduce confidence and trigger automatic rehabilitation.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "The recovery engine can also compare a recently corrected destination with the earlier entered IP. Similar or transposed addresses, close timing and the same session can support a finding that the original attribution was a human input error.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "Demo status: UI concept enabled. Receiver-accept audit reporting and automatic clearing require the matching gateway/DB protocol implementation.",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
-        Text("Current path", style = MaterialTheme.typography.titleMedium)
-        Text(
-            if (selectedVpnActive()) {
-                "Phone → local Wi-Fi hotspot → $selectedGatewayName (VPN/security gateway) → $discoveredName"
-            } else {
-                "Phone → local Wi-Fi hotspot → Internet / $discoveredName"
-            }
-        )
-
-        Text("This phone", style = MaterialTheme.typography.titleMedium)
-        val state = activePhoneState()
-        val gatewayLabel = activeGatewayLabel()
+        Text("Manual state control", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentHeight()) {
                 RadioButton(
-                    selected = state?.reachable == true && !state.infected,
+                    selected = phoneState?.reachable == true && !phoneState.infected,
                     enabled = activeControlBase() != null && !busy,
                     onClick = { setPhoneState(false) }
                 )
@@ -297,28 +282,19 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.wrapContentHeight()) {
                 RadioButton(
-                    selected = state?.reachable == true && state.infected,
+                    selected = phoneState?.reachable == true && phoneState.infected,
                     enabled = activeControlBase() != null && !busy,
                     onClick = { setPhoneState(true) }
                 )
                 Text("Infected")
             }
         }
-        Text(
-            when {
-                state == null -> "Resolving this phone's active TaraSec identity…"
-                !state.reachable -> "$gatewayLabel cannot currently read this phone's TaraSec state"
-                else -> "$gatewayLabel reports this phone ${if (state.infected) "INFECTED" else "CLEAN"} · severity ${state.severity}" +
-                    state.publicIp.takeIf { it.isNotBlank() }?.let { " · identity $it" }.orEmpty()
-            },
-            style = MaterialTheme.typography.bodySmall
-        )
+        Text("Use these controls only for diagnostics; the guided SSH demo is intended to let real hackReport evidence drive the state.", style = MaterialTheme.typography.bodySmall)
 
         if (showDebugInfo) {
-            localPhoneState?.let { debugStatus("Local phone identity", it) }
-            vpnGatewayState?.let { debugStatus(selectedGatewayName, it) }
-            vpnPhoneState?.let { debugStatus("VPN phone identity", it) }
-            receiverState?.let { debugStatus(discoveredName, it) }
+            localPhoneState?.let { Text("Local status: ${it.rawJson}", style = MaterialTheme.typography.bodySmall) }
+            vpnPhoneState?.let { Text("VPN phone status: ${it.rawJson}", style = MaterialTheme.typography.bodySmall) }
+            receiverState?.let { Text("Receiver status: ${it.rawJson}", style = MaterialTheme.typography.bodySmall) }
         }
 
         Button(enabled = !busy, onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) {
