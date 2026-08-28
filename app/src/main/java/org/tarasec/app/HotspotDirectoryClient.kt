@@ -22,20 +22,36 @@ object HotspotDirectoryClient {
         val suffix = country?.trim()?.takeIf { it.isNotEmpty() }?.let {
             "?country=" + URLEncoder.encode(it.uppercase(), Charsets.UTF_8.name())
         }.orEmpty()
-        val connection = URL(baseUrl.trimEnd('/') + "/v1/directory" + suffix)
-            .openConnection() as HttpURLConnection
+        val endpoint = baseUrl.trimEnd('/') + "/v1/directory" + suffix
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
         return try {
             connection.connectTimeout = 5000
             connection.readTimeout = 7000
             connection.useCaches = false
             connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+
             val code = connection.responseCode
             val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val json = JSONObject(body.ifBlank { "{}" })
+            val trimmed = body.trim()
+
+            if (!trimmed.startsWith("{")) {
+                val kind = if (trimmed.startsWith("<!doctype", true) || trimmed.startsWith("<html", true)) {
+                    "an HTML page"
+                } else {
+                    "a non-JSON response"
+                }
+                throw IllegalStateException("TaraSec directory endpoint returned $kind (HTTP $code). Nearby Wi-Fi discovery does not depend on this service.")
+            }
+
+            val json = runCatching { JSONObject(trimmed) }.getOrElse {
+                throw IllegalStateException("TaraSec directory returned invalid JSON (HTTP $code).")
+            }
             if (code !in 200..299 || !json.optBoolean("ok", false)) {
                 throw IllegalStateException(json.optString("error", "Directory HTTP $code"))
             }
+
             val array = json.optJSONArray("hotspots") ?: return emptyList()
             buildList {
                 for (i in 0 until array.length()) {
