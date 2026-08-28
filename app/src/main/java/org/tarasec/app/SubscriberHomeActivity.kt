@@ -1,10 +1,12 @@
 package org.tarasec.app
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
+import androidx.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class SubscriberHomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,14 +58,16 @@ private fun SubscriberHome(openConsole: () -> Unit) {
     val activity = androidx.compose.ui.platform.LocalContext.current as ComponentActivity
     var role by remember { mutableStateOf(AppRoleStore.load(activity)) }
     var hotspots by remember { mutableStateOf<List<DirectoryHotspot>>(emptyList()) }
-    var directoryStatus by remember { mutableStateOf("Finding TaraSec hotspots...") }
+    var directoryStatus by remember { mutableStateOf("Loading published TaraSec hotspots...") }
+    var connectedStatus by remember { mutableStateOf("Not checked") }
     var loading by remember { mutableStateOf(false) }
+    var detectingConnected by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
     fun refreshDirectory() {
         if (loading) return
         loading = true
-        directoryStatus = "Finding TaraSec hotspots..."
+        directoryStatus = "Loading published TaraSec hotspots..."
         Thread {
             try {
                 val result = HotspotDirectoryClient.list()
@@ -68,8 +75,8 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                     hotspots = result
                     directoryStatus = when {
                         result.isEmpty() -> "No participating hotspots are published yet."
-                        result.size == 1 -> "1 participating hotspot found."
-                        else -> "${result.size} participating hotspots found."
+                        result.size == 1 -> "1 published TaraSec hotspot found."
+                        else -> "${result.size} published TaraSec hotspots found."
                     }
                     loading = false
                 }
@@ -78,6 +85,65 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                     directoryStatus = "Hotspot directory unavailable: ${e.message ?: e.javaClass.simpleName}"
                     loading = false
                 }
+            }
+        }.start()
+    }
+
+    fun openNearbyWifi() {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Intent(Settings.Panel.ACTION_WIFI)
+        } else {
+            Intent(Settings.ACTION_WIFI_SETTINGS)
+        }
+        activity.startActivity(intent)
+    }
+
+    fun detectConnectedTaraSec() {
+        if (detectingConnected) return
+        detectingConnected = true
+        connectedStatus = "Checking the currently connected Wi-Fi gateway..."
+        Thread {
+            val base = LocalGateway.baseUrl(activity)
+            if (base == null) {
+                activity.runOnUiThread {
+                    connectedStatus = "No active Wi-Fi gateway detected. Connect to a Wi-Fi network first."
+                    detectingConnected = false
+                }
+                return@Thread
+            }
+
+            var connection: HttpURLConnection? = null
+            try {
+                val endpoint = base.trimEnd('/') + "/script/appNode.php"
+                connection = URL(endpoint).openConnection() as HttpURLConnection
+                connection.connectTimeout = 2500
+                connection.readTimeout = 3500
+                connection.useCaches = false
+                connection.setRequestProperty("Accept", "application/json")
+                val code = connection.responseCode
+                val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                val taraSec = code in 200..299 && json != null &&
+                    (json.optBoolean("ok", false) || json.has("name"))
+                val name = json?.optString("name", "")?.takeIf { it.isNotBlank() }
+
+                activity.runOnUiThread {
+                    connectedStatus = if (taraSec) {
+                        "Connected to TaraSec${name?.let { " gateway: $it" } ?: ""} · $base"
+                    } else {
+                        "Wi-Fi is connected through $base, but that gateway did not identify itself as TaraSec."
+                    }
+                    detectingConnected = false
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    connectedStatus = "Wi-Fi gateway found at $base, but TaraSec could not be confirmed: ${e.message ?: e.javaClass.simpleName}"
+                    detectingConnected = false
+                }
+            } finally {
+                connection?.disconnect()
             }
         }.start()
     }
@@ -102,7 +168,21 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Find TaraSec WiFi") },
+                        text = { Text("Nearby Wi-Fi") },
+                        onClick = {
+                            menuExpanded = false
+                            openNearbyWifi()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Detect connected TaraSec") },
+                        onClick = {
+                            menuExpanded = false
+                            detectConnectedTaraSec()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Browse TaraSec hotspots") },
                         onClick = {
                             menuExpanded = false
                             refreshDirectory()
@@ -148,7 +228,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
 
         Text("Find secure Internet access", style = MaterialTheme.typography.titleLarge)
         Text(
-            "When you are not directly connected to one of your own TaraSec installations, finding a participating hotspot is the main experience.",
+            "Use Nearby Wi-Fi to discover and connect to networks around you. Once connected, TaraSec can verify whether the current gateway is a TaraSec hotspot. The published hotspot directory is a separate Internet service.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -156,9 +236,29 @@ private fun SubscriberHome(openConsole: () -> Unit) {
 
         Button(
             modifier = Modifier.fillMaxWidth(),
+            onClick = { openNearbyWifi() }
+        ) { Text("Find nearby Wi-Fi") }
+
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !detectingConnected,
+            onClick = { detectConnectedTaraSec() }
+        ) { Text(if (detectingConnected) "Checking connected Wi-Fi..." else "Detect connected TaraSec") }
+
+        Text(connectedStatus, style = MaterialTheme.typography.bodySmall)
+
+        HorizontalDivider()
+        Text("Published TaraSec hotspots", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "This list comes from the TaraSec hotspot directory. It does not mean the listed Wi-Fi networks are currently within radio range.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
             enabled = !loading,
             onClick = { refreshDirectory() }
-        ) { Text(if (loading) "Finding hotspots..." else "Find TaraSec WiFi") }
+        ) { Text(if (loading) "Loading directory..." else "Refresh TaraSec hotspot directory") }
 
         Text(directoryStatus)
 
