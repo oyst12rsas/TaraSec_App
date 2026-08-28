@@ -6,7 +6,7 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +24,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +57,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
     val activity = androidx.compose.ui.platform.LocalContext.current as ComponentActivity
     var role by remember { mutableStateOf(AppRoleStore.load(activity)) }
     var hotspots by remember { mutableStateOf<List<DirectoryHotspot>>(emptyList()) }
-    var directoryStatus by remember { mutableStateOf("Loading published TaraSec hotspots...") }
+    var directoryStatus by remember { mutableStateOf("Published hotspot directory not loaded.") }
     var connectedStatus by remember { mutableStateOf("Not checked") }
     var loading by remember { mutableStateOf(false) }
     var detectingConnected by remember { mutableStateOf(false) }
@@ -82,7 +81,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
-                    directoryStatus = "Hotspot directory unavailable: ${e.message ?: e.javaClass.simpleName}"
+                    directoryStatus = e.message ?: "Published hotspot directory unavailable"
                     loading = false
                 }
             }
@@ -148,8 +147,6 @@ private fun SubscriberHome(openConsole: () -> Unit) {
         }.start()
     }
 
-    LaunchedEffect(Unit) { refreshDirectory() }
-
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -168,7 +165,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Nearby Wi-Fi") },
+                        text = { Text("Find nearby Wi-Fi") },
                         onClick = {
                             menuExpanded = false
                             openNearbyWifi()
@@ -182,7 +179,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Browse TaraSec hotspots") },
+                        text = { Text("Browse published TaraSec hotspots") },
                         onClick = {
                             menuExpanded = false
                             refreshDirectory()
@@ -228,7 +225,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
 
         Text("Find secure Internet access", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Use Nearby Wi-Fi to discover and connect to networks around you. Once connected, TaraSec can verify whether the current gateway is a TaraSec hotspot. The published hotspot directory is a separate Internet service.",
+            "Find nearby Wi-Fi opens Android's local network chooser. After you connect, use Detect connected TaraSec to verify the gateway. The published hotspot directory is a separate Internet service.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -250,7 +247,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
         HorizontalDivider()
         Text("Published TaraSec hotspots", style = MaterialTheme.typography.titleMedium)
         Text(
-            "This list comes from the TaraSec hotspot directory. It does not mean the listed Wi-Fi networks are currently within radio range.",
+            "Optional global directory. It is not used for finding Wi-Fi networks that are physically nearby.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -258,9 +255,9 @@ private fun SubscriberHome(openConsole: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             enabled = !loading,
             onClick = { refreshDirectory() }
-        ) { Text(if (loading) "Loading directory..." else "Refresh TaraSec hotspot directory") }
+        ) { Text(if (loading) "Loading directory..." else "Browse published TaraSec hotspots") }
 
-        Text(directoryStatus)
+        Text(directoryStatus, style = MaterialTheme.typography.bodySmall)
 
         hotspots.forEach { hotspot ->
             Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
