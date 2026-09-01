@@ -22,11 +22,20 @@ data class SubscriberUsage(
     val chargedCredits: String
 )
 
+data class SubscriberCreditFacility(
+    val status: String,
+    val creditLimitCredits: String,
+    val debtCredits: String,
+    val availableCredit: String,
+    val drawEnabled: Boolean
+)
+
 data class SubscriberAccount(
     val customerId: Long,
     val email: String?,
     val phone: String?,
     val balanceCredits: String,
+    val creditFacility: SubscriberCreditFacility,
     val paymentEnabled: Boolean,
     val usages: List<SubscriberUsage>
 )
@@ -75,14 +84,34 @@ object SubscriberAccountClient {
                 }
             }
         }
+        val facilityJson = json.optJSONObject("credit_facility")
+        val facility = SubscriberCreditFacility(
+            status = facilityJson?.optString("status", "disabled") ?: "disabled",
+            creditLimitCredits = facilityJson?.optString("credit_limit_credits", "0") ?: "0",
+            debtCredits = facilityJson?.optString("debt_credits", "0") ?: "0",
+            availableCredit = facilityJson?.optString("available_credit", "0") ?: "0",
+            drawEnabled = facilityJson?.optBoolean("draw_enabled", false) == true
+        )
         return SubscriberAccount(
             customerId = json.optLong("customer_id"),
             email = json.optString("email").takeIf { it.isNotBlank() && it != "null" },
             phone = json.optString("phone").takeIf { it.isNotBlank() && it != "null" },
             balanceCredits = json.optString("balance_credits", "0"),
+            creditFacility = facility,
             paymentEnabled = json.optJSONObject("payment")?.optBoolean("enabled", false) == true,
             usages = usages
         )
+    }
+
+    fun drawCredit(context: Context, amountCredits: String): SubscriberAccount {
+        val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
+        request(
+            "/subscriber-credit-draw.php",
+            "POST",
+            form("amount_credits" to amountCredits.trim()),
+            token
+        )
+        return account(context)
     }
 
     private fun request(path: String, method: String, body: String?, token: String?): JSONObject {
