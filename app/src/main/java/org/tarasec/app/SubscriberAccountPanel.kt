@@ -29,6 +29,7 @@ fun SubscriberAccountPanel(context: Context) {
     var account by remember { mutableStateOf<SubscriberAccount?>(null) }
     var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var creditAmount by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Not signed in to a global TaraSec account.") }
     var loading by remember { mutableStateOf(false) }
 
@@ -46,9 +47,7 @@ fun SubscriberAccountPanel(context: Context) {
                 }
             } catch (e: Exception) {
                 (context as? android.app.Activity)?.runOnUiThread {
-                    if (SubscriberAccountClient.storedToken(context) != null) {
-                        SubscriberAccountClient.clearToken(context)
-                    }
+                    if (SubscriberAccountClient.storedToken(context) != null) SubscriberAccountClient.clearToken(context)
                     account = null
                     status = e.message ?: "Unable to load TaraSec account"
                     loading = false
@@ -80,6 +79,28 @@ fun SubscriberAccountPanel(context: Context) {
         }.start()
     }
 
+    fun drawCredit() {
+        if (loading || creditAmount.isBlank()) return
+        loading = true
+        status = "Adding approved TaraSec credit..."
+        Thread {
+            try {
+                val loaded = SubscriberAccountClient.drawCredit(context, creditAmount)
+                (context as? android.app.Activity)?.runOnUiThread {
+                    account = loaded
+                    creditAmount = ""
+                    status = "TaraSec credit added to your spendable balance."
+                    loading = false
+                }
+            } catch (e: Exception) {
+                (context as? android.app.Activity)?.runOnUiThread {
+                    status = e.message ?: "Unable to use TaraSec credit"
+                    loading = false
+                }
+            }
+        }.start()
+    }
+
     LaunchedEffect(Unit) {
         if (SubscriberAccountClient.storedToken(context) != null) refresh()
     }
@@ -88,65 +109,59 @@ fun SubscriberAccountPanel(context: Context) {
         Text("My TaraSec account", style = MaterialTheme.typography.titleMedium)
 
         if (account == null) {
-            Text(
-                "Use your email address or phone number for the global TaraSec account. Local hotspot usernames remain separate.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = identifier,
-                onValueChange = { identifier = it },
-                singleLine = true,
-                label = { Text("Email or phone") }
-            )
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = password,
-                onValueChange = { password = it },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                label = { Text("Password") }
-            )
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !loading && identifier.isNotBlank() && password.isNotBlank(),
-                onClick = { login() }
-            ) { Text(if (loading) "Signing in..." else "Sign in to TaraSec") }
+            Text("Use your email address or phone number for the global TaraSec account. Local hotspot usernames remain separate.", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = identifier, onValueChange = { identifier = it }, singleLine = true, label = { Text("Email or phone") })
+            OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = password, onValueChange = { password = it }, singleLine = true, visualTransformation = PasswordVisualTransformation(), label = { Text("Password") })
+            Button(modifier = Modifier.fillMaxWidth(), enabled = !loading && identifier.isNotBlank() && password.isNotBlank(), onClick = { login() }) {
+                Text(if (loading) "Signing in..." else "Sign in to TaraSec")
+            }
         } else {
-            Text(account!!.email ?: account!!.phone ?: "TaraSec subscriber")
+            val a = account!!
+            Text(a.email ?: a.phone ?: "TaraSec subscriber")
             Text("Balance", style = MaterialTheme.typography.labelLarge)
-            Text("${account!!.balanceCredits} credits", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "Credits are global. The amount of data they buy depends on the price of the hotspot you use.",
-                style = MaterialTheme.typography.bodySmall
-            )
+            Text("${a.balanceCredits} credits", style = MaterialTheme.typography.headlineMedium)
+            Text("Credits are global. The amount of data they buy depends on the price of the hotspot you use.", style = MaterialTheme.typography.bodySmall)
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(modifier = Modifier.weight(1f), enabled = !loading, onClick = { refresh() }) {
-                    Text("Refresh")
-                }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        SubscriberAccountClient.clearToken(context)
-                        account = null
-                        status = "Signed out."
-                    }
-                ) { Text("Sign out") }
+            if (a.creditFacility.status == "active") {
+                HorizontalDivider()
+                Text("TaraSec credit", style = MaterialTheme.typography.titleMedium)
+                Text("Credit limit: ${a.creditFacility.creditLimitCredits} credits")
+                Text("Outstanding: ${a.creditFacility.debtCredits} credits")
+                Text("Available to borrow: ${a.creditFacility.availableCredit} credits")
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = creditAmount,
+                    onValueChange = { creditAmount = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                    singleLine = true,
+                    label = { Text("Credits to add") }
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loading && a.creditFacility.drawEnabled && creditAmount.toDoubleOrNull()?.let { it > 0 } == true,
+                    onClick = { drawCredit() }
+                ) { Text("Add credits using TaraSec credit") }
+                Text("Borrowed credits increase your outstanding TaraSec debt. The hotspot operator is still paid from the normal serving-hotspot accounting.", style = MaterialTheme.typography.bodySmall)
             }
 
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = account!!.paymentEnabled,
-                onClick = { }
-            ) { Text(if (account!!.paymentEnabled) "Add credits / Pay" else "Payments coming next") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(modifier = Modifier.weight(1f), enabled = !loading, onClick = { refresh() }) { Text("Refresh") }
+                OutlinedButton(modifier = Modifier.weight(1f), onClick = {
+                    SubscriberAccountClient.clearToken(context)
+                    account = null
+                    status = "Signed out."
+                }) { Text("Sign out") }
+            }
+
+            Button(modifier = Modifier.fillMaxWidth(), enabled = a.paymentEnabled, onClick = { }) {
+                Text(if (a.paymentEnabled) "Add credits / Pay" else "Payments coming next")
+            }
 
             HorizontalDivider()
             Text("Recent hotspot usage", style = MaterialTheme.typography.titleMedium)
-            if (account!!.usages.isEmpty()) {
+            if (a.usages.isEmpty()) {
                 Text("No TaraSec hotspot usage recorded yet.", style = MaterialTheme.typography.bodySmall)
             } else {
-                account!!.usages.forEach { usage ->
+                a.usages.forEach { usage ->
                     Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             val place = usage.countryCode?.let { " · $it" }.orEmpty()
