@@ -316,8 +316,7 @@ private fun SubscriberHome(openConsole: () -> Unit) {
         }
 
         HorizontalDivider()
-        Text("My access", style = MaterialTheme.typography.titleMedium)
-        Text("Subscription, payment and cross-hotspot access will appear here as the central subscriber account is connected to the app.")
+        SubscriberAccountPanel(activity)
 
         HorizontalDivider()
         Text("TaraSec Security", style = MaterialTheme.typography.titleMedium)
