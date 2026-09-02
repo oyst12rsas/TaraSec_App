@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SubscriberAccountView: View {
+    @Environment(\.openURL) private var openURL
     @StateObject private var client = SubscriberAccountClient.shared
     @State private var identifier = ""
     @State private var password = ""
@@ -48,6 +49,14 @@ struct SubscriberAccountView: View {
                     }
                 } else {
                     Section("Global TaraSec sign in") {
+                        Text("Sign in with a global identity. This grants subscriber access only; node-management approval remains local.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Continue with Google") { startIdentityLogin("google") }
+                            .disabled(loading)
+                        Button("Continue with Facebook") { startIdentityLogin("facebook") }
+                            .disabled(loading)
+                        Text("Or use an existing TaraSec password").font(.caption)
                         TextField("Email or phone", text: $identifier)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.emailAddress)
@@ -56,9 +65,6 @@ struct SubscriberAccountView: View {
                             Task { await login() }
                         }
                         .disabled(loading || identifier.isEmpty || password.isEmpty)
-                        Text("Email or phone identifies the global TaraSec account. Local hotspot usernames remain separate.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -72,6 +78,31 @@ struct SubscriberAccountView: View {
                     await refresh()
                 }
             }
+            .onOpenURL { url in
+                guard url.scheme == "tarasec", url.host == "identity",
+                      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                      let code = components.queryItems?.first(where: { $0.name == "code" })?.value else { return }
+                Task { await exchangeIdentityCode(code) }
+            }
+        }
+    }
+
+    private func startIdentityLogin(_ provider: String) {
+        do {
+            openURL(try client.identityLoginURL(provider: provider))
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    private func exchangeIdentityCode(_ code: String) async {
+        loading = true
+        defer { loading = false }
+        do {
+            try await client.exchangeIdentityCode(code)
+            status = "Signed in to global TaraSec account."
+        } catch {
+            status = error.localizedDescription
         }
     }
 

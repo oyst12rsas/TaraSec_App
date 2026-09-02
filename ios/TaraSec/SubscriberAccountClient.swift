@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import UIKit
 
 struct SubscriberUsage: Identifiable, Decodable {
     let sessionId: Int
@@ -79,6 +80,40 @@ final class SubscriberAccountClient: ObservableObject {
     private let keychainAccount = "global-subscriber-token"
 
     @Published var account: SubscriberAccount?
+
+    func identityLoginURL(provider: String) throws -> URL {
+        guard provider == "google" || provider == "facebook" else {
+            throw SubscriberAPIError.service("Unsupported identity provider")
+        }
+        var components = URLComponents(url: baseURL.appendingPathComponent("identity-start.php"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "provider", value: provider),
+            URLQueryItem(name: "app_redirect", value: "tarasec://identity")
+        ]
+        guard let url = components.url else { throw SubscriberAPIError.invalidResponse }
+        return url
+    }
+
+    func exchangeIdentityCode(_ code: String) async throws {
+        guard let deviceKey = UIDevice.current.identifierForVendor?.uuidString.lowercased() else {
+            throw SubscriberAPIError.service("iPhone device identity is unavailable")
+        }
+        var request = URLRequest(url: baseURL.appendingPathComponent("identity-exchange.php"))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        let body = [
+            "code": code,
+            "device_key": deviceKey,
+            "device_label": "iPhone"
+        ].map { key, value in
+            "\(formEncode(key))=\(formEncode(value))"
+        }.joined(separator: "&")
+        request.httpBody = body.data(using: .utf8)
+        let data = try await perform(request)
+        let response = try JSONDecoder().decode(LoginResponse.self, from: data)
+        try saveToken(response.token)
+        try await refresh()
+    }
 
     func login(identifier: String, password: String) async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("subscriber-login.php"))

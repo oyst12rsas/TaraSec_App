@@ -38,12 +38,17 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class SubscriberHomeActivity : ComponentActivity() {
+    private var identityCode by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        captureIdentityCode(intent)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     SubscriberHome(
+                        identityCode = identityCode,
+                        identityCodeConsumed = { identityCode = null },
                         openConsole = {
                             AppRoleStore.save(this, AppRole.HOTSPOT_OWNER)
                             startActivity(Intent(this, MainActivity::class.java))
@@ -51,6 +56,19 @@ class SubscriberHomeActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureIdentityCode(intent)
+    }
+
+    private fun captureIdentityCode(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "tarasec" && uri.host == "identity") {
+            identityCode = uri.getQueryParameter("code")
         }
     }
 }
@@ -67,7 +85,11 @@ private fun vpnIsActive(context: Context): Boolean {
 }
 
 @androidx.compose.runtime.Composable
-private fun SubscriberHome(openConsole: () -> Unit) {
+private fun SubscriberHome(
+    identityCode: String?,
+    identityCodeConsumed: () -> Unit,
+    openConsole: () -> Unit
+) {
     val activity = androidx.compose.ui.platform.LocalContext.current as ComponentActivity
     var role by remember { mutableStateOf(AppRoleStore.load(activity)) }
     var hotspots by remember { mutableStateOf<List<DirectoryHotspot>>(emptyList()) }
@@ -316,7 +338,11 @@ private fun SubscriberHome(openConsole: () -> Unit) {
         }
 
         HorizontalDivider()
-        SubscriberAccountPanel(activity)
+        SubscriberAccountPanel(
+            context = activity,
+            identityCode = identityCode,
+            identityCodeConsumed = identityCodeConsumed
+        )
 
         HorizontalDivider()
         Text("TaraSec Security", style = MaterialTheme.typography.titleMedium)

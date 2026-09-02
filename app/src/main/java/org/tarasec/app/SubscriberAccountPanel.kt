@@ -1,6 +1,8 @@
 package org.tarasec.app
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +27,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SubscriberAccountPanel(context: Context) {
+fun SubscriberAccountPanel(
+    context: Context,
+    identityCode: String? = null,
+    identityCodeConsumed: () -> Unit = {}
+) {
     var account by remember { mutableStateOf<SubscriberAccount?>(null) }
     var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -102,14 +108,54 @@ fun SubscriberAccountPanel(context: Context) {
     }
 
     LaunchedEffect(Unit) {
-        if (SubscriberAccountClient.storedToken(context) != null) refresh()
+        if (identityCode == null && SubscriberAccountClient.storedToken(context) != null) refresh()
+    }
+
+    LaunchedEffect(identityCode) {
+        val code = identityCode?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (loading) return@LaunchedEffect
+        identityCodeConsumed()
+        loading = true
+        status = "Completing global TaraSec sign-in..."
+        Thread {
+            try {
+                val loaded = SubscriberAccountClient.exchangeIdentityCode(context, code)
+                (context as? android.app.Activity)?.runOnUiThread {
+                    account = loaded
+                    status = "Signed in to global TaraSec account."
+                    loading = false
+                }
+            } catch (e: Exception) {
+                (context as? android.app.Activity)?.runOnUiThread {
+                    account = null
+                    status = e.message ?: "TaraSec identity sign-in failed"
+                    loading = false
+                }
+            }
+        }.start()
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("My TaraSec account", style = MaterialTheme.typography.titleMedium)
 
         if (account == null) {
-            Text("Use your email address or phone number for the global TaraSec account. Local hotspot usernames remain separate.", style = MaterialTheme.typography.bodySmall)
+            Text("Sign in with a global identity. This grants subscriber access only; node-management approval remains local.", style = MaterialTheme.typography.bodySmall)
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SubscriberAccountClient.identityLoginUrl("google"))))
+                }
+            ) { Text("Continue with Google") }
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SubscriberAccountClient.identityLoginUrl("facebook"))))
+                }
+            ) { Text("Continue with Facebook") }
+            HorizontalDivider()
+            Text("Or use an existing TaraSec password", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = identifier, onValueChange = { identifier = it }, singleLine = true, label = { Text("Email or phone") })
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = password, onValueChange = { password = it }, singleLine = true, visualTransformation = PasswordVisualTransformation(), label = { Text("Password") })
             Button(modifier = Modifier.fillMaxWidth(), enabled = !loading && identifier.isNotBlank() && password.isNotBlank(), onClick = { login() }) {

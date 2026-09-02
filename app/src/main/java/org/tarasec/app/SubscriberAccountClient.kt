@@ -2,6 +2,7 @@ package org.tarasec.app
 
 import android.content.Context
 import android.os.Build
+import android.provider.Settings
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -45,6 +46,29 @@ object SubscriberAccountClient {
 
     fun clearToken(context: Context) {
         SecureCredentialStore.remove(context, SUBSCRIBER_TOKEN_KEY)
+    }
+
+    fun identityLoginUrl(provider: String): String {
+        val normalized = provider.lowercase()
+        require(normalized == "google" || normalized == "facebook") { "Unsupported identity provider" }
+        return SUBSCRIBER_API_BASE + "/identity-start.php?provider=" +
+            URLEncoder.encode(normalized, "UTF-8") + "&app_redirect=" +
+            URLEncoder.encode("tarasec://identity", "UTF-8")
+    }
+
+    fun exchangeIdentityCode(context: Context, code: String): SubscriberAccount {
+        val deviceKey = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            ?: throw IllegalStateException("Android device identity is unavailable")
+        val body = form(
+            "code" to code.trim(),
+            "device_key" to deviceKey.lowercase(),
+            "device_label" to "Android ${Build.MODEL}"
+        )
+        val json = request("/identity-exchange.php", "POST", body, null)
+        val token = json.optString("token")
+        if (token.isBlank()) throw IllegalStateException("TaraSec identity exchange did not return a subscriber token")
+        SecureCredentialStore.put(context, SUBSCRIBER_TOKEN_KEY, token)
+        return account(context)
     }
 
     fun login(context: Context, identifier: String, password: String): SubscriberAccount {

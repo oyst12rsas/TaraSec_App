@@ -15,7 +15,15 @@
             android:exported="false" />
         <activity
             android:name=".SubscriberHomeActivity"
-            android:exported="false" />
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tarasec" android:host="identity" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".SecureLauncherActivity"
             android:exported="true">
