@@ -8,7 +8,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-private const val SUBSCRIBER_API_BASE = "https://tarasec.org/hotspot/opennds"
+private const val SUBSCRIBER_API_BASE = "https://tarasec.org/api/v1/subscriber"
+private const val IDENTITY_API_BASE = "https://tarasec.org/api/v1/identity"
 private const val SUBSCRIBER_TOKEN_KEY = "global-subscriber-token"
 
 data class SubscriberUsage(
@@ -51,7 +52,7 @@ object SubscriberAccountClient {
     fun identityLoginUrl(provider: String): String {
         val normalized = provider.lowercase()
         require(normalized == "google" || normalized == "facebook") { "Unsupported identity provider" }
-        return SUBSCRIBER_API_BASE + "/identity-start.php?provider=" +
+        return IDENTITY_API_BASE + "/identity-start.php?provider=" +
             URLEncoder.encode(normalized, "UTF-8") + "&app_redirect=" +
             URLEncoder.encode("tarasec://identity", "UTF-8")
     }
@@ -64,7 +65,7 @@ object SubscriberAccountClient {
             "device_key" to deviceKey.lowercase(),
             "device_label" to "Android ${Build.MODEL}"
         )
-        val json = request("/identity-exchange.php", "POST", body, null)
+        val json = requestAbsolute(IDENTITY_API_BASE + "/identity-exchange.php", "POST", body, null)
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec identity exchange did not return a subscriber token")
         SecureCredentialStore.put(context, SUBSCRIBER_TOKEN_KEY, token)
@@ -138,8 +139,11 @@ object SubscriberAccountClient {
         return account(context)
     }
 
-    private fun request(path: String, method: String, body: String?, token: String?): JSONObject {
-        val connection = URL(SUBSCRIBER_API_BASE + path).openConnection() as HttpURLConnection
+    private fun request(path: String, method: String, body: String?, token: String?): JSONObject =
+        requestAbsolute(SUBSCRIBER_API_BASE + path, method, body, token)
+
+    private fun requestAbsolute(url: String, method: String, body: String?, token: String?): JSONObject {
+        val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = method
             connection.connectTimeout = 5000

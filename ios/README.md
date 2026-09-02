@@ -21,4 +21,4 @@ The shared endpoints are:
 - `subscriber-login.php`
 - `subscriber-account.php`
 
-Both default to `https://tarasec.org/hotspot/opennds`.
+Subscriber endpoints use `https://tarasec.org/api/v1/subscriber`; Google/Facebook identity endpoints use `https://tarasec.org/api/v1/identity`. The `/hotspot` path remains reserved for node-local administration and captive portal pages.

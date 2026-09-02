@@ -75,7 +75,8 @@ enum SubscriberAPIError: LocalizedError {
 @MainActor
 final class SubscriberAccountClient: ObservableObject {
     static let shared = SubscriberAccountClient()
-    private let baseURL = URL(string: "https://tarasec.org/hotspot/opennds")!
+    private let subscriberBaseURL = URL(string: "https://tarasec.org/api/v1/subscriber")!
+    private let identityBaseURL = URL(string: "https://tarasec.org/api/v1/identity")!
     private let keychainService = "org.tarasec.app.subscriber"
     private let keychainAccount = "global-subscriber-token"
 
@@ -85,7 +86,7 @@ final class SubscriberAccountClient: ObservableObject {
         guard provider == "google" || provider == "facebook" else {
             throw SubscriberAPIError.service("Unsupported identity provider")
         }
-        var components = URLComponents(url: baseURL.appendingPathComponent("identity-start.php"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: identityBaseURL.appendingPathComponent("identity-start.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "provider", value: provider),
             URLQueryItem(name: "app_redirect", value: "tarasec://identity")
@@ -98,7 +99,7 @@ final class SubscriberAccountClient: ObservableObject {
         guard let deviceKey = UIDevice.current.identifierForVendor?.uuidString.lowercased() else {
             throw SubscriberAPIError.service("iPhone device identity is unavailable")
         }
-        var request = URLRequest(url: baseURL.appendingPathComponent("identity-exchange.php"))
+        var request = URLRequest(url: identityBaseURL.appendingPathComponent("identity-exchange.php"))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
         let body = [
@@ -116,7 +117,7 @@ final class SubscriberAccountClient: ObservableObject {
     }
 
     func login(identifier: String, password: String) async throws {
-        var request = URLRequest(url: baseURL.appendingPathComponent("subscriber-login.php"))
+        var request = URLRequest(url: subscriberBaseURL.appendingPathComponent("subscriber-login.php"))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
         let body = [
@@ -136,7 +137,7 @@ final class SubscriberAccountClient: ObservableObject {
 
     func refresh() async throws {
         guard let token = loadToken() else { throw SubscriberAPIError.notSignedIn }
-        var request = URLRequest(url: baseURL.appendingPathComponent("subscriber-account.php"))
+        var request = URLRequest(url: subscriberBaseURL.appendingPathComponent("subscriber-account.php"))
         request.setValue(token, forHTTPHeaderField: "X-TaraSec-Subscriber-Token")
         let data = try await perform(request)
         account = try JSONDecoder().decode(SubscriberAccount.self, from: data)
