@@ -28,14 +28,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 class SubscriberHomeActivity : ComponentActivity() {
     private var identityCode by mutableStateOf<String?>(null)
@@ -47,6 +53,7 @@ class SubscriberHomeActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     SubscriberHome(
+                        initialDestination = intent.getStringExtra(CONSOLE_DESTINATION_EXTRA),
                         identityCode = identityCode,
                         identityCodeConsumed = { identityCode = null },
                         openConsole = { destination ->
@@ -89,6 +96,7 @@ private fun vpnIsActive(context: Context): Boolean {
 
 @androidx.compose.runtime.Composable
 private fun SubscriberHome(
+    initialDestination: String?,
     identityCode: String?,
     identityCodeConsumed: () -> Unit,
     openConsole: (TaraMenuDestination) -> Unit
@@ -100,6 +108,15 @@ private fun SubscriberHome(
     var connectedStatus by remember { mutableStateOf("Not checked") }
     var loading by remember { mutableStateOf(false) }
     var detectingConnected by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    var accountOffset by remember { mutableStateOf(0) }
+
+    LaunchedEffect(initialDestination, accountOffset) {
+        if (initialDestination == TaraMenuDestination.MY_ACCESS.name && accountOffset > 0) {
+            scrollState.animateScrollTo(accountOffset)
+        }
+    }
 
     fun refreshDirectory() {
         if (loading) return
@@ -216,7 +233,7 @@ private fun SubscriberHome(
     }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(scrollState).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(
@@ -226,7 +243,9 @@ private fun SubscriberHome(
             Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
             TaraHamburgerMenu { destination ->
                 when (destination) {
-                    TaraMenuDestination.MY_ACCESS -> Unit
+                    TaraMenuDestination.MY_ACCESS -> {
+                        coroutineScope.launch { scrollState.animateScrollTo(accountOffset) }
+                    }
                     TaraMenuDestination.FIND_INTERNET -> openNearbyWifi()
                     TaraMenuDestination.STATUS_UNITS,
                     TaraMenuDestination.SECURITY_DEMO,
@@ -285,11 +304,17 @@ private fun SubscriberHome(
         }
 
         HorizontalDivider()
-        SubscriberAccountPanel(
-            context = activity,
-            identityCode = identityCode,
-            identityCodeConsumed = identityCodeConsumed
-        )
+        Box(
+            modifier = Modifier.onGloballyPositioned {
+                accountOffset = it.positionInParent().y.roundToInt()
+            }
+        ) {
+            SubscriberAccountPanel(
+                context = activity,
+                identityCode = identityCode,
+                identityCodeConsumed = identityCodeConsumed
+            )
+        }
 
         HorizontalDivider()
         Text("TaraSec Security", style = MaterialTheme.typography.titleMedium)
