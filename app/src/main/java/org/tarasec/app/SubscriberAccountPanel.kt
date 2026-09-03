@@ -3,11 +3,14 @@ package org.tarasec.app
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -21,9 +24,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+
+private enum class AccountAccessLight(val color: Color) {
+    RED(Color(0xFFC62828)),
+    YELLOW(Color(0xFFF9A825)),
+    GREEN(Color(0xFF2E7D32))
+}
 
 @Composable
 fun SubscriberAccountPanel(
@@ -36,18 +48,21 @@ fun SubscriberAccountPanel(
     var password by remember { mutableStateOf("") }
     var creditAmount by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Not signed in to a global TaraSec account.") }
+    var accessLight by remember { mutableStateOf(AccountAccessLight.RED) }
     var loading by remember { mutableStateOf(false) }
 
     fun refresh() {
         if (loading) return
         loading = true
         status = "Loading TaraSec account..."
+        accessLight = AccountAccessLight.YELLOW
         Thread {
             try {
                 val loaded = SubscriberAccountClient.account(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
                     status = "Signed in to TaraSec, but not yet this hotspot."
+                    accessLight = AccountAccessLight.YELLOW
                     loading = false
                 }
             } catch (e: Exception) {
@@ -55,6 +70,7 @@ fun SubscriberAccountPanel(
                     if (SubscriberAccountClient.storedToken(context) != null) SubscriberAccountClient.clearToken(context)
                     account = null
                     status = e.message ?: "Unable to load TaraSec account"
+                    accessLight = AccountAccessLight.RED
                     loading = false
                 }
             }
@@ -65,6 +81,7 @@ fun SubscriberAccountPanel(
         if (loading || identifier.isBlank() || password.isBlank()) return
         loading = true
         status = "Signing in..."
+        accessLight = AccountAccessLight.YELLOW
         Thread {
             try {
                 val loaded = SubscriberAccountClient.login(context, identifier, password)
@@ -72,12 +89,14 @@ fun SubscriberAccountPanel(
                     account = loaded
                     password = ""
                     status = "Signed in to TaraSec, but not yet this hotspot."
+                    accessLight = AccountAccessLight.YELLOW
                     loading = false
                 }
             } catch (e: Exception) {
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = null
                     status = e.message ?: "TaraSec sign-in failed"
+                    accessLight = AccountAccessLight.RED
                     loading = false
                 }
             }
@@ -110,14 +129,17 @@ fun SubscriberAccountPanel(
         if (loading) return
         loading = true
         status = "Activating this account on the current hotspot..."
+        accessLight = AccountAccessLight.YELLOW
         Thread {
             try {
                 val result = SubscriberAccountClient.activateCurrentHotspot(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = result.account
                     status = if (result.internetAvailable) {
+                        accessLight = AccountAccessLight.GREEN
                         "This TaraSec account is activated on the current hotspot. Internet access confirmed."
                     } else {
+                        accessLight = AccountAccessLight.RED
                         "This TaraSec account is activated on the current hotspot, but no Internet access was detected."
                     }
                     loading = false
@@ -125,6 +147,7 @@ fun SubscriberAccountPanel(
             } catch (e: Exception) {
                 (context as? android.app.Activity)?.runOnUiThread {
                     status = e.message ?: "Unable to activate the current hotspot"
+                    accessLight = AccountAccessLight.RED
                     loading = false
                 }
             }
@@ -141,18 +164,21 @@ fun SubscriberAccountPanel(
         identityCodeConsumed()
         loading = true
         status = "Completing global TaraSec sign-in..."
+        accessLight = AccountAccessLight.YELLOW
         Thread {
             try {
                 val loaded = SubscriberAccountClient.exchangeIdentityCode(context, code)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
                     status = "Signed in to TaraSec, but not yet this hotspot."
+                    accessLight = AccountAccessLight.YELLOW
                     loading = false
                 }
             } catch (e: Exception) {
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = null
                     status = e.message ?: "TaraSec identity sign-in failed"
+                    accessLight = AccountAccessLight.RED
                     loading = false
                 }
             }
@@ -227,6 +253,7 @@ fun SubscriberAccountPanel(
                     SubscriberAccountClient.clearToken(context)
                     account = null
                     status = "Signed out."
+                    accessLight = AccountAccessLight.RED
                 }) { Text("Sign out") }
             }
 
@@ -254,6 +281,17 @@ fun SubscriberAccountPanel(
             }
         }
 
-        Text(status, style = MaterialTheme.typography.bodySmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(14.dp)
+                    .background(accessLight.color, CircleShape)
+            )
+            Text(status, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
