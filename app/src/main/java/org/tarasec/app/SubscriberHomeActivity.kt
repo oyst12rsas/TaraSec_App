@@ -250,6 +250,7 @@ private fun SubscriberHome(
                     TaraMenuDestination.STATUS_UNITS,
                     TaraMenuDestination.SECURITY_DEMO,
                     TaraMenuDestination.AI_ASSISTANCE,
+                    TaraMenuDestination.RESEARCH,
                     TaraMenuDestination.SETUP_HOTSPOTS -> openConsole(destination)
                 }
             }
