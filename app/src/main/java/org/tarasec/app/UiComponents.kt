@@ -76,6 +76,7 @@ enum class TaraMenuDestination {
     STATUS_UNITS,
     SECURITY_DEMO,
     AI_ASSISTANCE,
+    RESEARCH,
     SETUP_HOTSPOTS
 }
 
@@ -87,6 +88,7 @@ private val taraMenuItems = listOf(
     TaraMenuDestination.STATUS_UNITS to "Status / Units",
     TaraMenuDestination.SECURITY_DEMO to "Security Demo",
     TaraMenuDestination.AI_ASSISTANCE to "AI / Assistance",
+    TaraMenuDestination.RESEARCH to "Research",
     TaraMenuDestination.SETUP_HOTSPOTS to "Setup / My hotspots"
 )
 
