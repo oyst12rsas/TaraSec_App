@@ -164,30 +164,50 @@ object SubscriberAccountClient {
     }
 
     private fun waitForWifiInternet(context: Context): Boolean {
+        repeat(6) { attempt ->
+            if (checkWifiInternet(context)) return true
+            if (attempt < 5) Thread.sleep(2000)
+        }
+        return false
+    }
+
+    fun checkWifiInternet(context: Context): Boolean {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return false
-        val wifi = connectivity.allNetworks.firstOrNull { network ->
+        val wifi = connectivity.activeNetwork?.takeIf { network ->
+            connectivity.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        } ?: connectivity.allNetworks.firstOrNull { network ->
             connectivity.getNetworkCapabilities(network)
                 ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         } ?: return false
 
-        repeat(4) { attempt ->
+        val capabilities = connectivity.getNetworkCapabilities(wifi)
+        if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
+            return true
+        }
+
+        // HTTPS cannot be replaced by a captive-portal page without failing
+        // certificate validation. Multiple independent destinations avoid a
+        // false negative when one provider's connectivity endpoint is blocked.
+        val probes = listOf(
+            "https://www.google.com/generate_204",
+            "https://www.cloudflare.com/cdn-cgi/trace"
+        )
+        for (probe in probes) {
             var connection: HttpURLConnection? = null
             try {
-                connection = wifi.openConnection(
-                    URL("http://connectivitycheck.gstatic.com/generate_204")
-                ) as HttpURLConnection
+                connection = wifi.openConnection(URL(probe)) as HttpURLConnection
                 connection.instanceFollowRedirects = false
                 connection.connectTimeout = 3000
                 connection.readTimeout = 3000
                 connection.useCaches = false
-                if (connection.responseCode == HttpURLConnection.HTTP_NO_CONTENT) return true
+                if (connection.responseCode in 200..299) return true
             } catch (_: Exception) {
-                // The hotspot may need a few seconds to apply the new authorization.
+                // Try the other independent endpoint.
             } finally {
                 connection?.disconnect()
             }
-            if (attempt < 3) Thread.sleep(2000)
         }
         return false
     }
