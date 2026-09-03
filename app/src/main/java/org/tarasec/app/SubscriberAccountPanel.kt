@@ -60,10 +60,18 @@ fun SubscriberAccountPanel(
         Thread {
             try {
                 val loaded = SubscriberAccountClient.account(context)
+                val internetAvailable = SubscriberAccountClient.checkWifiInternet(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
-                    status = "Signed in to TaraSec, but not yet this hotspot."
-                    accessLight = AccountAccessLight.YELLOW
+                    if (internetAvailable) {
+                        currentHotspotActivated = true
+                        status = "Signed in to TaraSec. Internet access confirmed on the current Wi-Fi."
+                        accessLight = AccountAccessLight.GREEN
+                    } else {
+                        currentHotspotActivated = false
+                        status = "Signed in to TaraSec, but not yet this hotspot."
+                        accessLight = AccountAccessLight.YELLOW
+                    }
                     loading = false
                 }
             } catch (e: Exception) {
