@@ -106,6 +106,27 @@ fun SubscriberAccountPanel(
         }.start()
     }
 
+    fun activateHotspot() {
+        if (loading) return
+        loading = true
+        status = "Activating this account on the connected hotspot..."
+        Thread {
+            try {
+                val loaded = SubscriberAccountClient.activateCurrentHotspot(context)
+                (context as? android.app.Activity)?.runOnUiThread {
+                    account = loaded
+                    status = "This TaraSec account is activated on the connected hotspot."
+                    loading = false
+                }
+            } catch (e: Exception) {
+                (context as? android.app.Activity)?.runOnUiThread {
+                    status = e.message ?: "Unable to activate the connected hotspot"
+                    loading = false
+                }
+            }
+        }.start()
+    }
+
     LaunchedEffect(Unit) {
         if (identityCode == null && SubscriberAccountClient.storedToken(context) != null) refresh()
     }
@@ -166,6 +187,14 @@ fun SubscriberAccountPanel(
             Text("Balance", style = MaterialTheme.typography.labelLarge)
             Text("${a.balanceCredits} credits", style = MaterialTheme.typography.headlineMedium)
             Text("Credits are global. The amount of data they buy depends on the price of the hotspot you use.", style = MaterialTheme.typography.bodySmall)
+
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+                onClick = { activateHotspot() }
+            ) {
+                Text(if (loading) "Activating hotspot..." else "Use this account on connected hotspot")
+            }
 
             if (a.creditFacility.status == "active") {
                 HorizontalDivider()
