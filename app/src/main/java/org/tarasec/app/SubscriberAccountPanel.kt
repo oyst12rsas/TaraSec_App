@@ -47,7 +47,7 @@ fun SubscriberAccountPanel(
                 val loaded = SubscriberAccountClient.account(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
-                    status = "Global TaraSec account connected."
+                    status = "Signed in to TaraSec, but not yet this hotspot."
                     loading = false
                 }
             } catch (e: Exception) {
@@ -71,7 +71,7 @@ fun SubscriberAccountPanel(
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
                     password = ""
-                    status = "Signed in to global TaraSec account."
+                    status = "Signed in to TaraSec, but not yet this hotspot."
                     loading = false
                 }
             } catch (e: Exception) {
@@ -109,18 +109,22 @@ fun SubscriberAccountPanel(
     fun activateHotspot() {
         if (loading) return
         loading = true
-        status = "Activating this account on the connected hotspot..."
+        status = "Activating this account on the current hotspot..."
         Thread {
             try {
-                val loaded = SubscriberAccountClient.activateCurrentHotspot(context)
+                val result = SubscriberAccountClient.activateCurrentHotspot(context)
                 (context as? android.app.Activity)?.runOnUiThread {
-                    account = loaded
-                    status = "This TaraSec account is activated on the connected hotspot."
+                    account = result.account
+                    status = if (result.internetAvailable) {
+                        "This TaraSec account is activated on the current hotspot. Internet access confirmed."
+                    } else {
+                        "This TaraSec account is activated on the current hotspot, but no Internet access was detected."
+                    }
                     loading = false
                 }
             } catch (e: Exception) {
                 (context as? android.app.Activity)?.runOnUiThread {
-                    status = e.message ?: "Unable to activate the connected hotspot"
+                    status = e.message ?: "Unable to activate the current hotspot"
                     loading = false
                 }
             }
@@ -142,7 +146,7 @@ fun SubscriberAccountPanel(
                 val loaded = SubscriberAccountClient.exchangeIdentityCode(context, code)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
-                    status = "Signed in to global TaraSec account."
+                    status = "Signed in to TaraSec, but not yet this hotspot."
                     loading = false
                 }
             } catch (e: Exception) {
@@ -193,7 +197,7 @@ fun SubscriberAccountPanel(
                 enabled = !loading,
                 onClick = { activateHotspot() }
             ) {
-                Text(if (loading) "Activating hotspot..." else "Use this account on connected hotspot")
+                Text(if (loading) "Activating hotspot..." else "Use this account on current hotspot")
             }
 
             if (a.creditFacility.status == "active") {
