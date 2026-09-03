@@ -378,7 +378,10 @@ private fun TaraSecApp(initialDestination: String?) {
                 when (destination) {
                     TaraMenuDestination.MY_ACCESS,
                     TaraMenuDestination.FIND_INTERNET -> {
-                        activity.startActivity(android.content.Intent(activity, SubscriberHomeActivity::class.java))
+                        activity.startActivity(
+                            android.content.Intent(activity, SubscriberHomeActivity::class.java)
+                                .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                        )
                     }
                     TaraMenuDestination.STATUS_UNITS -> page = AppPage.UNITS
                     TaraMenuDestination.SECURITY_DEMO -> page = AppPage.DEMO
