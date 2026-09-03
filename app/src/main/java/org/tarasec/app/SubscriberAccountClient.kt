@@ -128,6 +128,33 @@ object SubscriberAccountClient {
         )
     }
 
+    fun activateCurrentHotspot(context: Context): SubscriberAccount {
+        val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
+        val gatewayBase = LocalGateway.baseUrl(context)
+            ?: throw IllegalStateException("No connected Wi-Fi gateway detected")
+        val gatewayHost = URL(gatewayBase).host
+        if (gatewayHost.isBlank()) throw IllegalStateException("Invalid Wi-Fi gateway")
+        val localBase = "http://$gatewayHost:8080/hotspot"
+        val identity = requestAbsolute("$localBase/tarasec_identity.php", "GET", null, null)
+        val gatewayKey = identity.optString("gateway_key").trim()
+        if (gatewayKey.isBlank()) throw IllegalStateException("This hotspot is not registered for global TaraSec access")
+        val grant = request(
+            "/device-bind-code.php",
+            "POST",
+            form("gateway_key" to gatewayKey),
+            token
+        )
+        val code = grant.optString("code").trim()
+        if (code.isBlank()) throw IllegalStateException("TaraSec did not issue a hotspot activation code")
+        requestAbsolute(
+            "$localBase/portal_global_bind.php",
+            "POST",
+            form("code" to code),
+            null
+        )
+        return account(context)
+    }
+
     fun drawCredit(context: Context, amountCredits: String): SubscriberAccount {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
         request(
