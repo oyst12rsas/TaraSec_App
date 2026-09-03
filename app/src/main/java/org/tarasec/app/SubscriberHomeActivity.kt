@@ -49,9 +49,12 @@ class SubscriberHomeActivity : ComponentActivity() {
                     SubscriberHome(
                         identityCode = identityCode,
                         identityCodeConsumed = { identityCode = null },
-                        openConsole = {
+                        openConsole = { destination ->
                             AppRoleStore.save(this, AppRole.HOTSPOT_OWNER)
-                            startActivity(Intent(this, MainActivity::class.java))
+                            startActivity(
+                                Intent(this, MainActivity::class.java)
+                                    .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                            )
                         }
                     )
                 }
@@ -88,7 +91,7 @@ private fun vpnIsActive(context: Context): Boolean {
 private fun SubscriberHome(
     identityCode: String?,
     identityCodeConsumed: () -> Unit,
-    openConsole: () -> Unit
+    openConsole: (TaraMenuDestination) -> Unit
 ) {
     val activity = androidx.compose.ui.platform.LocalContext.current as ComponentActivity
     var role by remember { mutableStateOf(AppRoleStore.load(activity)) }
@@ -97,7 +100,6 @@ private fun SubscriberHome(
     var connectedStatus by remember { mutableStateOf("Not checked") }
     var loading by remember { mutableStateOf(false) }
     var detectingConnected by remember { mutableStateOf(false) }
-    var menuExpanded by remember { mutableStateOf(false) }
 
     fun refreshDirectory() {
         if (loading) return
@@ -222,69 +224,14 @@ private fun SubscriberHome(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
-            Box {
-                TextButton(onClick = { menuExpanded = true }) {
-                    Text("☰", style = MaterialTheme.typography.headlineSmall)
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Find nearby Wi-Fi") },
-                        onClick = {
-                            menuExpanded = false
-                            openNearbyWifi()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Detect connected TaraSec") },
-                        onClick = {
-                            menuExpanded = false
-                            detectConnectedTaraSec()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Browse published TaraSec hotspots") },
-                        onClick = {
-                            menuExpanded = false
-                            refreshDirectory()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("My access") },
-                        onClick = {
-                            menuExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Status / Units") },
-                        onClick = {
-                            menuExpanded = false
-                            openConsole()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Security Demo") },
-                        onClick = {
-                            menuExpanded = false
-                            openConsole()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("AI / Assistance") },
-                        onClick = {
-                            menuExpanded = false
-                            openConsole()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Setup / My hotspots") },
-                        onClick = {
-                            menuExpanded = false
-                            openConsole()
-                        }
-                    )
+            TaraHamburgerMenu { destination ->
+                when (destination) {
+                    TaraMenuDestination.MY_ACCESS -> Unit
+                    TaraMenuDestination.FIND_INTERNET -> openNearbyWifi()
+                    TaraMenuDestination.STATUS_UNITS,
+                    TaraMenuDestination.SECURITY_DEMO,
+                    TaraMenuDestination.AI_ASSISTANCE,
+                    TaraMenuDestination.SETUP_HOTSPOTS -> openConsole(destination)
                 }
             }
         }
@@ -354,7 +301,7 @@ private fun SubscriberHome(
 
         Button(
             modifier = Modifier.fillMaxWidth(),
-            onClick = openConsole
+            onClick = { openConsole(TaraMenuDestination.STATUS_UNITS) }
         ) { Text("Security / hotspot owner console") }
 
         if (role != AppRole.HOTSPOT_USER) {
