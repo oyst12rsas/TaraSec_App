@@ -30,6 +30,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import java.math.RoundingMode
+
+private fun displayCreditBalance(value: String): String =
+    value.toBigDecimalOrNull()
+        ?.setScale(2, RoundingMode.HALF_UP)
+        ?.stripTrailingZeros()
+        ?.toPlainString()
+        ?: value
 
 private enum class AccountAccessLight(val color: Color) {
     RED(Color(0xFFC62828)),
@@ -245,7 +253,7 @@ fun SubscriberAccountPanel(
             val a = account!!
             Text(a.email ?: a.phone ?: "TaraSec subscriber")
             Text("Balance", style = MaterialTheme.typography.labelLarge)
-            Text("${a.balanceCredits} credits", style = MaterialTheme.typography.headlineMedium)
+            Text("${displayCreditBalance(a.balanceCredits)} credits", style = MaterialTheme.typography.headlineMedium)
             Text("Credits are global. The amount of data they buy depends on the price of the hotspot you use.", style = MaterialTheme.typography.bodySmall)
 
             Button(
