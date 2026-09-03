@@ -1,6 +1,8 @@
 package org.tarasec.app
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.provider.Settings
 import org.json.JSONObject
@@ -40,6 +42,11 @@ data class SubscriberAccount(
     val creditFacility: SubscriberCreditFacility,
     val paymentEnabled: Boolean,
     val usages: List<SubscriberUsage>
+)
+
+data class HotspotActivationResult(
+    val account: SubscriberAccount,
+    val internetAvailable: Boolean
 )
 
 object SubscriberAccountClient {
@@ -128,7 +135,7 @@ object SubscriberAccountClient {
         )
     }
 
-    fun activateCurrentHotspot(context: Context): SubscriberAccount {
+    fun activateCurrentHotspot(context: Context): HotspotActivationResult {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
         val gatewayBase = LocalGateway.baseUrl(context)
             ?: throw IllegalStateException("No connected Wi-Fi gateway detected")
@@ -152,7 +159,37 @@ object SubscriberAccountClient {
             form("code" to code),
             null
         )
-        return account(context)
+        val internetAvailable = waitForWifiInternet(context)
+        return HotspotActivationResult(account(context), internetAvailable)
+    }
+
+    private fun waitForWifiInternet(context: Context): Boolean {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val wifi = connectivity.allNetworks.firstOrNull { network ->
+            connectivity.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        } ?: return false
+
+        repeat(4) { attempt ->
+            var connection: HttpURLConnection? = null
+            try {
+                connection = wifi.openConnection(
+                    URL("http://connectivitycheck.gstatic.com/generate_204")
+                ) as HttpURLConnection
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
+                connection.useCaches = false
+                if (connection.responseCode == HttpURLConnection.HTTP_NO_CONTENT) return true
+            } catch (_: Exception) {
+                // The hotspot may need a few seconds to apply the new authorization.
+            } finally {
+                connection?.disconnect()
+            }
+            if (attempt < 3) Thread.sleep(2000)
+        }
+        return false
     }
 
     fun drawCredit(context: Context, amountCredits: String): SubscriberAccount {
