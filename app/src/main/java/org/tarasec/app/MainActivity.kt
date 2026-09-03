@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppPage { UNITS, DEMO, MANAGER, SETUP }
+private enum class AppPage { UNITS, DEMO, MANAGER, RESEARCH, SETUP }
 
 @androidx.compose.runtime.Composable
 private fun TaraSecApp(initialDestination: String?) {
@@ -66,6 +66,7 @@ private fun TaraSecApp(initialDestination: String?) {
             when (initialDestination) {
                 TaraMenuDestination.SECURITY_DEMO.name -> AppPage.DEMO
                 TaraMenuDestination.AI_ASSISTANCE.name -> AppPage.MANAGER
+                TaraMenuDestination.RESEARCH.name -> AppPage.RESEARCH
                 TaraMenuDestination.SETUP_HOTSPOTS.name -> AppPage.SETUP
                 else -> AppPage.UNITS
             }
@@ -386,6 +387,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     TaraMenuDestination.STATUS_UNITS -> page = AppPage.UNITS
                     TaraMenuDestination.SECURITY_DEMO -> page = AppPage.DEMO
                     TaraMenuDestination.AI_ASSISTANCE -> page = AppPage.MANAGER
+                    TaraMenuDestination.RESEARCH -> page = AppPage.RESEARCH
                     TaraMenuDestination.SETUP_HOTSPOTS -> page = AppPage.SETUP
                 }
             }
@@ -491,6 +493,10 @@ private fun TaraSecApp(initialDestination: String?) {
                         Text("#${item.id} ${item.ip}:${item.port} threshold ${item.threshold} — ${item.deliveryState}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+            }
+
+            AppPage.RESEARCH -> {
+                ResearchPanel(paymentBaseUrl = selectedInstallation?.managementBaseUrl)
             }
 
             AppPage.SETUP -> {
