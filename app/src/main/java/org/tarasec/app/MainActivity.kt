@@ -48,7 +48,9 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) { TaraSecApp() }
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    TaraSecApp(intent.getStringExtra(CONSOLE_DESTINATION_EXTRA))
+                }
             }
         }
     }
@@ -57,10 +59,18 @@ class MainActivity : ComponentActivity() {
 private enum class AppPage { UNITS, DEMO, MANAGER, SETUP }
 
 @androidx.compose.runtime.Composable
-private fun TaraSecApp() {
+private fun TaraSecApp(initialDestination: String?) {
     val activity = LocalContext.current as Activity
-    var page by remember { mutableStateOf(AppPage.UNITS) }
-    var menuExpanded by remember { mutableStateOf(false) }
+    var page by remember {
+        mutableStateOf(
+            when (initialDestination) {
+                TaraMenuDestination.SECURITY_DEMO.name -> AppPage.DEMO
+                TaraMenuDestination.AI_ASSISTANCE.name -> AppPage.MANAGER
+                TaraMenuDestination.SETUP_HOTSPOTS.name -> AppPage.SETUP
+                else -> AppPage.UNITS
+            }
+        )
+    }
 
     var installations by remember { mutableStateOf(InstallationStore.load(activity)) }
     var selectedInstallationId by remember {
@@ -364,30 +374,16 @@ private fun TaraSecApp() {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
-            Box {
-                TextButton(onClick = { menuExpanded = true }) {
-                    Text("☰", style = MaterialTheme.typography.headlineSmall)
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Status / Units") },
-                        onClick = { page = AppPage.UNITS; menuExpanded = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Demo") },
-                        onClick = { page = AppPage.DEMO; menuExpanded = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("AI / Assistance") },
-                        onClick = { page = AppPage.MANAGER; menuExpanded = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Setup") },
-                        onClick = { page = AppPage.SETUP; menuExpanded = false }
-                    )
+            TaraHamburgerMenu { destination ->
+                when (destination) {
+                    TaraMenuDestination.MY_ACCESS,
+                    TaraMenuDestination.FIND_INTERNET -> {
+                        activity.startActivity(android.content.Intent(activity, SubscriberHomeActivity::class.java))
+                    }
+                    TaraMenuDestination.STATUS_UNITS -> page = AppPage.UNITS
+                    TaraMenuDestination.SECURITY_DEMO -> page = AppPage.DEMO
+                    TaraMenuDestination.AI_ASSISTANCE -> page = AppPage.MANAGER
+                    TaraMenuDestination.SETUP_HOTSPOTS -> page = AppPage.SETUP
                 }
             }
         }
