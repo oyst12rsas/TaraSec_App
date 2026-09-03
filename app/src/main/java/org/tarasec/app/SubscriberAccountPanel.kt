@@ -49,6 +49,7 @@ fun SubscriberAccountPanel(
     var creditAmount by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Not signed in to a global TaraSec account.") }
     var accessLight by remember { mutableStateOf(AccountAccessLight.RED) }
+    var currentHotspotActivated by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
 
     fun refresh() {
@@ -59,10 +60,18 @@ fun SubscriberAccountPanel(
         Thread {
             try {
                 val loaded = SubscriberAccountClient.account(context)
+                val internetAvailable = SubscriberAccountClient.checkWifiInternet(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
-                    status = "Signed in to TaraSec, but not yet this hotspot."
-                    accessLight = AccountAccessLight.YELLOW
+                    if (internetAvailable) {
+                        currentHotspotActivated = true
+                        status = "Signed in to TaraSec. Internet access confirmed on the current Wi-Fi."
+                        accessLight = AccountAccessLight.GREEN
+                    } else {
+                        currentHotspotActivated = false
+                        status = "Signed in to TaraSec, but not yet this hotspot."
+                        accessLight = AccountAccessLight.YELLOW
+                    }
                     loading = false
                 }
             } catch (e: Exception) {
@@ -135,6 +144,7 @@ fun SubscriberAccountPanel(
                 val result = SubscriberAccountClient.activateCurrentHotspot(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = result.account
+                    currentHotspotActivated = true
                     status = if (result.internetAvailable) {
                         accessLight = AccountAccessLight.GREEN
                         "This TaraSec account is activated on the current hotspot. Internet access confirmed."
@@ -150,6 +160,26 @@ fun SubscriberAccountPanel(
                     accessLight = AccountAccessLight.RED
                     loading = false
                 }
+            }
+        }.start()
+    }
+
+    fun checkInternetAgain() {
+        if (loading || !currentHotspotActivated) return
+        loading = true
+        status = "Checking Internet access through the current Wi-Fi..."
+        accessLight = AccountAccessLight.YELLOW
+        Thread {
+            val available = SubscriberAccountClient.checkWifiInternet(context)
+            (context as? android.app.Activity)?.runOnUiThread {
+                status = if (available) {
+                    accessLight = AccountAccessLight.GREEN
+                    "This TaraSec account is activated on the current hotspot. Internet access confirmed."
+                } else {
+                    accessLight = AccountAccessLight.RED
+                    "This TaraSec account is activated on the current hotspot, but no Internet access was detected."
+                }
+                loading = false
             }
         }.start()
     }
@@ -226,6 +256,16 @@ fun SubscriberAccountPanel(
                 Text(if (loading) "Activating hotspot..." else "Use this account on current hotspot")
             }
 
+            if (currentHotspotActivated) {
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loading,
+                    onClick = { checkInternetAgain() }
+                ) {
+                    Text(if (loading) "Checking Internet..." else "Check Internet again")
+                }
+            }
+
             if (a.creditFacility.status == "active") {
                 HorizontalDivider()
                 Text("TaraSec credit", style = MaterialTheme.typography.titleMedium)
@@ -252,6 +292,7 @@ fun SubscriberAccountPanel(
                 OutlinedButton(modifier = Modifier.weight(1f), onClick = {
                     SubscriberAccountClient.clearToken(context)
                     account = null
+                    currentHotspotActivated = false
                     status = "Signed out."
                     accessLight = AccountAccessLight.RED
                 }) { Text("Sign out") }
