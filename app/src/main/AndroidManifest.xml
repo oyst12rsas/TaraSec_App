@@ -20,6 +20,9 @@
             android:name=".MainActivity"
             android:exported="false" />
         <activity
+            android:name=".AboutUsActivity"
+            android:exported="false" />
+        <activity
             android:name=".SubscriberHomeActivity"
             android:exported="true"
             android:launchMode="singleTop">
