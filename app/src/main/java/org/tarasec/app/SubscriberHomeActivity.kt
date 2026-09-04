@@ -116,6 +116,7 @@ private fun SubscriberHome(
     var nearbyHotspots by remember { mutableStateOf<List<NearbyTaraSecHotspot>>(emptyList()) }
     var nearbyStatus by remember { mutableStateOf("Nearby TaraSec alternatives not checked.") }
     var scanningNearby by remember { mutableStateOf(false) }
+    var connectedInternetAvailable by remember { mutableStateOf(false) }
     var nearbyPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -196,13 +197,16 @@ private fun SubscriberHome(
         Thread {
             try {
                 val result = HotspotDirectoryClient.nearby(activity, hotspots)
+                val internetAvailable = result.any { it.connected } &&
+                    SubscriberAccountClient.checkWifiInternet(activity)
                 activity.runOnUiThread {
                     nearbyHotspots = result
+                    connectedInternetAvailable = internetAvailable
                     nearbyStatus = when {
                         result.isEmpty() ->
-                            "No alternative TaraSec Wi-Fi signal is visible. Android may require Location to be turned on before Wi-Fi scan results are available."
-                        result.size == 1 -> "1 alternative TaraSec hotspot is visible. The app will not switch networks automatically."
-                        else -> "${result.size} alternative TaraSec hotspots are visible. The app will not switch networks automatically."
+                            "No TaraSec Wi-Fi signal is visible. Android may require Location to be turned on before Wi-Fi scan results are available."
+                        result.size == 1 -> "1 TaraSec hotspot is visible. The app will not switch networks automatically."
+                        else -> "${result.size} TaraSec hotspots are visible. The app will not switch networks automatically."
                     }
                     scanningNearby = false
                 }
@@ -334,8 +338,16 @@ private fun SubscriberHome(
         nearbyHotspots.forEach { candidate ->
             Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(candidate.ssid, style = MaterialTheme.typography.titleMedium)
-                    Text("${candidate.signalLabel} signal · ${candidate.signalDbm} dBm")
+                    val statusDot = when {
+                        candidate.connected && connectedInternetAvailable -> "🟢"
+                        candidate.connected -> "🟡"
+                        else -> "🔴"
+                    }
+                    Text("$statusDot ${candidate.ssid}", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (candidate.connected) "Connected · ${candidate.signalDbm} dBm"
+                        else "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm"
+                    )
                     when {
                         candidate.priceLabel != null ->
                             Text(candidate.priceLabel, style = MaterialTheme.typography.bodySmall)
@@ -345,13 +357,14 @@ private fun SubscriberHome(
                             Text("Price is not published. Verify the price before connecting.", style = MaterialTheme.typography.bodySmall)
                     }
                     Text(
-                        if (candidate.verifiedDirectoryEntry) "Matches a published TaraSec directory entry."
-                        else "Nearby Wi-Fi name only; TaraSec identity must be verified after connecting.",
+                        when {
+                            candidate.connected && connectedInternetAvailable -> "Connected and Internet access is authorized."
+                            candidate.connected -> "Connected to Wi-Fi, but Internet access is not authorized yet."
+                            candidate.verifiedDirectoryEntry -> "Matches a published TaraSec directory entry."
+                            else -> "Nearby Wi-Fi name only; TaraSec identity must be verified after connecting."
+                        },
                         style = MaterialTheme.typography.bodySmall
                     )
-                    OutlinedButton(onClick = { openNearbyWifi() }) {
-                        Text("Open Wi-Fi settings")
-                    }
                 }
             }
         }
