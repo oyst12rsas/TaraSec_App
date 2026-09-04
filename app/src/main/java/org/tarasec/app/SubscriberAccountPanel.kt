@@ -1,8 +1,12 @@
 package org.tarasec.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import java.math.RoundingMode
 
 private fun displayCreditBalance(value: String): String =
@@ -59,6 +64,17 @@ fun SubscriberAccountPanel(
     var accessLight by remember { mutableStateOf(AccountAccessLight.RED) }
     var currentHotspotActivated by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
+    var wifiScanPermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val wifiPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        wifiScanPermissionGranted = granted
+    }
 
     fun refresh() {
         if (loading) return
@@ -68,17 +84,34 @@ fun SubscriberAccountPanel(
         Thread {
             try {
                 val loaded = SubscriberAccountClient.account(context)
-                val internetAvailable = SubscriberAccountClient.checkWifiInternet(context)
+                val taraSecConnected = SubscriberAccountClient.currentWifiIsTaraSecHotspot(context)
+                val internetAvailable = taraSecConnected &&
+                    SubscriberAccountClient.checkWifiInternet(context)
+                val taraSecNearby = !taraSecConnected && wifiScanPermissionGranted &&
+                    SubscriberAccountClient.nearbyTaraSecWifiIsVisible(context)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
-                    if (internetAvailable) {
-                        currentHotspotActivated = true
-                        status = "Signed in to TaraSec. Internet access confirmed on the current Wi-Fi."
-                        accessLight = AccountAccessLight.GREEN
-                    } else {
-                        currentHotspotActivated = false
-                        status = "Signed in to TaraSec, but not yet this hotspot."
-                        accessLight = AccountAccessLight.YELLOW
+                    when {
+                        internetAvailable -> {
+                            currentHotspotActivated = true
+                            status = "Signed in to TaraSec. Internet access confirmed on the current TaraSec hotspot."
+                            accessLight = AccountAccessLight.GREEN
+                        }
+                        taraSecConnected -> {
+                            currentHotspotActivated = false
+                            status = "Signed in to TaraSec, but not yet this hotspot."
+                            accessLight = AccountAccessLight.YELLOW
+                        }
+                        taraSecNearby -> {
+                            currentHotspotActivated = false
+                            status = "A TaraSec hotspot is nearby, but this phone is connected to another Wi-Fi network."
+                            accessLight = AccountAccessLight.YELLOW
+                        }
+                        else -> {
+                            currentHotspotActivated = false
+                            status = "Signed in to TaraSec. The current Wi-Fi is not a TaraSec hotspot."
+                            accessLight = AccountAccessLight.YELLOW
+                        }
                     }
                     loading = false
                 }
@@ -178,18 +211,37 @@ fun SubscriberAccountPanel(
         status = "Checking Internet access through the current Wi-Fi..."
         accessLight = AccountAccessLight.YELLOW
         Thread {
-            val available = SubscriberAccountClient.checkWifiInternet(context)
+            val taraSecConnected = SubscriberAccountClient.currentWifiIsTaraSecHotspot(context)
+            val available = taraSecConnected && SubscriberAccountClient.checkWifiInternet(context)
             (context as? android.app.Activity)?.runOnUiThread {
-                status = if (available) {
-                    accessLight = AccountAccessLight.GREEN
-                    "This TaraSec account is activated on the current hotspot. Internet access confirmed."
-                } else {
-                    accessLight = AccountAccessLight.RED
-                    "This TaraSec account is activated on the current hotspot, but no Internet access was detected."
+                status = when {
+                    available -> {
+                        accessLight = AccountAccessLight.GREEN
+                        "This TaraSec account is activated on the current hotspot. Internet access confirmed."
+                    }
+                    !taraSecConnected -> {
+                        currentHotspotActivated = false
+                        accessLight = AccountAccessLight.YELLOW
+                        "The current Wi-Fi is not a TaraSec hotspot."
+                    }
+                    else -> {
+                        accessLight = AccountAccessLight.RED
+                        "This TaraSec account is activated on the current hotspot, but no Internet access was detected."
+                    }
                 }
                 loading = false
             }
         }.start()
+    }
+
+    LaunchedEffect(account != null) {
+        if (account != null && !wifiScanPermissionGranted) {
+            wifiPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    LaunchedEffect(wifiScanPermissionGranted) {
+        if (wifiScanPermissionGranted && account != null && !loading) refresh()
     }
 
     LaunchedEffect(Unit) {
