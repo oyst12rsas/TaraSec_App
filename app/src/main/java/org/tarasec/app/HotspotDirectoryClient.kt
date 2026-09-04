@@ -29,7 +29,8 @@ data class NearbyTaraSecHotspot(
     val verifiedDirectoryEntry: Boolean,
     val hotspotId: String?,
     val priceCreditsPerMiB: Double?,
-    val priceLabel: String?
+    val priceLabel: String?,
+    val connected: Boolean = false
 )
 
 object HotspotDirectoryClient {
@@ -101,26 +102,28 @@ object HotspotDirectoryClient {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             ?: return emptyList()
         runCatching { wifi.startScan() }
-        val currentBssid = runCatching { wifi.connectionInfo?.bssid.orEmpty() }.getOrDefault("")
+        val connectionInfo = runCatching { wifi.connectionInfo }.getOrNull()
+        val currentBssid = connectionInfo?.bssid.orEmpty()
+        val currentSsid = connectionInfo?.ssid.orEmpty().trim().trim('"')
         val directoryBySsid = directory.mapNotNull { item ->
             item.ssid?.trim()?.takeIf { it.isNotEmpty() }?.let { it.lowercase() to item }
         }.toMap()
 
-        return wifi.scanResults
+        val scanCandidates = wifi.scanResults
             .asSequence()
             .filter { it.SSID.trim().startsWith("TaraSec", ignoreCase = true) }
-            .filter { currentBssid.isBlank() || !it.BSSID.equals(currentBssid, ignoreCase = true) }
             .groupBy { it.BSSID.lowercase() }
             .values
             .mapNotNull { results -> results.maxByOrNull { it.level } }
             .map { result ->
                 val ssid = result.SSID.trim()
                 val published = directoryBySsid[ssid.lowercase()]
+                val isConnected = currentBssid.isNotBlank() && result.BSSID.equals(currentBssid, ignoreCase = true)
                 NearbyTaraSecHotspot(
                     ssid = ssid,
                     bssid = result.BSSID.orEmpty(),
                     signalDbm = result.level,
-                    signalLabel = when {
+                    signalLabel = if (isConnected) "Connected" else when {
                         result.level >= -55 -> "Excellent"
                         result.level >= -67 -> "Good"
                         result.level >= -75 -> "Acceptable"
@@ -129,10 +132,31 @@ object HotspotDirectoryClient {
                     verifiedDirectoryEntry = published != null,
                     hotspotId = published?.id,
                     priceCreditsPerMiB = published?.priceCreditsPerMiB,
-                    priceLabel = published?.priceLabel
+                    priceLabel = published?.priceLabel,
+                    connected = isConnected
                 )
             }
-            .sortedByDescending { it.signalDbm }
-            .toList()
+            .toMutableList()
+
+        // Android can occasionally omit the currently connected AP from scanResults.
+        // Still show it first when its SSID clearly identifies a TaraSec hotspot.
+        val connectedAlreadyPresent = scanCandidates.any { it.connected }
+        if (!connectedAlreadyPresent && currentSsid.startsWith("TaraSec", ignoreCase = true)) {
+            val published = directoryBySsid[currentSsid.lowercase()]
+            scanCandidates += NearbyTaraSecHotspot(
+                ssid = currentSsid,
+                bssid = currentBssid,
+                signalDbm = connectionInfo?.rssi ?: -127,
+                signalLabel = "Connected",
+                verifiedDirectoryEntry = published != null,
+                hotspotId = published?.id,
+                priceCreditsPerMiB = published?.priceCreditsPerMiB,
+                priceLabel = published?.priceLabel,
+                connected = true
+            )
+        }
+
+        return scanCandidates
+            .sortedWith(compareByDescending<NearbyTaraSecHotspot> { it.connected }.thenByDescending { it.signalDbm })
     }
 }
