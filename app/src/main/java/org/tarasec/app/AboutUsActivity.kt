@@ -1,6 +1,7 @@
 package org.tarasec.app
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,28 +35,70 @@ class AboutUsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                Surface(Modifier.fillMaxSize()) { AboutUsMentalHealthScreen() }
+                Surface(Modifier.fillMaxSize()) { AboutUsScreen() }
             }
         }
     }
 }
 
 @androidx.compose.runtime.Composable
-private fun AboutUsMentalHealthScreen() {
+private fun AboutUsScreen() {
+    val activity = LocalContext.current as Activity
+    Column(
+        Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
+            TaraHamburgerMenu { destination ->
+                activity.finish()
+                when (destination) {
+                    TaraMenuDestination.MY_ACCESS,
+                    TaraMenuDestination.FIND_INTERNET -> activity.startActivity(
+                        Intent(activity, SubscriberHomeActivity::class.java)
+                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                    )
+                    else -> activity.startActivity(
+                        Intent(activity, MainActivity::class.java)
+                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                    )
+                }
+            }
+        }
+        Text("About Us", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Taransvar is a Norwegian non-profit developing practical approaches to mental health and safer Internet services.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { activity.startActivity(Intent(activity, MentalHealthChatActivity::class.java)) }
+        ) {
+            Text("Mental Health Chat")
+        }
+    }
+}
+
+class MentalHealthChatActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MaterialTheme {
+                Surface(Modifier.fillMaxSize()) { MentalHealthChatScreen() }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun MentalHealthChatScreen() {
     val activity = LocalContext.current as Activity
     var input by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var chatId by remember { mutableStateOf<String?>(null) }
     var messages by remember {
-        mutableStateOf(
-            listOf(
-                MentalHealthChatMessage(
-                    false,
-                    "Welcome. You can write what is on your mind, and we can talk about it here."
-                )
-            )
-        )
+        mutableStateOf(listOf(MentalHealthChatMessage(false, "Welcome. You can write what is on your mind, and we can talk about it here.")))
     }
     val scroll = rememberScrollState()
 
@@ -63,11 +106,23 @@ private fun AboutUsMentalHealthScreen() {
         Modifier.fillMaxSize().padding(20.dp).verticalScroll(scroll),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("About Us", style = MaterialTheme.typography.headlineLarge)
-        Text(
-            "Taransvar is a Norwegian non-profit developing practical approaches to mental health and safer Internet services.",
-            style = MaterialTheme.typography.bodyLarge
-        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
+            TaraHamburgerMenu { destination ->
+                activity.finish()
+                when (destination) {
+                    TaraMenuDestination.MY_ACCESS,
+                    TaraMenuDestination.FIND_INTERNET -> activity.startActivity(
+                        Intent(activity, SubscriberHomeActivity::class.java)
+                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                    )
+                    else -> activity.startActivity(
+                        Intent(activity, MainActivity::class.java)
+                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                    )
+                }
+            }
+        }
 
         Text("Mental Health Sanctuary", style = MaterialTheme.typography.headlineMedium)
         Text(
@@ -79,10 +134,7 @@ private fun AboutUsMentalHealthScreen() {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (message.fromUser)
-                        MaterialTheme.colorScheme.secondaryContainer
-                    else
-                        MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = if (message.fromUser) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
                 Column(Modifier.padding(14.dp)) {
@@ -121,10 +173,7 @@ private fun AboutUsMentalHealthScreen() {
                             }
                         } catch (e: Exception) {
                             activity.runOnUiThread {
-                                messages = messages + MentalHealthChatMessage(
-                                    false,
-                                    "I couldn't reach the conversation service right now. ${e.message ?: "Please try again."}"
-                                )
+                                messages = messages + MentalHealthChatMessage(false, "I couldn't reach the conversation service right now. ${e.message ?: "Please try again."}")
                                 sending = false
                                 status = "Connection problem"
                             }
@@ -136,15 +185,12 @@ private fun AboutUsMentalHealthScreen() {
             Button(
                 enabled = !sending && messages.size > 1,
                 onClick = {
-                    messages = listOf(
-                        MentalHealthChatMessage(false, "New conversation started. What would you like to talk about?")
-                    )
+                    messages = listOf(MentalHealthChatMessage(false, "New conversation started. What would you like to talk about?"))
                     chatId = null
                     status = "New conversation"
                 }
             ) { Text("New conversation") }
         }
-
         Text(status, style = MaterialTheme.typography.bodySmall)
     }
 }
