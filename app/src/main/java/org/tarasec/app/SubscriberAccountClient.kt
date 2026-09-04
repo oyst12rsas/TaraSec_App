@@ -3,6 +3,7 @@ package org.tarasec.app
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import org.json.JSONObject
@@ -169,6 +170,35 @@ object SubscriberAccountClient {
             if (attempt < 5) Thread.sleep(2000)
         }
         return false
+    }
+
+    fun currentWifiIsTaraSecHotspot(context: Context): Boolean {
+        val gatewayBase = LocalGateway.baseUrl(context) ?: return false
+        val gatewayHost = runCatching { URL(gatewayBase).host }.getOrNull().orEmpty()
+        if (gatewayHost.isBlank()) return false
+        return runCatching {
+            val identity = requestAbsolute(
+                "http://$gatewayHost:8080/hotspot/tarasec_identity.php",
+                "GET",
+                null,
+                null
+            )
+            identity.optString("role") == "tarasec-hotspot" ||
+                identity.optString("service") == "tarasec"
+        }.getOrDefault(false)
+    }
+
+    @Suppress("DEPRECATION")
+    fun nearbyTaraSecWifiIsVisible(context: Context): Boolean {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            ?: return false
+        return try {
+            wifi.scanResults.any { result ->
+                result.SSID.trim().startsWith("TaraSec", ignoreCase = true)
+            }
+        } catch (_: SecurityException) {
+            false
+        }
     }
 
     fun checkWifiInternet(context: Context): Boolean {
