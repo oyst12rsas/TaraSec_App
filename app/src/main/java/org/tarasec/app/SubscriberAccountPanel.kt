@@ -156,6 +156,32 @@ fun SubscriberAccountPanel(
         }.start()
     }
 
+    fun applyForCredit() {
+        if (loading || creditAmount.isBlank()) return
+        loading = true
+        status = "Submitting TaraSec test-credit application..."
+        Thread {
+            try {
+                val loaded = SubscriberAccountClient.applyForCredit(context, creditAmount)
+                (context as? android.app.Activity)?.runOnUiThread {
+                    account = loaded
+                    creditAmount = ""
+                    status = when (loaded.creditFacility.status) {
+                        "active" -> "TaraSec test credit approved and ready to use."
+                        "pending" -> "TaraSec test-credit application submitted for approval."
+                        else -> "TaraSec test-credit application submitted."
+                    }
+                    loading = false
+                }
+            } catch (e: Exception) {
+                (context as? android.app.Activity)?.runOnUiThread {
+                    status = e.message ?: "Unable to apply for TaraSec credit"
+                    loading = false
+                }
+            }
+        }.start()
+    }
+
     fun drawCredit() {
         if (loading || creditAmount.isBlank()) return
         loading = true
@@ -329,25 +355,47 @@ fun SubscriberAccountPanel(
                 }
             }
 
-            if (a.creditFacility.status == "active") {
-                HorizontalDivider()
-                Text("TaraSec credit", style = MaterialTheme.typography.titleMedium)
-                Text("Credit limit: ${a.creditFacility.creditLimitCredits} credits")
-                Text("Outstanding: ${a.creditFacility.debtCredits} credits")
-                Text("Available to borrow: ${a.creditFacility.availableCredit} credits")
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = creditAmount,
-                    onValueChange = { creditAmount = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                    singleLine = true,
-                    label = { Text("Credits to add") }
-                )
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !loading && a.creditFacility.drawEnabled && creditAmount.toDoubleOrNull()?.let { it > 0 } == true,
-                    onClick = { drawCredit() }
-                ) { Text("Add credits using TaraSec credit") }
-                Text("Borrowed credits increase your outstanding TaraSec debt. The hotspot operator is still paid from the normal serving-hotspot accounting.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+            Text("TaraSec credit", style = MaterialTheme.typography.titleMedium)
+            when (a.creditFacility.status) {
+                "active" -> {
+                    Text("Credit limit: ${a.creditFacility.creditLimitCredits} credits")
+                    Text("Outstanding: ${a.creditFacility.debtCredits} credits")
+                    Text("Available to borrow: ${a.creditFacility.availableCredit} credits")
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = creditAmount,
+                        onValueChange = { creditAmount = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        singleLine = true,
+                        label = { Text("Credits to add") }
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !loading && a.creditFacility.drawEnabled && creditAmount.toDoubleOrNull()?.let { it > 0 } == true,
+                        onClick = { drawCredit() }
+                    ) { Text("Add credits using TaraSec credit") }
+                    Text("Borrowed credits increase your outstanding TaraSec debt. The hotspot operator is still paid from the normal serving-hotspot accounting.", style = MaterialTheme.typography.bodySmall)
+                }
+                "pending" -> {
+                    Text("Your TaraSec test-credit application is awaiting approval.")
+                    Text("No real money is involved in the test-credit phase. Approved credits are used to test roaming, pricing and hotspot accounting before payments are enabled.", style = MaterialTheme.typography.bodySmall)
+                }
+                else -> {
+                    Text("Apply for test credit to try TaraSec hotspot access before payment integration is enabled.")
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = creditAmount,
+                        onValueChange = { creditAmount = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        singleLine = true,
+                        label = { Text("Requested test credits") }
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !loading && creditAmount.toDoubleOrNull()?.let { it > 0 } == true,
+                        onClick = { applyForCredit() }
+                    ) { Text("Apply for TaraSec test credit") }
+                    Text("This is test credit for service testing, not a cash loan. Approval and limits can be replaced by the real payment/credit process later.", style = MaterialTheme.typography.bodySmall)
+                }
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
