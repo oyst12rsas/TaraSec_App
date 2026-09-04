@@ -1,5 +1,8 @@
 package org.tarasec.app
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.net.wifi.WifiManager
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -12,7 +15,21 @@ data class DirectoryHotspot(
     val locality: String?,
     val latitude: Double?,
     val longitude: Double?,
-    val description: String?
+    val description: String?,
+    val ssid: String?,
+    val priceCreditsPerMiB: Double?,
+    val priceLabel: String?
+)
+
+data class NearbyTaraSecHotspot(
+    val ssid: String,
+    val bssid: String,
+    val signalDbm: Int,
+    val signalLabel: String,
+    val verifiedDirectoryEntry: Boolean,
+    val hotspotId: String?,
+    val priceCreditsPerMiB: Double?,
+    val priceLabel: String?
 )
 
 object HotspotDirectoryClient {
@@ -64,7 +81,11 @@ object HotspotDirectoryClient {
                             locality = item.optString("locality").takeIf { it.isNotBlank() },
                             latitude = if (item.isNull("latitude")) null else item.optDouble("latitude"),
                             longitude = if (item.isNull("longitude")) null else item.optDouble("longitude"),
-                            description = item.optString("public_description").takeIf { it.isNotBlank() }
+                            description = item.optString("public_description").takeIf { it.isNotBlank() },
+                            ssid = item.optString("ssid").takeIf { it.isNotBlank() },
+                            priceCreditsPerMiB = if (item.isNull("price_credits_per_mib")) null else
+                                item.optDouble("price_credits_per_mib").takeIf { !it.isNaN() },
+                            priceLabel = item.optString("price_label").takeIf { it.isNotBlank() }
                         )
                     )
                 }
@@ -72,5 +93,46 @@ object HotspotDirectoryClient {
         } finally {
             connection.disconnect()
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    @Suppress("DEPRECATION")
+    fun nearby(context: Context, directory: List<DirectoryHotspot>): List<NearbyTaraSecHotspot> {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            ?: return emptyList()
+        runCatching { wifi.startScan() }
+        val currentBssid = runCatching { wifi.connectionInfo?.bssid.orEmpty() }.getOrDefault("")
+        val directoryBySsid = directory.mapNotNull { item ->
+            item.ssid?.trim()?.takeIf { it.isNotEmpty() }?.let { it.lowercase() to item }
+        }.toMap()
+
+        return wifi.scanResults
+            .asSequence()
+            .filter { it.SSID.trim().startsWith("TaraSec", ignoreCase = true) }
+            .filter { currentBssid.isBlank() || !it.BSSID.equals(currentBssid, ignoreCase = true) }
+            .groupBy { it.BSSID.lowercase() }
+            .values
+            .mapNotNull { results -> results.maxByOrNull { it.level } }
+            .map { result ->
+                val ssid = result.SSID.trim()
+                val published = directoryBySsid[ssid.lowercase()]
+                NearbyTaraSecHotspot(
+                    ssid = ssid,
+                    bssid = result.BSSID.orEmpty(),
+                    signalDbm = result.level,
+                    signalLabel = when {
+                        result.level >= -55 -> "Excellent"
+                        result.level >= -67 -> "Good"
+                        result.level >= -75 -> "Acceptable"
+                        else -> "Weak"
+                    },
+                    verifiedDirectoryEntry = published != null,
+                    hotspotId = published?.id,
+                    priceCreditsPerMiB = published?.priceCreditsPerMiB,
+                    priceLabel = published?.priceLabel
+                )
+            }
+            .sortedByDescending { it.signalDbm }
+            .toList()
     }
 }
