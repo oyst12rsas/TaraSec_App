@@ -5,3 +5,8 @@ local.properties
 /app/build/
 *.iml
 .DS_Store
+
+# Local Play upload-signing credentials
+keystore.properties
+*.jks
+*.keystore
