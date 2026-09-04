@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,22 +33,22 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 
 class SubscriberHomeActivity : ComponentActivity() {
     private var identityCode by mutableStateOf<String?>(null)
@@ -117,6 +119,7 @@ private fun SubscriberHome(
     var nearbyStatus by remember { mutableStateOf("Nearby TaraSec alternatives not checked.") }
     var scanningNearby by remember { mutableStateOf(false) }
     var connectedInternetAvailable by remember { mutableStateOf(false) }
+    var pendingHotspot by remember { mutableStateOf<NearbyTaraSecHotspot?>(null) }
     var nearbyPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -131,6 +134,14 @@ private fun SubscriberHome(
             "Location permission granted. Tap Check nearby TaraSec hotspots."
         } else {
             "Location permission is required by Android to see nearby Wi-Fi names and signal levels."
+        }
+    }
+    val nearbyWifiPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            nearbyStatus = "Android needs Nearby devices permission before TaraSec can start the Wi-Fi connection flow."
+            pendingHotspot = null
         }
     }
     val scrollState = rememberScrollState()
@@ -205,8 +216,8 @@ private fun SubscriberHome(
                     nearbyStatus = when {
                         result.isEmpty() ->
                             "No TaraSec Wi-Fi signal is visible. Android may require Location to be turned on before Wi-Fi scan results are available."
-                        result.size == 1 -> "1 TaraSec hotspot is visible. The app will not switch networks automatically."
-                        else -> "${result.size} TaraSec hotspots are visible. The app will not switch networks automatically."
+                        result.size == 1 -> "1 TaraSec hotspot is visible. Tap it to connect."
+                        else -> "${result.size} TaraSec hotspots are visible. Tap one to connect."
                     }
                     scanningNearby = false
                 }
@@ -231,6 +242,19 @@ private fun SubscriberHome(
             Intent(Settings.ACTION_WIFI_SETTINGS)
         }
         activity.startActivity(intent)
+    }
+
+    fun connectTo(candidate: NearbyTaraSecHotspot) {
+        if (candidate.connected) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(activity, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingHotspot = candidate
+            nearbyWifiPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+            return
+        }
+        TaraSecWifiConnector.connect(activity, candidate.ssid)
+        nearbyStatus = "Android is opening the connection approval for ${candidate.ssid}."
     }
 
     fun detectConnectedTaraSec() {
@@ -295,6 +319,25 @@ private fun SubscriberHome(
         }.start()
     }
 
+    pendingHotspot?.let { candidate ->
+        AlertDialog(
+            onDismissRequest = { pendingHotspot = null },
+            title = { Text("Connect to ${candidate.ssid}?") },
+            text = {
+                Text("TaraSec will ask Android to add/connect to this Wi-Fi network. Android may show its own approval screen before changing networks.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingHotspot = null
+                    connectTo(candidate)
+                }) { Text("Connect") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingHotspot = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(
         Modifier.fillMaxSize().verticalScroll(scrollState).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -321,7 +364,7 @@ private fun SubscriberHome(
 
         Text("Find secure Internet access", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Find nearby Wi-Fi opens Android's local network chooser. After you connect, use Detect connected TaraSec to verify the gateway. The published hotspot directory is a separate Internet service.",
+            "Tap a TaraSec hotspot below to ask Android to connect to it. TaraSec asks for confirmation first; Android remains in control of the actual Wi-Fi change.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -336,7 +379,12 @@ private fun SubscriberHome(
         Text(nearbyStatus, style = MaterialTheme.typography.bodySmall)
 
         nearbyHotspots.forEach { candidate ->
-            Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !candidate.connected) { pendingHotspot = candidate }
+            ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val statusDot = when {
                         candidate.connected && connectedInternetAvailable -> "🟢"
@@ -346,7 +394,7 @@ private fun SubscriberHome(
                     Text("$statusDot ${candidate.ssid}", style = MaterialTheme.typography.titleMedium)
                     Text(
                         if (candidate.connected) "Connected · ${candidate.signalDbm} dBm"
-                        else "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm"
+                        else "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm · Tap to connect"
                     )
                     when {
                         candidate.priceLabel != null ->
