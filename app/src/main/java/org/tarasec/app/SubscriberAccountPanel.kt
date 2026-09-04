@@ -44,6 +44,9 @@ private fun displayCreditBalance(value: String): String =
         ?.toPlainString()
         ?: value
 
+private const val PRIVACY_POLICY_URL = "https://tarasec.org/app/privacy.html"
+private const val ACCOUNT_DELETION_URL = "https://tarasec.org/app/delete-account.html"
+
 private enum class AccountAccessLight(val color: Color) {
     RED(Color(0xFFC62828)),
     YELLOW(Color(0xFFF9A825)),
@@ -380,6 +383,18 @@ fun SubscriberAccountPanel(
                     }
                 }
             }
+        }
+
+        HorizontalDivider()
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_POLICY_URL))) }
+            ) { Text("Privacy") }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ACCOUNT_DELETION_URL))) }
+            ) { Text("Delete account") }
         }
 
         Row(
