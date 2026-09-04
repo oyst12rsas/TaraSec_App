@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -95,6 +97,7 @@ private val taraMenuItems = listOf(
 @Composable
 fun TaraHamburgerMenu(onSelect: (TaraMenuDestination) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     Box {
         TextButton(onClick = { expanded = true }) {
             Text("☰", style = MaterialTheme.typography.headlineSmall)
@@ -112,7 +115,13 @@ fun TaraHamburgerMenu(onSelect: (TaraMenuDestination) -> Unit) {
                     }
                 )
             }
+            DropdownMenuItem(
+                text = { Text("About Us") },
+                onClick = {
+                    expanded = false
+                    context.startActivity(Intent(context, AboutUsActivity::class.java))
+                }
+            )
         }
     }
 }
-
