@@ -36,9 +36,6 @@ data class NearbyTaraSecHotspot(
 object HotspotDirectoryClient {
     const val DEFAULT_BASE_URL = "http://100.68.126.0"
 
-    private const val DEMO_PRICE_LABEL =
-        "Demo prices: 100 MB KSh 15 · 250 MB KSh 30 · 500 MB KSh 55 · 1 GB KSh 100 · 2 GB KSh 180 · 5 GB KSh 400 · 10 GB KSh 700"
-
     fun list(baseUrl: String = DEFAULT_BASE_URL, country: String? = null): List<DirectoryHotspot> {
         val suffix = country?.trim()?.takeIf { it.isNotEmpty() }?.let {
             "?country=" + URLEncoder.encode(it.uppercase(), Charsets.UTF_8.name())
@@ -128,11 +125,8 @@ object HotspotDirectoryClient {
                     }
                 }
             }
-            val pricing = if (packageParts.isNotEmpty()) {
-                "Demo prices: " + packageParts.joinToString(" · ")
-            } else {
-                DEMO_PRICE_LABEL
-            }
+            if (packageParts.isEmpty()) return null
+            val pricing = "Prices: " + packageParts.joinToString(" · ")
 
             val usage = json.optJSONObject("usage")
             if (usage != null) {
@@ -194,8 +188,7 @@ object HotspotDirectoryClient {
                     priceCreditsPerMiB = published?.priceCreditsPerMiB,
                     priceLabel = when {
                         isConnected && connectedLocalLabel != null -> connectedLocalLabel
-                        published?.priceLabel != null -> published.priceLabel
-                        else -> DEMO_PRICE_LABEL
+                        else -> published?.priceLabel
                     },
                     connected = isConnected
                 )
@@ -213,7 +206,7 @@ object HotspotDirectoryClient {
                 verifiedDirectoryEntry = published != null,
                 hotspotId = published?.id,
                 priceCreditsPerMiB = published?.priceCreditsPerMiB,
-                priceLabel = connectedLocalLabel ?: published?.priceLabel ?: DEMO_PRICE_LABEL,
+                priceLabel = connectedLocalLabel ?: published?.priceLabel,
                 connected = true
             )
         }
