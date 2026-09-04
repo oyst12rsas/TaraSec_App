@@ -1,14 +1,18 @@
 package org.tarasec.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -108,6 +113,25 @@ private fun SubscriberHome(
     var connectedStatus by remember { mutableStateOf("Not checked") }
     var loading by remember { mutableStateOf(false) }
     var detectingConnected by remember { mutableStateOf(false) }
+    var nearbyHotspots by remember { mutableStateOf<List<NearbyTaraSecHotspot>>(emptyList()) }
+    var nearbyStatus by remember { mutableStateOf("Nearby TaraSec alternatives not checked.") }
+    var scanningNearby by remember { mutableStateOf(false) }
+    var nearbyPermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val nearbyPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        nearbyPermissionGranted = granted
+        nearbyStatus = if (granted) {
+            "Location permission granted. Tap Check nearby TaraSec hotspots."
+        } else {
+            "Location permission is required by Android to see nearby Wi-Fi names and signal levels."
+        }
+    }
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     var accountOffset by remember { mutableStateOf(0) }
@@ -156,6 +180,41 @@ private fun SubscriberHome(
                             e.message ?: "Published hotspot directory unavailable"
                     }
                     loading = false
+                }
+            }
+        }.start()
+    }
+
+    fun scanNearbyTaraSec() {
+        if (scanningNearby) return
+        if (!nearbyPermissionGranted) {
+            nearbyPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            return
+        }
+        scanningNearby = true
+        nearbyStatus = "Checking nearby TaraSec Wi-Fi signals..."
+        Thread {
+            try {
+                val result = HotspotDirectoryClient.nearby(activity, hotspots)
+                activity.runOnUiThread {
+                    nearbyHotspots = result
+                    nearbyStatus = when {
+                        result.isEmpty() ->
+                            "No alternative TaraSec Wi-Fi signal is visible. Android may require Location to be turned on before Wi-Fi scan results are available."
+                        result.size == 1 -> "1 alternative TaraSec hotspot is visible. The app will not switch networks automatically."
+                        else -> "${result.size} alternative TaraSec hotspots are visible. The app will not switch networks automatically."
+                    }
+                    scanningNearby = false
+                }
+            } catch (e: SecurityException) {
+                activity.runOnUiThread {
+                    nearbyStatus = "Android blocked nearby Wi-Fi results. Allow location access and turn on Location, then try again."
+                    scanningNearby = false
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    nearbyStatus = e.message ?: "Unable to check nearby TaraSec hotspots"
+                    scanningNearby = false
                 }
             }
         }.start()
@@ -266,8 +325,41 @@ private fun SubscriberHome(
 
         Button(
             modifier = Modifier.fillMaxWidth(),
+            enabled = !scanningNearby,
+            onClick = { scanNearbyTaraSec() }
+        ) { Text(if (scanningNearby) "Checking nearby hotspots..." else "Check nearby TaraSec hotspots") }
+
+        Text(nearbyStatus, style = MaterialTheme.typography.bodySmall)
+
+        nearbyHotspots.forEach { candidate ->
+            Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(candidate.ssid, style = MaterialTheme.typography.titleMedium)
+                    Text("${candidate.signalLabel} signal · ${candidate.signalDbm} dBm")
+                    when {
+                        candidate.priceLabel != null ->
+                            Text(candidate.priceLabel, style = MaterialTheme.typography.bodySmall)
+                        candidate.priceCreditsPerMiB != null ->
+                            Text("${candidate.priceCreditsPerMiB} credits/MiB", style = MaterialTheme.typography.bodySmall)
+                        else ->
+                            Text("Price is not published. Verify the price before connecting.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        if (candidate.verifiedDirectoryEntry) "Matches a published TaraSec directory entry."
+                        else "Nearby Wi-Fi name only; TaraSec identity must be verified after connecting.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(onClick = { openNearbyWifi() }) {
+                        Text("Open Wi-Fi settings")
+                    }
+                }
+            }
+        }
+
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
             onClick = { openNearbyWifi() }
-        ) { Text("Find nearby Wi-Fi") }
+        ) { Text("Open Wi-Fi settings") }
 
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
