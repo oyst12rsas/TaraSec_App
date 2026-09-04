@@ -8,7 +8,7 @@ plugins {
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
-        keystorePropertiesFile.inputStream().use(::load)
+        keystorePropertiesFile.inputStream().use { load(it) }
     }
 }
 
