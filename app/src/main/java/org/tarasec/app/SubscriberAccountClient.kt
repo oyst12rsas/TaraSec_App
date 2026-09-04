@@ -242,6 +242,17 @@ object SubscriberAccountClient {
         return false
     }
 
+    fun applyForCredit(context: Context, amountCredits: String): SubscriberAccount {
+        val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
+        request(
+            "/subscriber-credit-apply.php",
+            "POST",
+            form("amount_credits" to amountCredits.trim(), "mode" to "test"),
+            token
+        )
+        return account(context)
+    }
+
     fun drawCredit(context: Context, amountCredits: String): SubscriberAccount {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
         request(
