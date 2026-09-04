@@ -7,11 +7,11 @@ import java.net.URL
 data class MentalHealthReply(val text: String, val chatId: String?)
 
 object MentalHealthFlowiseClient {
-    private const val FLOWISE_URL = "https://YOUR-FLOWISE-HOST/api/v1/prediction/YOUR-CHATFLOW-ID"
-    private const val FLOWISE_API_KEY = "DUMMY_REPLACE_ME"
-
     fun send(message: String, chatId: String?): MentalHealthReply {
-        require(!FLOWISE_URL.contains("YOUR-FLOWISE-HOST")) {
+        val flowiseUrl = BuildConfig.MENTAL_HEALTH_FLOWISE_URL
+        val flowiseApiKey = BuildConfig.MENTAL_HEALTH_FLOWISE_API_KEY
+
+        require(!flowiseUrl.contains("YOUR-FLOWISE-HOST")) {
             "Mental-health Flowise endpoint is not configured in TaraSec yet."
         }
 
@@ -22,7 +22,7 @@ object MentalHealthFlowiseClient {
             }
         }
 
-        val connection = URL(FLOWISE_URL).openConnection() as HttpURLConnection
+        val connection = URL(flowiseUrl).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
@@ -31,8 +31,8 @@ object MentalHealthFlowiseClient {
             connection.useCaches = false
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "application/json")
-            if (FLOWISE_API_KEY.isNotBlank() && FLOWISE_API_KEY != "DUMMY_REPLACE_ME") {
-                connection.setRequestProperty("Authorization", "Bearer $FLOWISE_API_KEY")
+            if (flowiseApiKey.isNotBlank() && flowiseApiKey != "DUMMY_REPLACE_ME") {
+                connection.setRequestProperty("Authorization", "Bearer $flowiseApiKey")
             }
             connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
 
