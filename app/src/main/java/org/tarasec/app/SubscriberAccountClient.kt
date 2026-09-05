@@ -166,10 +166,26 @@ object SubscriberAccountClient {
 
     private fun waitForWifiInternet(context: Context): Boolean {
         repeat(6) { attempt ->
-            if (checkWifiInternet(context)) return true
+            // The strict multi-host probe remains the pre-login test. After a
+            // successful TaraSec bind, Android's own Wi-Fi VALIDATED result is
+            // also trustworthy and avoids leaving the UI yellow just because
+            // one of the independent probe hosts is slow or unreachable.
+            if (checkWifiInternet(context) || validatedWifiInternet(context)) return true
             if (attempt < 5) Thread.sleep(2000)
         }
         return false
+    }
+
+    private fun validatedWifiInternet(context: Context): Boolean {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        return connectivity.allNetworks.any { network ->
+            val caps = connectivity.getNetworkCapabilities(network) ?: return@any false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+        }
     }
 
     fun currentWifiIsTaraSecHotspot(context: Context): Boolean {
