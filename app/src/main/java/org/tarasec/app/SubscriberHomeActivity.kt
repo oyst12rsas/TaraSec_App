@@ -216,8 +216,8 @@ private fun SubscriberHome(
                     nearbyStatus = when {
                         result.isEmpty() ->
                             "No TaraSec Wi-Fi signal is visible. Android may require Location to be turned on before Wi-Fi scan results are available."
-                        result.size == 1 -> "1 TaraSec hotspot is visible. Tap it to connect."
-                        else -> "${result.size} TaraSec hotspots are visible. Tap one to connect."
+                        result.size == 1 -> "1 TaraSec hotspot is visible."
+                        else -> "${result.size} TaraSec hotspots are visible."
                     }
                     scanningNearby = false
                 }
@@ -255,6 +255,34 @@ private fun SubscriberHome(
         }
         TaraSecWifiConnector.connect(activity, candidate.ssid)
         nearbyStatus = "Android is opening the connection approval for ${candidate.ssid}."
+    }
+
+    fun logInToConnectedHotspot(candidate: NearbyTaraSecHotspot) {
+        if (!candidate.connected || connectedInternetAvailable) return
+        if (SubscriberAccountClient.storedToken(activity) == null) {
+            nearbyStatus = "Sign in to TaraSec below, then authorize ${candidate.ssid}."
+            coroutineScope.launch { scrollState.animateScrollTo(accountOffset) }
+            return
+        }
+
+        nearbyStatus = "Authorizing Internet access on ${candidate.ssid}..."
+        Thread {
+            try {
+                val activation = SubscriberAccountClient.activateCurrentHotspot(activity)
+                activity.runOnUiThread {
+                    connectedInternetAvailable = activation.internetAvailable
+                    nearbyStatus = if (activation.internetAvailable) {
+                        "Internet access through ${candidate.ssid} is authorized."
+                    } else {
+                        "Signed in to TaraSec, but ${candidate.ssid} still has no Internet access."
+                    }
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    nearbyStatus = e.message ?: "Unable to authorize this TaraSec hotspot"
+                }
+            }
+        }.start()
     }
 
     fun detectConnectedTaraSec() {
@@ -364,7 +392,7 @@ private fun SubscriberHome(
 
         Text("Find secure Internet access", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Tap a TaraSec hotspot below to ask Android to connect to it. TaraSec asks for confirmation first; Android remains in control of the actual Wi-Fi change.",
+            "Tap a red TaraSec hotspot to connect. Tap a yellow connected hotspot to log in and authorize Internet access.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -383,7 +411,13 @@ private fun SubscriberHome(
                 tonalElevation = 2.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = !candidate.connected) { pendingHotspot = candidate }
+                    .clickable(enabled = !candidate.connected || !connectedInternetAvailable) {
+                        if (candidate.connected) {
+                            logInToConnectedHotspot(candidate)
+                        } else {
+                            pendingHotspot = candidate
+                        }
+                    }
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val statusDot = when {
@@ -393,8 +427,14 @@ private fun SubscriberHome(
                     }
                     Text("$statusDot ${candidate.ssid}", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        if (candidate.connected) "Connected · ${candidate.signalDbm} dBm"
-                        else "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm · Tap to connect"
+                        when {
+                            candidate.connected && connectedInternetAvailable ->
+                                "Connected · ${candidate.signalDbm} dBm"
+                            candidate.connected ->
+                                "Connected · ${candidate.signalDbm} dBm · Tap to log in"
+                            else ->
+                                "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm · Tap to connect"
+                        }
                     )
                     when {
                         candidate.priceLabel != null ->
@@ -406,8 +446,8 @@ private fun SubscriberHome(
                     }
                     Text(
                         when {
-                            candidate.connected && connectedInternetAvailable -> "Connected and Internet access is authorized."
-                            candidate.connected -> "Connected to Wi-Fi, but Internet access is not authorized yet."
+                            candidate.connected && connectedInternetAvailable -> "Connected and Internet access works through this Wi-Fi."
+                            candidate.connected -> "Connected to TaraSec Wi-Fi, but Internet access is not authorized yet. Tap to log in."
                             candidate.verifiedDirectoryEntry -> "Matches a published TaraSec directory entry."
                             else -> "Nearby Wi-Fi name only; TaraSec identity must be verified after connecting."
                         },
