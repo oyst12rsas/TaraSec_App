@@ -205,21 +205,29 @@ object SubscriberAccountClient {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return false
 
-        // Deliberately select the Wi-Fi network itself. The phone may keep Wi-Fi
-        // associated to a captive/no-Internet hotspot while routing normal app
-        // traffic over mobile data; that must remain yellow, not green.
+        // Deliberately select the Wi-Fi network itself. The phone may remain
+        // associated with a captive/no-Internet TaraSec hotspot while Android
+        // routes ordinary traffic over mobile data.
         val wifi = connectivity.allNetworks.firstOrNull { network ->
-            connectivity.getNetworkCapabilities(network)
-                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            val caps = connectivity.getNetworkCapabilities(network)
+            caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         } ?: return false
 
-        // Do not trust NET_CAPABILITY_VALIDATED alone. It can lag behind captive
-        // portal/network changes. Prove that HTTPS actually works through this
-        // exact Wi-Fi Network by opening the socket on that Network object.
+        val capabilities = connectivity.getNetworkCapabilities(wifi) ?: return false
+        if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)) {
+            return false
+        }
+
+        // A pre-login captive portal may deliberately whitelist Google or other
+        // identity/connectivity hosts. One successful HTTPS request therefore
+        // does not prove general Internet access. Require at least two unrelated
+        // destinations to succeed through this exact Wi-Fi Network.
         val probes = listOf(
             "https://www.google.com/generate_204",
-            "https://www.cloudflare.com/cdn-cgi/trace"
+            "https://www.cloudflare.com/cdn-cgi/trace",
+            "https://example.com/"
         )
+        var successes = 0
         for (probe in probes) {
             var connection: HttpURLConnection? = null
             try {
@@ -228,9 +236,12 @@ object SubscriberAccountClient {
                 connection.connectTimeout = 3000
                 connection.readTimeout = 3000
                 connection.useCaches = false
-                if (connection.responseCode in 200..299) return true
+                if (connection.responseCode in 200..299) {
+                    successes++
+                    if (successes >= 2) return true
+                }
             } catch (_: Exception) {
-                // Try the other independent endpoint on the same Wi-Fi network.
+                // Continue with the other independent endpoints.
             } finally {
                 connection?.disconnect()
             }
