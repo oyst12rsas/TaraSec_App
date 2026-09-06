@@ -213,9 +213,6 @@ private fun SubscriberHome(
 
         Thread {
             try {
-                // Discovery is deliberately local-first. Do not wait for the
-                // global directory or connected-hotspot pricing before showing
-                // Wi-Fi networks that Android can already see.
                 val localResult = HotspotDirectoryClient.nearby(
                     activity,
                     hotspots,
@@ -236,8 +233,6 @@ private fun SubscriberHome(
                     scanningNearby = false
                 }
 
-                // Enrich the already-visible cards afterward. Failure here must
-                // never hide or delay the local Wi-Fi result.
                 val directory = runCatching { HotspotDirectoryClient.list() }.getOrDefault(emptyList())
                 val enriched = runCatching {
                     HotspotDirectoryClient.nearby(
@@ -291,8 +286,7 @@ private fun SubscriberHome(
             nearbyWifiPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
             return
         }
-        TaraSecWifiConnector.connect(activity, candidate.ssid)
-        nearbyStatus = "Android is opening the connection approval for ${candidate.ssid}."
+        nearbyStatus = TaraSecWifiConnector.connect(activity, candidate.ssid)
     }
 
     fun logInToConnectedHotspot(candidate: NearbyTaraSecHotspot) {
@@ -390,7 +384,7 @@ private fun SubscriberHome(
             onDismissRequest = { pendingHotspot = null },
             title = { Text("Connect to ${candidate.ssid}?") },
             text = {
-                Text("TaraSec will ask Android to add/connect to this Wi-Fi network. Android may show its own approval screen before changing networks.")
+                Text("TaraSec will ask Android to use this hotspot for Internet. Android may ask once for permission to let TaraSec suggest Wi-Fi networks.")
             },
             confirmButton = {
                 TextButton(onClick = {
