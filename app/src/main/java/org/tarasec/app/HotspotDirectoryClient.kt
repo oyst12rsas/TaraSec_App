@@ -98,8 +98,9 @@ object HotspotDirectoryClient {
 
     private fun connectedHotspotLabel(context: Context): String? {
         val base = LocalGateway.baseUrl(context)?.trimEnd('/') ?: return null
+        val host = runCatching { URL(base).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
         val connection = runCatching {
-            URL("$base/hotspot/tarasec_hotspot_info.php").openConnection() as HttpURLConnection
+            URL("http://$host:8080/hotspot/tarasec_hotspot_info.php").openConnection() as HttpURLConnection
         }.getOrNull() ?: return null
         return try {
             connection.connectTimeout = 2500
@@ -158,7 +159,17 @@ object HotspotDirectoryClient {
         val connectionInfo = runCatching { wifi.connectionInfo }.getOrNull()
         val currentBssid = connectionInfo?.bssid.orEmpty()
         val currentSsid = connectionInfo?.ssid.orEmpty().trim().trim('"')
-        val directoryBySsid = directory.mapNotNull { item ->
+
+        // Nearby cards should not depend on the user first pressing the separate
+        // "Browse published TaraSec hotspots" button. Fetch the directory here
+        // when the caller has not loaded it yet, and still allow local Wi-Fi
+        // discovery to work if the public directory is temporarily unavailable.
+        val effectiveDirectory = if (directory.isNotEmpty()) {
+            directory
+        } else {
+            runCatching { list() }.getOrDefault(emptyList())
+        }
+        val directoryBySsid = effectiveDirectory.mapNotNull { item ->
             item.ssid?.trim()?.takeIf { it.isNotEmpty() }?.let { it.lowercase() to item }
         }.toMap()
         val connectedLocalLabel = connectedHotspotLabel(context)
