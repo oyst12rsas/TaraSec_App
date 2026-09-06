@@ -101,6 +101,12 @@ private fun vpnIsActive(context: Context): Boolean {
     }
 }
 
+private fun roleLabel(role: AppRole): String = when (role) {
+    AppRole.HOTSPOT_USER -> "Hotspot user"
+    AppRole.HOTSPOT_OWNER -> "Hotspot owner"
+    AppRole.TARASEC_ADMIN -> "TaraSec admin"
+}
+
 @androidx.compose.runtime.Composable
 private fun SubscriberHome(
     initialDestination: String?,
