@@ -154,10 +154,6 @@ object HotspotDirectoryClient {
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     private fun collectFreshScanResults(wifi: WifiManager): List<ScanResult> {
-        // startScan() is asynchronous. Reading scanResults immediately can return
-        // Android's previous snapshot and miss an AP that is plainly visible in
-        // the system Wi-Fi picker. Keep the best observation for each BSSID while
-        // a fresh scan has time to arrive.
         val byBssid = linkedMapOf<String, ScanResult>()
 
         fun mergeSnapshot() {
@@ -184,26 +180,22 @@ object HotspotDirectoryClient {
 
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
-    fun nearby(context: Context, directory: List<DirectoryHotspot>): List<NearbyTaraSecHotspot> {
+    fun nearby(
+        context: Context,
+        directory: List<DirectoryHotspot>,
+        includeConnectedPricing: Boolean = true
+    ): List<NearbyTaraSecHotspot> {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             ?: return emptyList()
         val connectionInfo = runCatching { wifi.connectionInfo }.getOrNull()
         val currentBssid = connectionInfo?.bssid.orEmpty()
         val currentSsid = connectionInfo?.ssid.orEmpty().trim().trim('"')
 
-        // Nearby cards should not depend on the user first pressing the separate
-        // "Browse published TaraSec hotspots" button. Fetch the directory here
-        // when the caller has not loaded it yet, and still allow local Wi-Fi
-        // discovery to work if the public directory is temporarily unavailable.
-        val effectiveDirectory = if (directory.isNotEmpty()) {
-            directory
-        } else {
-            runCatching { list() }.getOrDefault(emptyList())
-        }
-        val directoryBySsid = effectiveDirectory.mapNotNull { item ->
+        // Local Wi-Fi discovery must never wait for the global directory.
+        val directoryBySsid = directory.mapNotNull { item ->
             item.ssid?.trim()?.takeIf { it.isNotEmpty() }?.let { it.lowercase() to item }
         }.toMap()
-        val connectedLocalLabel = connectedHotspotLabel(context)
+        val connectedLocalLabel = if (includeConnectedPricing) connectedHotspotLabel(context) else null
 
         val scanCandidates = collectFreshScanResults(wifi)
             .asSequence()
