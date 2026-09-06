@@ -2,6 +2,7 @@ package org.tarasec.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -152,10 +153,40 @@ object HotspotDirectoryClient {
 
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
+    private fun collectFreshScanResults(wifi: WifiManager): List<ScanResult> {
+        // startScan() is asynchronous. Reading scanResults immediately can return
+        // Android's previous snapshot and miss an AP that is plainly visible in
+        // the system Wi-Fi picker. Keep the best observation for each BSSID while
+        // a fresh scan has time to arrive.
+        val byBssid = linkedMapOf<String, ScanResult>()
+
+        fun mergeSnapshot() {
+            for (result in wifi.scanResults) {
+                val bssid = result.BSSID.orEmpty().lowercase()
+                if (bssid.isBlank()) continue
+                val previous = byBssid[bssid]
+                if (previous == null || result.level > previous.level) {
+                    byBssid[bssid] = result
+                }
+            }
+        }
+
+        mergeSnapshot()
+        runCatching { wifi.startScan() }
+
+        repeat(4) {
+            Thread.sleep(750)
+            mergeSnapshot()
+        }
+
+        return byBssid.values.toList()
+    }
+
+    @SuppressLint("MissingPermission")
+    @Suppress("DEPRECATION")
     fun nearby(context: Context, directory: List<DirectoryHotspot>): List<NearbyTaraSecHotspot> {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             ?: return emptyList()
-        runCatching { wifi.startScan() }
         val connectionInfo = runCatching { wifi.connectionInfo }.getOrNull()
         val currentBssid = connectionInfo?.bssid.orEmpty()
         val currentSsid = connectionInfo?.ssid.orEmpty().trim().trim('"')
@@ -174,7 +205,7 @@ object HotspotDirectoryClient {
         }.toMap()
         val connectedLocalLabel = connectedHotspotLabel(context)
 
-        val scanCandidates = wifi.scanResults
+        val scanCandidates = collectFreshScanResults(wifi)
             .asSequence()
             .filter { it.SSID.trim().startsWith("TaraSec", ignoreCase = true) }
             .groupBy { it.BSSID.lowercase() }
