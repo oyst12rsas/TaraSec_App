@@ -7,6 +7,7 @@ import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 
 object TaraSecWifiConnector {
     fun connect(activity: Activity, ssid: String): String {
@@ -17,10 +18,10 @@ object TaraSecWifiConnector {
             val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
                 ?: return "Android Wi-Fi service is unavailable."
 
-            // TaraSec hotspots provide Internet, so use the Internet-capable
-            // suggestion API rather than ACTION_WIFI_ADD_NETWORKS (save only) or
-            // WifiNetworkSpecifier (peer/app-scoped connection). Keep only the
-            // hotspot the user just tapped as TaraSec's active suggestion.
+            // TaraSec hotspots provide Internet, so keep the tapped hotspot as
+            // TaraSec's only current suggestion. Android may still prefer an
+            // already-connected saved Wi-Fi, because suggestions do not override
+            // the user's/system's active network selection.
             runCatching { wifi.removeNetworkSuggestions(emptyList()) }
 
             val builder = WifiNetworkSuggestion.Builder()
@@ -39,8 +40,14 @@ object TaraSecWifiConnector {
             }
 
             return when (status) {
-                WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS ->
-                    "TaraSec asked Android to connect to $cleanSsid. The first time, approve TaraSec's Wi-Fi suggestion when Android asks."
+                WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS -> {
+                    // A suggestion cannot force Android away from a currently
+                    // working saved Wi-Fi. Open the system Wi-Fi switcher now so
+                    // the user's next tap is the actual system-wide connection.
+                    Toast.makeText(activity, "Tap $cleanSsid to switch Wi-Fi", Toast.LENGTH_LONG).show()
+                    activity.startActivity(Intent(Settings.Panel.ACTION_WIFI))
+                    "Android has registered $cleanSsid. Tap it in the Wi-Fi panel to switch the phone to this TaraSec hotspot."
+                }
                 WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_APP_DISALLOWED -> {
                     activity.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
                     "Android has disabled TaraSec Wi-Fi control. Allow TaraSec Wi-Fi control, then tap $cleanSsid again."
