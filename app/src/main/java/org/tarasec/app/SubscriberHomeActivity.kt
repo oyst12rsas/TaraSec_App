@@ -25,8 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -209,29 +207,49 @@ private fun SubscriberHome(
             nearbyPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             return
         }
+
         scanningNearby = true
-        nearbyStatus = "Checking nearby TaraSec Wi-Fi signals..."
+        nearbyStatus = "Scanning nearby TaraSec Wi-Fi..."
+
         Thread {
             try {
-                val directory = if (hotspots.isNotEmpty()) hotspots else runCatching {
-                    HotspotDirectoryClient.list()
-                }.getOrDefault(emptyList())
-                val result = HotspotDirectoryClient.nearby(activity, directory)
-                val internetAvailable = result.any { it.connected } &&
+                // Discovery is deliberately local-first. Do not wait for the
+                // global directory or connected-hotspot pricing before showing
+                // Wi-Fi networks that Android can already see.
+                val localResult = HotspotDirectoryClient.nearby(
+                    activity,
+                    hotspots,
+                    includeConnectedPricing = false
+                )
+                val internetAvailable = localResult.any { it.connected } &&
                     SubscriberAccountClient.checkWifiInternet(activity)
+
                 activity.runOnUiThread {
-                    if (hotspots.isEmpty() && directory.isNotEmpty()) {
-                        hotspots = directory
-                    }
-                    nearbyHotspots = result
+                    nearbyHotspots = localResult
                     connectedInternetAvailable = internetAvailable
                     nearbyStatus = when {
-                        result.isEmpty() ->
+                        localResult.isEmpty() ->
                             "No TaraSec Wi-Fi signal is visible. Android may require Location to be turned on before Wi-Fi scan results are available."
-                        result.size == 1 -> "1 TaraSec hotspot is visible."
-                        else -> "${result.size} TaraSec hotspots are visible."
+                        localResult.size == 1 -> "1 TaraSec hotspot is visible."
+                        else -> "${localResult.size} TaraSec hotspots are visible."
                     }
                     scanningNearby = false
+                }
+
+                // Enrich the already-visible cards afterward. Failure here must
+                // never hide or delay the local Wi-Fi result.
+                val directory = runCatching { HotspotDirectoryClient.list() }.getOrDefault(emptyList())
+                val enriched = runCatching {
+                    HotspotDirectoryClient.nearby(
+                        activity,
+                        directory,
+                        includeConnectedPricing = true
+                    )
+                }.getOrDefault(localResult)
+
+                activity.runOnUiThread {
+                    if (directory.isNotEmpty()) hotspots = directory
+                    nearbyHotspots = enriched
                 }
             } catch (e: SecurityException) {
                 activity.runOnUiThread {
@@ -422,7 +440,7 @@ private fun SubscriberHome(
             modifier = Modifier.fillMaxWidth(),
             enabled = !scanningNearby,
             onClick = { scanNearbyTaraSec() }
-        ) { Text(if (scanningNearby) "Checking nearby hotspots..." else "Refresh nearby hotspots") }
+        ) { Text(if (scanningNearby) "Scanning nearby hotspots..." else "Refresh nearby hotspots") }
 
         Text(nearbyStatus, style = MaterialTheme.typography.bodySmall)
 
