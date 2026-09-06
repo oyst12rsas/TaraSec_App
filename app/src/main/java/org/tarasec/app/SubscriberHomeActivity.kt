@@ -131,7 +131,7 @@ private fun SubscriberHome(
     ) { granted ->
         nearbyPermissionGranted = granted
         nearbyStatus = if (granted) {
-            "Location permission granted. Tap Check nearby TaraSec hotspots."
+            "Location permission granted. Scanning nearby TaraSec hotspots..."
         } else {
             "Location permission is required by Android to see nearby Wi-Fi names and signal levels."
         }
@@ -207,10 +207,16 @@ private fun SubscriberHome(
         nearbyStatus = "Checking nearby TaraSec Wi-Fi signals..."
         Thread {
             try {
-                val result = HotspotDirectoryClient.nearby(activity, hotspots)
+                val directory = if (hotspots.isNotEmpty()) hotspots else runCatching {
+                    HotspotDirectoryClient.list()
+                }.getOrDefault(emptyList())
+                val result = HotspotDirectoryClient.nearby(activity, directory)
                 val internetAvailable = result.any { it.connected } &&
                     SubscriberAccountClient.checkWifiInternet(activity)
                 activity.runOnUiThread {
+                    if (hotspots.isEmpty() && directory.isNotEmpty()) {
+                        hotspots = directory
+                    }
                     nearbyHotspots = result
                     connectedInternetAvailable = internetAvailable
                     nearbyStatus = when {
@@ -233,6 +239,14 @@ private fun SubscriberHome(
                 }
             }
         }.start()
+    }
+
+    LaunchedEffect(nearbyPermissionGranted) {
+        if (nearbyPermissionGranted) {
+            scanNearbyTaraSec()
+        } else {
+            nearbyPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
     }
 
     fun openNearbyWifi() {
@@ -402,7 +416,7 @@ private fun SubscriberHome(
             modifier = Modifier.fillMaxWidth(),
             enabled = !scanningNearby,
             onClick = { scanNearbyTaraSec() }
-        ) { Text(if (scanningNearby) "Checking nearby hotspots..." else "Check nearby TaraSec hotspots") }
+        ) { Text(if (scanningNearby) "Checking nearby hotspots..." else "Refresh nearby hotspots") }
 
         Text(nearbyStatus, style = MaterialTheme.typography.bodySmall)
 
@@ -517,31 +531,5 @@ private fun SubscriberHome(
         if (role != AppRole.HOTSPOT_USER) {
             Text("Owner/admin mode is remembered on this device. Remote management still requires the installation's manager authentication.")
         }
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { openConsole(TaraMenuDestination.STATUS_UNITS) }
-        ) { Text("Security / hotspot owner console") }
-
-        if (role != AppRole.HOTSPOT_USER) {
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    AppRoleStore.save(activity, AppRole.HOTSPOT_USER)
-                    role = AppRole.HOTSPOT_USER
-                }
-            ) { Text("Switch back to Hotspot User") }
-        }
-
-        Text(
-            "Hotspot User is the default role. Gateway capabilities will determine which owner controls are relevant once capability detection is connected.",
-            style = MaterialTheme.typography.bodySmall
-        )
     }
-}
-
-private fun roleLabel(role: AppRole): String = when (role) {
-    AppRole.HOTSPOT_USER -> "Hotspot User"
-    AppRole.HOTSPOT_OWNER -> "Hotspot Owner"
-    AppRole.TARASEC_ADMIN -> "TaraSec Admin"
 }
