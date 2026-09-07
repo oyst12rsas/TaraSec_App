@@ -47,15 +47,21 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it"
     }
 
+    var hotspotIdentity by remember { mutableStateOf<DemoProbeResult?>(null) }
     var hotspotGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
     var selectedGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
+    val directHotspotDetected = hotspotIdentity?.reachable == true
     val activeGatewayConfig = when {
-        hotspotGatewayConfig?.reachable == true -> hotspotGatewayConfig
-        selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
+        directHotspotDetected && hotspotGatewayConfig?.reachable == true -> hotspotGatewayConfig
+        !directHotspotDetected && selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
         else -> null
     }
-    val configuredTargets = activeGatewayConfig?.nodes?.takeIf { it.isNotEmpty() } ?: DemoClient.presets
-    val basicTarget = configuredTargets.first()
+    val configuredTargets = when {
+        activeGatewayConfig?.reachable == true -> activeGatewayConfig.nodes
+        directHotspotDetected -> emptyList()
+        else -> DemoClient.presets
+    }
+    val basicTarget = configuredTargets.firstOrNull()
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
 
@@ -86,7 +92,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         targetIp.trim()
     )
 
-    fun directHotspotActive(): Boolean = hotspotGatewayConfig?.reachable == true
+    fun directHotspotActive(): Boolean = hotspotIdentity?.reachable == true
 
     fun selectedVpnActive(): Boolean =
         selectedGatewayConfig?.reachable == true || vpnGatewayState?.reachable == true
@@ -105,7 +111,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
     fun activeGatewayLabel(): String = when {
         directHotspotActive() ->
-            hotspotGatewayConfig?.gatewayName?.takeIf { it.isNotBlank() } ?: "TaraSec hotspot"
+            hotspotIdentity?.nodeName?.takeIf { it.isNotBlank() } ?: "TaraSec hotspot"
         selectedServiceBase != null -> selectedGatewayName
         else -> "No active gateway"
     }
@@ -117,12 +123,13 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             return
         }
 
+        val localIdentity = localGatewayBase?.let { DemoClient.probeBase(it, "TaraSec hotspot") }
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val selectedConfig = selectedServiceBase?.let { DemoClient.gatewayConfigurationBase(it) }
-        val basicIdentity = DemoClient.probe(basicTarget)
-        val basicReceiver = DemoClient.threatStatus(basicTarget)
-        val identity = if (t.ip == basicTarget.ip) basicIdentity else DemoClient.probe(t)
-        val receiver = if (t.ip == basicTarget.ip) basicReceiver else DemoClient.threatStatus(t)
+        val basicIdentity = basicTarget?.let { DemoClient.probe(it) }
+        val basicReceiver = basicTarget?.let { DemoClient.threatStatus(it) }
+        val identity = if (basicTarget != null && t.ip == basicTarget.ip) basicIdentity else DemoClient.probe(t)
+        val receiver = if (basicTarget != null && t.ip == basicTarget.ip) basicReceiver else DemoClient.threatStatus(t)
         val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
         val vpnGateway = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
         val vpnPhone = if (vpnGateway?.reachable == true && selectedServiceBase != null) {
@@ -132,6 +139,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
 
         activity.runOnUiThread {
+            hotspotIdentity = localIdentity
             hotspotGatewayConfig = localConfig
             selectedGatewayConfig = selectedConfig
             basicReceiverProbe = basicIdentity
@@ -181,7 +189,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }.start()
     }
 
-    DisposableEffect(localGatewayBase, selectedServiceBase, targetIp, basicTarget.ip) {
+    DisposableEffect(localGatewayBase, selectedServiceBase, targetIp, basicTarget?.ip) {
         val running = AtomicBoolean(true)
         val worker = Thread {
             while (running.get()) {
@@ -303,23 +311,31 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         else -> "🟢 $gatewayLabel · phone clean"
                     }
                 )
-                TaraStatusRow(
-                    "${basicTarget.name} node",
-                    when {
-                        basicReceiverProbe == null -> "${basicTarget.ip} · checking"
-                        basicReceiverProbe?.reachable == false ->
-                            "${basicTarget.ip} · configured but unavailable: ${basicReceiverProbe?.message.orEmpty()}"
-                        basicReceiverState?.reachable == false ->
-                            "${basicTarget.ip} · status unavailable: ${basicReceiverState?.message.orEmpty()}"
-                        basicReceiverState?.reachable == true && basicReceiverState?.infected == true -> "🔴 ${basicTarget.ip} · INFECTED"
-                        basicReceiverState?.reachable == true -> "🟢 ${basicTarget.ip} · CLEAN"
-                        else -> "${basicTarget.ip} · checking"
-                    }
-                )
-                Text(
-                    "📱 Phone  →  🛡 $gatewayLabel  →  🖥 ${basicTarget.name}",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                if (basicTarget == null) {
+                    TaraStatusRow("Receiver", "No demo receivers configured")
+                    Text(
+                        "This TaraSec hotspot is valid, but its gateway has not configured any nodes for Demo 1.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    TaraStatusRow(
+                        "${basicTarget.name} node",
+                        when {
+                            basicReceiverProbe == null -> "${basicTarget.ip} · checking"
+                            basicReceiverProbe?.reachable == false ->
+                                "${basicTarget.ip} · configured but unavailable: ${basicReceiverProbe?.message.orEmpty()}"
+                            basicReceiverState?.reachable == false ->
+                                "${basicTarget.ip} · status unavailable: ${basicReceiverState?.message.orEmpty()}"
+                            basicReceiverState?.reachable == true && basicReceiverState?.infected == true -> "🔴 ${basicTarget.ip} · INFECTED"
+                            basicReceiverState?.reachable == true -> "🟢 ${basicTarget.ip} · CLEAN"
+                            else -> "${basicTarget.ip} · checking"
+                        }
+                    )
+                    Text(
+                        "📱 Phone  →  🛡 $gatewayLabel  →  🖥 ${basicTarget.name}",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
 
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
