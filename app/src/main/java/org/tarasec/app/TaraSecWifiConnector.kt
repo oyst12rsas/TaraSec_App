@@ -17,6 +17,6 @@ object TaraSecWifiConnector {
         }
 
         activity.startActivity(intent)
-        return "Select $cleanSsid in Android's Wi-Fi panel to switch to this TaraSec hotspot."
+        return "Switching to $cleanSsid... Android is connecting; TaraSec will update automatically when the Wi-Fi connection is ready."
     }
 }
