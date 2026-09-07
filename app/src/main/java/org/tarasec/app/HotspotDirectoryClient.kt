@@ -10,6 +10,9 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class DirectoryHotspot(
     val id: String,
@@ -39,7 +42,6 @@ data class NearbyTaraSecHotspot(
 object HotspotDirectoryClient {
     const val DEFAULT_BASE_URL = "http://100.68.126.0"
     private const val PRICE_PREFS = "tarasec_hotspot_price_cache"
-    private const val SUBSCRIBER_ACCOUNT_URL = "https://tarasec.org/api/v1/subscriber/subscriber-account.php"
 
     fun list(baseUrl: String = DEFAULT_BASE_URL, country: String? = null): List<DirectoryHotspot> {
         val suffix = country?.trim()?.takeIf { it.isNotEmpty() }?.let {
@@ -121,90 +123,26 @@ object HotspotDirectoryClient {
         }
     }
 
-    private fun connectedGatewayKey(context: Context): String? {
-        val base = LocalGateway.baseUrl(context)?.trimEnd('/') ?: return null
-        val host = runCatching { URL(base).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
-        val network = wifiNetwork(context) ?: return null
-        val connection = runCatching {
-            network.openConnection(URL("http://$host:8080/hotspot/tarasec_identity.php")) as HttpURLConnection
-        }.getOrNull() ?: return null
-        return try {
-            connection.connectTimeout = 2500
-            connection.readTimeout = 3500
-            connection.useCaches = false
-            connection.setRequestProperty("Accept", "application/json")
-            if (connection.responseCode !in 200..299) return null
-            JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                .optString("gateway_key").trim().takeIf { it.isNotBlank() }
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection.disconnect()
-        }
-    }
+    private fun pollTime(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
 
     private fun connectedCentralUsageLabel(context: Context): String? {
-        val token = SubscriberAccountClient.storedToken(context) ?: return null
-        val gatewayKey = connectedGatewayKey(context)
-        val connection = runCatching {
-            URL(SUBSCRIBER_ACCOUNT_URL).openConnection() as HttpURLConnection
-        }.getOrNull() ?: return null
-        return try {
-            connection.connectTimeout = 4000
-            connection.readTimeout = 6000
-            connection.useCaches = false
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("X-TaraSec-Subscriber-Token", token)
-            if (connection.responseCode !in 200..299) return null
-            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-            if (!json.optBoolean("ok", false)) return null
-            val sessions = json.optJSONArray("sessions") ?: return null
+        if (SubscriberAccountClient.storedToken(context) == null) return null
+        val time = pollTime()
+        val account = runCatching { SubscriberAccountClient.account(context) }.getOrElse { error ->
+            return "Usage poll $time · failed: ${error.message ?: error.javaClass.simpleName}"
+        }
 
-            var matched: JSONObject? = null
-            if (gatewayKey != null) {
-                for (i in 0 until sessions.length()) {
-                    val item = sessions.optJSONObject(i) ?: continue
-                    if (item.optString("gateway_key") == gatewayKey && item.isNull("ended_at")) {
-                        matched = item
-                        break
-                    }
-                }
-                if (matched == null) {
-                    for (i in 0 until sessions.length()) {
-                        val item = sessions.optJSONObject(i) ?: continue
-                        if (item.optString("gateway_key") == gatewayKey) {
-                            matched = item
-                            break
-                        }
-                    }
-                }
-            }
+        // subscriber-account.php returns newest sessions first. Prefer the newest
+        // open session. During the pilot this is the session for the Wi-Fi that
+        // is currently serving the device. Falling back to the newest session
+        // keeps diagnostics visible even if a previous session was not closed.
+        val usage = account.usages.firstOrNull { it.endedAt == null } ?: account.usages.firstOrNull()
+            ?: return "Usage poll $time · no central TaraSec session"
 
-            // subscriber-account.php already returns sessions newest first.
-            // During rollout an older central endpoint may not expose gateway_key yet.
-            // If there is exactly one open TaraSec session, it is the connected one.
-            if (matched == null) {
-                val openSessions = mutableListOf<JSONObject>()
-                for (i in 0 until sessions.length()) {
-                    val item = sessions.optJSONObject(i) ?: continue
-                    if (item.isNull("ended_at") || item.optString("ended_at").isBlank()) {
-                        openSessions += item
-                    }
-                }
-                if (openSessions.size == 1) matched = openSessions.first()
-            }
-
-            matched?.let {
-                val mib = it.optString("mib", "0")
-                val charged = it.optString("charged_credits", "0")
-                val rate = it.optString("price_credits_per_mib", "0")
-                "TaraSec roaming: $rate credits/MiB\nThis session: $mib MiB · Charged: $charged credits"
-            }
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection.disconnect()
+        return buildString {
+            append("TaraSec roaming: ${usage.priceCreditsPerMiB} credits/MiB")
+            append("\nThis session: ${usage.mib} MiB · Charged: ${usage.chargedCredits} credits")
+            append("\nPolled $time")
         }
     }
 
