@@ -126,6 +126,32 @@ object DemoClient {
         }
     }
 
+    fun probeBase(baseUrl: String, fallbackName: String = "TaraSec gateway"): DemoProbeResult {
+        val base = normaliseBase(baseUrl)
+        val target = DemoTarget(fallbackName, runCatching { URL(base).host }.getOrDefault(base))
+        var c: HttpURLConnection? = null
+        return try {
+            c = URL("$base/script/appNode.php").openConnection() as HttpURLConnection
+            c.connectTimeout = 2500
+            c.readTimeout = 3500
+            c.useCaches = false
+            val code = c.responseCode
+            val body = (if (code in 200..299) c.inputStream else c.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) {
+                DemoProbeResult(target, false, fallbackName, "HTTP $code")
+            } else {
+                val json = JSONObject(body)
+                val name = json.optString("name", "").trim().ifBlank { fallbackName }
+                DemoProbeResult(target, true, name, "TaraSec node reachable")
+            }
+        } catch (e: Exception) {
+            DemoProbeResult(target, false, fallbackName, e.message ?: "Identity check failed")
+        } finally {
+            c?.disconnect()
+        }
+    }
+
     fun threatStatus(target: DemoTarget): DemoThreatStatus = threatStatusBase("http://${target.ip}")
 
     fun threatStatusBase(baseUrl: String): DemoThreatStatus =
