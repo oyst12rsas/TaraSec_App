@@ -254,6 +254,13 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         "Configured receivers",
                         activeGatewayConfig?.nodes?.size?.toString() ?: "Configuration unavailable"
                     )
+                    if (activeGatewayConfig == null) {
+                        val detail = selectedGatewayConfig?.message
+                            ?.takeIf { it.isNotBlank() }
+                            ?: hotspotGatewayConfig?.message?.takeIf { it.isNotBlank() }
+                            ?: "No TaraSec gateway configuration endpoint responded."
+                        Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
+                    }
                     OutlinedTextField(
                         value = serviceIpDraft,
                         onValueChange = { serviceIpDraft = it },
@@ -299,7 +306,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 TaraStatusRow(
                     "${basicTarget.name} node",
                     when {
-                        basicReceiverProbe?.reachable != true -> "${basicTarget.ip} · unavailable/checking"
+                        basicReceiverProbe == null -> "${basicTarget.ip} · checking"
+                        basicReceiverProbe?.reachable == false ->
+                            "${basicTarget.ip} · configured but unavailable: ${basicReceiverProbe?.message.orEmpty()}"
+                        basicReceiverState?.reachable == false ->
+                            "${basicTarget.ip} · status unavailable: ${basicReceiverState?.message.orEmpty()}"
                         basicReceiverState?.reachable == true && basicReceiverState?.infected == true -> "🔴 ${basicTarget.ip} · INFECTED"
                         basicReceiverState?.reachable == true -> "🟢 ${basicTarget.ip} · CLEAN"
                         else -> "${basicTarget.ip} · checking"
