@@ -91,7 +91,7 @@ private val taraMenuItems = listOf(
     TaraMenuDestination.SECURITY_DEMO to "Security Demo",
     TaraMenuDestination.AI_ASSISTANCE to "AI / Assistance",
     TaraMenuDestination.RESEARCH to "Research",
-    TaraMenuDestination.SETUP_HOTSPOTS to "Setup / My hotspots"
+    TaraMenuDestination.SETUP_HOTSPOTS to "Setup / Gateways"
 )
 
 @Composable
