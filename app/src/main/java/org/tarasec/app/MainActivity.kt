@@ -503,6 +503,36 @@ private fun TaraSecApp(initialDestination: String?) {
                 Text("Installations", style = MaterialTheme.typography.titleLarge)
                 Text("The global DB/control plane is discovered and checked in the background. Users normally do not need to configure it.", style = MaterialTheme.typography.bodySmall)
 
+                selectedInstallation?.let { installation ->
+                    Text("Selected installation network", style = MaterialTheme.typography.titleMedium)
+                    TaraStatusRow("Management address", installation.managementBaseUrl)
+                    OutlinedTextField(
+                        value = registrationServiceIp,
+                        onValueChange = { registrationServiceIp = it },
+                        label = { Text("Service / Assistance IP") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Button(
+                        enabled = registrationServiceIp.isNotBlank(),
+                        onClick = {
+                            val updated = InstallationStore.register(
+                                activity,
+                                name = installation.name,
+                                managementBaseUrl = installation.managementBaseUrl,
+                                serviceIp = registrationServiceIp
+                            )
+                            installations = InstallationStore.load(activity)
+                            selectedInstallationId = updated.id
+                            InstallationStore.setSelected(activity, updated.id)
+                            managerStatus = "Service address updated for ${updated.name}."
+                        }
+                    ) {
+                        Text("Save service address")
+                    }
+                    Text(managerStatus, style = MaterialTheme.typography.bodySmall)
+                }
+
                 Button(onClick = {
                     selectedInstallationId = null
                     InstallationStore.setSelected(activity, null)
