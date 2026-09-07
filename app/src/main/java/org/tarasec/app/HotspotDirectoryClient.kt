@@ -39,6 +39,7 @@ data class NearbyTaraSecHotspot(
 object HotspotDirectoryClient {
     const val DEFAULT_BASE_URL = "http://100.68.126.0"
     private const val PRICE_PREFS = "tarasec_hotspot_price_cache"
+    private const val SUBSCRIBER_ACCOUNT_URL = "https://tarasec.org/api/v1/subscriber/subscriber-account.php"
 
     fun list(baseUrl: String = DEFAULT_BASE_URL, country: String? = null): List<DirectoryHotspot> {
         val suffix = country?.trim()?.takeIf { it.isNotEmpty() }?.let {
@@ -113,20 +114,89 @@ object HotspotDirectoryClient {
             .apply()
     }
 
+    private fun wifiNetwork(context: Context): android.net.Network? {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+        return cm.allNetworks.firstOrNull { network ->
+            cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        }
+    }
+
+    private fun connectedGatewayKey(context: Context): String? {
+        val base = LocalGateway.baseUrl(context)?.trimEnd('/') ?: return null
+        val host = runCatching { URL(base).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        val network = wifiNetwork(context) ?: return null
+        val connection = runCatching {
+            network.openConnection(URL("http://$host:8080/hotspot/tarasec_identity.php")) as HttpURLConnection
+        }.getOrNull() ?: return null
+        return try {
+            connection.connectTimeout = 2500
+            connection.readTimeout = 3500
+            connection.useCaches = false
+            connection.setRequestProperty("Accept", "application/json")
+            if (connection.responseCode !in 200..299) return null
+            JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                .optString("gateway_key").trim().takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun connectedCentralUsageLabel(context: Context): String? {
+        val token = SubscriberAccountClient.storedToken(context) ?: return null
+        val gatewayKey = connectedGatewayKey(context) ?: return null
+        val connection = runCatching {
+            URL(SUBSCRIBER_ACCOUNT_URL).openConnection() as HttpURLConnection
+        }.getOrNull() ?: return null
+        return try {
+            connection.connectTimeout = 4000
+            connection.readTimeout = 6000
+            connection.useCaches = false
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("X-TaraSec-Subscriber-Token", token)
+            if (connection.responseCode !in 200..299) return null
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            if (!json.optBoolean("ok", false)) return null
+            val sessions = json.optJSONArray("sessions") ?: return null
+            var matched: JSONObject? = null
+            for (i in 0 until sessions.length()) {
+                val item = sessions.optJSONObject(i) ?: continue
+                if (item.optString("gateway_key") == gatewayKey && item.isNull("ended_at")) {
+                    matched = item
+                    break
+                }
+            }
+            if (matched == null) {
+                for (i in 0 until sessions.length()) {
+                    val item = sessions.optJSONObject(i) ?: continue
+                    if (item.optString("gateway_key") == gatewayKey) {
+                        matched = item
+                        break
+                    }
+                }
+            }
+            matched?.let {
+                val mib = it.optString("mib", "0")
+                val charged = it.optString("charged_credits", "0")
+                val rate = it.optString("price_credits_per_mib", "0")
+                "TaraSec roaming: $rate credits/MiB\nThis session: $mib MiB · Charged: $charged credits"
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun connectedHotspotLabel(context: Context): String? {
         val base = LocalGateway.baseUrl(context)?.trimEnd('/') ?: return null
         val host = runCatching { URL(base).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
         val endpoint = URL("http://$host:8080/hotspot/tarasec_hotspot_info.php")
-
-        // During a captive-portal transition Android can keep mobile data or a
-        // VPN as the process default. Local hotspot information must always be
-        // requested over the actual Wi-Fi network that owns 192.168.50.1.
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
-        val wifiNetwork = cm.allNetworks.firstOrNull { network ->
-            cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-        } ?: return null
+        val network = wifiNetwork(context) ?: return null
         val connection = runCatching {
-            wifiNetwork.openConnection(endpoint) as HttpURLConnection
+            network.openConnection(endpoint) as HttpURLConnection
         }.getOrNull() ?: return null
 
         return try {
@@ -154,22 +224,7 @@ object HotspotDirectoryClient {
                 }
             }
             if (packageParts.isEmpty()) return null
-            val pricing = "Prices: " + packageParts.joinToString(" · ")
-
-            val usage = json.optJSONObject("usage")
-            if (usage != null) {
-                val session = usage.optDouble("session_mib", Double.NaN)
-                val total = usage.optDouble("total_mib", Double.NaN)
-                val remaining = if (usage.isNull("remaining_mib")) Double.NaN else usage.optDouble("remaining_mib", Double.NaN)
-                buildString {
-                    append(pricing)
-                    if (!session.isNaN()) append("\nThis session: %.1f MiB".format(session))
-                    if (!total.isNaN()) append(" · Total here: %.1f MiB".format(total))
-                    if (!remaining.isNaN()) append(" · Remaining: %.1f MiB".format(remaining))
-                }
-            } else {
-                pricing
-            }
+            "Prices: " + packageParts.joinToString(" · ")
         } catch (_: Exception) {
             null
         } finally {
@@ -217,11 +272,13 @@ object HotspotDirectoryClient {
         val currentBssid = connectionInfo?.bssid.orEmpty()
         val currentSsid = connectionInfo?.ssid.orEmpty().trim().trim('"')
 
-        // Local Wi-Fi discovery must never wait for the global directory.
         val directoryBySsid = directory.mapNotNull { item ->
             item.ssid?.trim()?.takeIf { it.isNotEmpty() }?.let { it.lowercase() to item }
         }.toMap()
         val connectedLocalLabel = if (includeConnectedPricing) connectedHotspotLabel(context) else null
+        val connectedUsageLabel = if (includeConnectedPricing) connectedCentralUsageLabel(context) else null
+        val connectedLabel = listOfNotNull(connectedLocalLabel, connectedUsageLabel)
+            .joinToString("\n").takeIf { it.isNotBlank() }
         if (connectedLocalLabel != null && currentSsid.startsWith("TaraSec", ignoreCase = true)) {
             cachePriceLabel(context, currentSsid, connectedLocalLabel)
         }
@@ -251,7 +308,7 @@ object HotspotDirectoryClient {
                     hotspotId = published?.id,
                     priceCreditsPerMiB = published?.priceCreditsPerMiB,
                     priceLabel = when {
-                        isConnected && connectedLocalLabel != null -> connectedLocalLabel
+                        isConnected && connectedLabel != null -> connectedLabel
                         published?.priceLabel != null -> published.priceLabel
                         else -> cached
                     },
@@ -271,7 +328,7 @@ object HotspotDirectoryClient {
                 verifiedDirectoryEntry = published != null,
                 hotspotId = published?.id,
                 priceCreditsPerMiB = published?.priceCreditsPerMiB,
-                priceLabel = connectedLocalLabel ?: published?.priceLabel ?: cachedPriceLabel(context, currentSsid),
+                priceLabel = connectedLabel ?: published?.priceLabel ?: cachedPriceLabel(context, currentSsid),
                 connected = true
             )
         }
