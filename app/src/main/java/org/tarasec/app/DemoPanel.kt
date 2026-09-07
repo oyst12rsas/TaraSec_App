@@ -47,7 +47,15 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it"
     }
 
-    val basicTarget = remember { DemoClient.presets.first() }
+    var hotspotGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
+    var selectedGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
+    val activeGatewayConfig = when {
+        hotspotGatewayConfig?.reachable == true -> hotspotGatewayConfig
+        selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
+        else -> null
+    }
+    val configuredTargets = activeGatewayConfig?.nodes?.takeIf { it.isNotEmpty() } ?: DemoClient.presets
+    val basicTarget = configuredTargets.first()
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
 
@@ -78,20 +86,29 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         targetIp.trim()
     )
 
-    fun selectedVpnActive(): Boolean = vpnGatewayState?.reachable == true
+    fun directHotspotActive(): Boolean = hotspotGatewayConfig?.reachable == true
 
-    fun activePhoneState(): DemoThreatStatus? =
-        if (selectedServiceBase != null) vpnPhoneState else localPhoneState
+    fun selectedVpnActive(): Boolean =
+        selectedGatewayConfig?.reachable == true || vpnGatewayState?.reachable == true
 
-    fun activeControlBase(): String? =
-        if (selectedServiceBase != null) {
-            selectedServiceBase.takeIf { selectedVpnActive() }
-        } else {
-            localGatewayBase
-        }
+    fun activePhoneState(): DemoThreatStatus? = when {
+        directHotspotActive() -> localPhoneState
+        selectedServiceBase != null -> vpnPhoneState
+        else -> null
+    }
 
-    fun activeGatewayLabel(): String =
-        if (selectedServiceBase != null) selectedGatewayName else "local Wi-Fi hotspot"
+    fun activeControlBase(): String? = when {
+        directHotspotActive() -> localGatewayBase
+        selectedServiceBase != null && selectedVpnActive() -> selectedServiceBase
+        else -> null
+    }
+
+    fun activeGatewayLabel(): String = when {
+        directHotspotActive() ->
+            hotspotGatewayConfig?.gatewayName?.takeIf { it.isNotBlank() } ?: "TaraSec hotspot"
+        selectedServiceBase != null -> selectedGatewayName
+        else -> "No active gateway"
+    }
 
     fun pollAll(after: String? = null) {
         val t = currentTarget()
@@ -100,6 +117,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             return
         }
 
+        val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
+        val selectedConfig = selectedServiceBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val basicIdentity = DemoClient.probe(basicTarget)
         val basicReceiver = DemoClient.threatStatus(basicTarget)
         val identity = if (t.ip == basicTarget.ip) basicIdentity else DemoClient.probe(t)
@@ -113,6 +132,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
 
         activity.runOnUiThread {
+            hotspotGatewayConfig = localConfig
+            selectedGatewayConfig = selectedConfig
             basicReceiverProbe = basicIdentity
             basicReceiverState = basicReceiver
             receiverProbe = identity
@@ -160,7 +181,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }.start()
     }
 
-    DisposableEffect(localGatewayBase, selectedServiceBase, targetIp) {
+    DisposableEffect(localGatewayBase, selectedServiceBase, targetIp, basicTarget.ip) {
         val running = AtomicBoolean(true)
         val worker = Thread {
             while (running.get()) {
@@ -180,7 +201,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
     val phoneState = activePhoneState()
     val gatewayLabel = activeGatewayLabel()
-    val gatewayState = if (selectedServiceBase != null) vpnGatewayState else localPhoneState
+    val gatewayState = if (directHotspotActive()) localPhoneState else vpnGatewayState
     val phase = when {
         phoneState == null || !phoneState.reachable -> "CHECKING"
         phoneState.infected && auditApproved -> "REASSESSING"
@@ -221,6 +242,18 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     subtitle = "Select the gateway used between the VPN networks"
                 ) {
                     TaraStatusRow("Selected gateway", selectedGatewayName)
+                    TaraStatusRow(
+                        "Active demo path",
+                        when {
+                            directHotspotActive() -> "Direct TaraSec hotspot"
+                            selectedVpnActive() -> "Selected VPN gateway"
+                            else -> "No TaraSec gateway detected"
+                        }
+                    )
+                    TaraStatusRow(
+                        "Configured receivers",
+                        activeGatewayConfig?.nodes?.size?.toString() ?: "Configuration unavailable"
+                    )
                     OutlinedTextField(
                         value = serviceIpDraft,
                         onValueChange = { serviceIpDraft = it },
@@ -434,7 +467,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             }
 
             Text("Demo 2 receiving node", style = MaterialTheme.typography.titleMedium)
-            DemoClient.presets.forEach { preset ->
+            configuredTargets.forEach { preset ->
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
