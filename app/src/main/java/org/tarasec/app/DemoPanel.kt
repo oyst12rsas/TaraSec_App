@@ -171,6 +171,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
     val phoneState = activePhoneState()
     val gatewayLabel = activeGatewayLabel()
+    val gatewayState = if (selectedVpnActive()) vpnGatewayState else localPhoneState
     val phase = when {
         phoneState == null || !phoneState.reachable -> "CHECKING"
         phoneState.infected && auditApproved -> "REASSESSING"
@@ -217,7 +218,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 TaraStatusRow(
                     "Gateway",
                     when {
-                        phoneState?.reachable != true -> "$gatewayLabel · checking"
+                        gatewayState?.reachable != true -> "$gatewayLabel · unavailable/checking"
+                        phoneState?.reachable != true -> "🟢 $gatewayLabel · reachable; phone status unavailable"
                         phoneState.infected -> "🔴 $gatewayLabel · phone marked infected"
                         else -> "🟢 $gatewayLabel · phone clean"
                     }
