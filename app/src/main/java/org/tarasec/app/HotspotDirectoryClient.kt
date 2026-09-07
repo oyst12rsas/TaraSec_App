@@ -232,6 +232,24 @@ object HotspotDirectoryClient {
         }
     }
 
+    fun refreshConnectedPricingAndUsage(
+        context: Context,
+        current: List<NearbyTaraSecHotspot>
+    ): List<NearbyTaraSecHotspot> {
+        if (current.none { it.connected }) return current
+        val connected = current.firstOrNull { it.connected } ?: return current
+        val local = connectedHotspotLabel(context)
+        val usage = connectedCentralUsageLabel(context)
+        if (local != null) cachePriceLabel(context, connected.ssid, local)
+        val label = listOfNotNull(local ?: cachedPriceLabel(context, connected.ssid), usage)
+            .joinToString("\n")
+            .takeIf { it.isNotBlank() }
+            ?: connected.priceLabel
+        return current.map { candidate ->
+            if (candidate.connected) candidate.copy(priceLabel = label) else candidate
+        }
+    }
+
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     private fun collectFreshScanResults(wifi: WifiManager): List<ScanResult> {
