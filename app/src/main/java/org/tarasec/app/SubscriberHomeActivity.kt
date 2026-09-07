@@ -23,14 +23,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -123,7 +121,6 @@ private fun SubscriberHome(
     var nearbyStatus by remember { mutableStateOf("Nearby TaraSec alternatives not checked.") }
     var scanningNearby by remember { mutableStateOf(false) }
     var connectedInternetAvailable by remember { mutableStateOf(false) }
-    var pendingHotspot by remember { mutableStateOf<NearbyTaraSecHotspot?>(null) }
     var nearbyPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -138,14 +135,6 @@ private fun SubscriberHome(
             "Location permission granted. Scanning nearby TaraSec hotspots..."
         } else {
             "Location permission is required by Android to see nearby Wi-Fi names and signal levels."
-        }
-    }
-    val nearbyWifiPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted) {
-            nearbyStatus = "Android needs Nearby devices permission before TaraSec can start the Wi-Fi connection flow."
-            pendingHotspot = null
         }
     }
     val scrollState = rememberScrollState()
@@ -279,13 +268,6 @@ private fun SubscriberHome(
 
     fun connectTo(candidate: NearbyTaraSecHotspot) {
         if (candidate.connected) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(activity, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingHotspot = candidate
-            nearbyWifiPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-            return
-        }
         nearbyStatus = TaraSecWifiConnector.connect(activity, candidate.ssid)
     }
 
@@ -379,25 +361,6 @@ private fun SubscriberHome(
         }.start()
     }
 
-    pendingHotspot?.let { candidate ->
-        AlertDialog(
-            onDismissRequest = { pendingHotspot = null },
-            title = { Text("Connect to ${candidate.ssid}?") },
-            text = {
-                Text("TaraSec will ask Android to use this hotspot for Internet. Android may ask once for permission to let TaraSec suggest Wi-Fi networks.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingHotspot = null
-                    connectTo(candidate)
-                }) { Text("Connect") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingHotspot = null }) { Text("Cancel") }
-            }
-        )
-    }
-
     Column(
         Modifier.fillMaxSize().verticalScroll(scrollState).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -424,7 +387,7 @@ private fun SubscriberHome(
 
         Text("Find secure Internet access", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Tap a red TaraSec hotspot to connect. Tap a yellow connected hotspot to log in and authorize Internet access.",
+            "Tap a red TaraSec hotspot to open Android's Wi-Fi selector, then tap that SSID there to switch. Tap a yellow connected hotspot to log in and authorize Internet access.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -447,7 +410,7 @@ private fun SubscriberHome(
                         if (candidate.connected) {
                             logInToConnectedHotspot(candidate)
                         } else {
-                            pendingHotspot = candidate
+                            connectTo(candidate)
                         }
                     }
             ) {
@@ -465,7 +428,7 @@ private fun SubscriberHome(
                             candidate.connected ->
                                 "Connected · ${candidate.signalDbm} dBm · Tap to log in"
                             else ->
-                                "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm · Tap to connect"
+                                "${candidate.signalLabel} signal · ${candidate.signalDbm} dBm · Tap to choose in Android Wi-Fi"
                         }
                     )
                     when {
