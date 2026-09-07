@@ -145,7 +145,7 @@ object HotspotDirectoryClient {
 
     private fun connectedCentralUsageLabel(context: Context): String? {
         val token = SubscriberAccountClient.storedToken(context) ?: return null
-        val gatewayKey = connectedGatewayKey(context) ?: return null
+        val gatewayKey = connectedGatewayKey(context)
         val connection = runCatching {
             URL(SUBSCRIBER_ACCOUNT_URL).openConnection() as HttpURLConnection
         }.getOrNull() ?: return null
@@ -160,23 +160,41 @@ object HotspotDirectoryClient {
             val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
             if (!json.optBoolean("ok", false)) return null
             val sessions = json.optJSONArray("sessions") ?: return null
+
             var matched: JSONObject? = null
-            for (i in 0 until sessions.length()) {
-                val item = sessions.optJSONObject(i) ?: continue
-                if (item.optString("gateway_key") == gatewayKey && item.isNull("ended_at")) {
-                    matched = item
-                    break
-                }
-            }
-            if (matched == null) {
+            if (gatewayKey != null) {
                 for (i in 0 until sessions.length()) {
                     val item = sessions.optJSONObject(i) ?: continue
-                    if (item.optString("gateway_key") == gatewayKey) {
+                    if (item.optString("gateway_key") == gatewayKey && item.isNull("ended_at")) {
                         matched = item
                         break
                     }
                 }
+                if (matched == null) {
+                    for (i in 0 until sessions.length()) {
+                        val item = sessions.optJSONObject(i) ?: continue
+                        if (item.optString("gateway_key") == gatewayKey) {
+                            matched = item
+                            break
+                        }
+                    }
+                }
             }
+
+            // subscriber-account.php already returns sessions newest first.
+            // During rollout an older central endpoint may not expose gateway_key yet.
+            // If there is exactly one open TaraSec session, it is the connected one.
+            if (matched == null) {
+                val openSessions = mutableListOf<JSONObject>()
+                for (i in 0 until sessions.length()) {
+                    val item = sessions.optJSONObject(i) ?: continue
+                    if (item.isNull("ended_at") || item.optString("ended_at").isBlank()) {
+                        openSessions += item
+                    }
+                }
+                if (openSessions.size == 1) matched = openSessions.first()
+            }
+
             matched?.let {
                 val mib = it.optString("mib", "0")
                 val charged = it.optString("charged_credits", "0")
