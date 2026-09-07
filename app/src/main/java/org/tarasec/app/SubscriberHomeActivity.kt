@@ -43,7 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -263,14 +266,26 @@ private fun SubscriberHome(
     DisposableEffect(activity, nearbyPermissionGranted) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && nearbyPermissionGranted) {
-                // Android owns the actual Wi-Fi switch. When its selector or
-                // captive-portal UI returns control to TaraSec, immediately
-                // rescan so the connected SSID and Internet state are current.
                 scanNearbyTaraSec()
             }
         }
         activity.lifecycle.addObserver(observer)
         onDispose { activity.lifecycle.removeObserver(observer) }
+    }
+
+    val connectedSsid = nearbyHotspots.firstOrNull { it.connected }?.ssid
+    LaunchedEffect(connectedInternetAvailable, connectedSsid) {
+        if (!connectedInternetAvailable || connectedSsid == null || SubscriberAccountClient.storedToken(activity) == null) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            val snapshot = nearbyHotspots
+            val refreshed = withContext(Dispatchers.IO) {
+                HotspotDirectoryClient.refreshConnectedPricingAndUsage(activity, snapshot)
+            }
+            nearbyHotspots = refreshed
+            delay(10_000)
+        }
     }
 
     fun openNearbyWifi() {
