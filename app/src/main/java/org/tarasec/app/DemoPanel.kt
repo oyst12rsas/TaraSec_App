@@ -128,8 +128,16 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         val selectedConfig = selectedServiceBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val basicIdentity = basicTarget?.let { DemoClient.probe(it) }
         val basicReceiver = basicTarget?.let { DemoClient.threatStatus(it) }
-        val identity = if (basicTarget != null && t.ip == basicTarget.ip) basicIdentity else DemoClient.probe(t)
-        val receiver = if (basicTarget != null && t.ip == basicTarget.ip) basicReceiver else DemoClient.threatStatus(t)
+        val identity = if (basicTarget != null && t.ip == basicTarget.ip) {
+            basicIdentity ?: DemoClient.probe(t)
+        } else {
+            DemoClient.probe(t)
+        }
+        val receiver = if (basicTarget != null && t.ip == basicTarget.ip) {
+            basicReceiver ?: DemoClient.threatStatus(t)
+        } else {
+            DemoClient.threatStatus(t)
+        }
         val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
         val vpnGateway = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
         val vpnPhone = if (vpnGateway?.reachable == true && selectedServiceBase != null) {
