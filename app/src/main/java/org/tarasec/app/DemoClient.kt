@@ -19,6 +19,14 @@ data class DemoProbeResult(
     val message: String = ""
 )
 
+data class DemoGatewayConfiguration(
+    val reachable: Boolean,
+    val gatewayName: String,
+    val nodes: List<DemoTarget>,
+    val configured: Boolean,
+    val message: String = ""
+)
+
 data class DemoThreatStatus(
     val reachable: Boolean,
     val infected: Boolean,
@@ -65,6 +73,54 @@ object DemoClient {
             } catch (_: Exception) {
                 DemoProbeResult(target, false, message = e.message ?: "Unreachable")
             }
+        } finally {
+            c?.disconnect()
+        }
+    }
+
+    fun gatewayConfigurationBase(baseUrl: String): DemoGatewayConfiguration {
+        var c: HttpURLConnection? = null
+        return try {
+            val base = normaliseBase(baseUrl)
+            c = URL("$base/script/appDemoConfiguration.php").openConnection() as HttpURLConnection
+            c.connectTimeout = 3000
+            c.readTimeout = 5000
+            c.useCaches = false
+            c.setRequestProperty("Accept", "application/json")
+            c.setRequestProperty("Cache-Control", "no-cache")
+            val code = c.responseCode
+            val body = (if (code in 200..299) c.inputStream else c.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) {
+                DemoGatewayConfiguration(false, "", emptyList(), false, "HTTP $code")
+            } else {
+                val json = JSONObject(body)
+                if (!json.optBoolean("ok", false)) {
+                    DemoGatewayConfiguration(false, "", emptyList(), false, json.optString("error", "Invalid gateway response"))
+                } else {
+                    val nodesJson = json.optJSONArray("nodes")
+                    val nodes = buildList {
+                        if (nodesJson != null) {
+                            for (i in 0 until nodesJson.length()) {
+                                val item = nodesJson.optJSONObject(i) ?: continue
+                                val ip = item.optString("address", "").trim()
+                                if (ip.isBlank()) continue
+                                val configuredName = item.optString("name", "").trim()
+                                val knownName = presets.firstOrNull { it.ip == ip }?.name
+                                add(DemoTarget(configuredName.ifBlank { knownName ?: ip }, ip))
+                            }
+                        }
+                    }
+                    DemoGatewayConfiguration(
+                        reachable = true,
+                        gatewayName = json.optString("gateway", "").trim(),
+                        nodes = nodes,
+                        configured = json.optBoolean("configured", false)
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            DemoGatewayConfiguration(false, "", emptyList(), false, e.message ?: "Gateway configuration failed")
         } finally {
             c?.disconnect()
         }
