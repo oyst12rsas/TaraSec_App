@@ -76,13 +76,17 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     fun selectedVpnActive(): Boolean = vpnGatewayState?.reachable == true
 
     fun activePhoneState(): DemoThreatStatus? =
-        if (selectedVpnActive() && vpnPhoneState?.reachable == true) vpnPhoneState else localPhoneState
+        if (selectedServiceBase != null) vpnPhoneState else localPhoneState
 
     fun activeControlBase(): String? =
-        if (selectedVpnActive() && selectedServiceBase != null) selectedServiceBase else localGatewayBase
+        if (selectedServiceBase != null) {
+            selectedServiceBase.takeIf { selectedVpnActive() }
+        } else {
+            localGatewayBase
+        }
 
     fun activeGatewayLabel(): String =
-        if (selectedVpnActive()) selectedGatewayName else "local Wi-Fi hotspot"
+        if (selectedServiceBase != null) selectedGatewayName else "local Wi-Fi hotspot"
 
     fun pollAll(after: String? = null) {
         val t = currentTarget()
@@ -171,7 +175,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
     val phoneState = activePhoneState()
     val gatewayLabel = activeGatewayLabel()
-    val gatewayState = if (selectedVpnActive()) vpnGatewayState else localPhoneState
+    val gatewayState = if (selectedServiceBase != null) vpnGatewayState else localPhoneState
     val phase = when {
         phoneState == null || !phoneState.reachable -> "CHECKING"
         phoneState.infected && auditApproved -> "REASSESSING"
@@ -200,7 +204,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         if (showDemo1) {
             TaraSectionCard(
                 title = "Demo 1 · Basic infection demo",
-                subtitle = "Phone → gateway → Tomato; no SSH required"
+                subtitle = "Phone → WireGuard gateway → Tomato; no hotspot required"
             ) {
                 Text(
                     "This is the original quick TaraSec demonstration. Toggle this phone clean/infected on the gateway and watch the same path through to Tomato.",
