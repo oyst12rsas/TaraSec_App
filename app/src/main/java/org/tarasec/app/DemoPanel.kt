@@ -37,8 +37,13 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     val selectedGatewayName = selectedInstallation?.name
         ?: gatewayName?.takeIf { it.isNotBlank() }
         ?: "Squash"
-    val selectedServiceIp = selectedInstallation?.serviceIp?.trim()?.takeIf { it.isNotBlank() }
-    val selectedServiceBase = selectedServiceIp?.let {
+    var configuredServiceIp by remember(selectedInstallation?.id) {
+        mutableStateOf(selectedInstallation?.serviceIp?.trim().orEmpty())
+    }
+    var serviceIpDraft by remember(selectedInstallation?.id) {
+        mutableStateOf(selectedInstallation?.serviceIp?.trim().orEmpty())
+    }
+    val selectedServiceBase = configuredServiceIp.takeIf { it.isNotBlank() }?.let {
         if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it"
     }
 
@@ -210,6 +215,36 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     "This is the original quick TaraSec demonstration. Toggle this phone clean/infected on the gateway and watch the same path through to Tomato.",
                     style = MaterialTheme.typography.bodySmall
                 )
+
+                TaraSectionCard(
+                    title = "Demo configuration",
+                    subtitle = "Select the gateway used between the VPN networks"
+                ) {
+                    TaraStatusRow("Selected gateway", selectedGatewayName)
+                    OutlinedTextField(
+                        value = serviceIpDraft,
+                        onValueChange = { serviceIpDraft = it },
+                        label = { Text("Gateway service IP") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Button(
+                        enabled = selectedInstallation != null && serviceIpDraft.isNotBlank(),
+                        onClick = {
+                            val installation = selectedInstallation ?: return@Button
+                            val updated = InstallationStore.register(
+                                activity,
+                                name = installation.name,
+                                managementBaseUrl = installation.managementBaseUrl,
+                                serviceIp = serviceIpDraft
+                            )
+                            configuredServiceIp = updated.serviceIp
+                            message = "Demo gateway updated to ${updated.name} at ${updated.serviceIp}."
+                        }
+                    ) {
+                        Text("Use this gateway")
+                    }
+                }
 
                 TaraStatusRow(
                     "Phone / unit",
