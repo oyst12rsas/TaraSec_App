@@ -500,7 +500,7 @@ private fun TaraSecApp(initialDestination: String?) {
             }
 
             AppPage.SETUP -> {
-                Text("Installations", style = MaterialTheme.typography.titleLarge)
+                Text("Gateways / installations", style = MaterialTheme.typography.titleLarge)
                 Text("The global DB/control plane is discovered and checked in the background. Users normally do not need to configure it.", style = MaterialTheme.typography.bodySmall)
 
                 selectedInstallation?.let { installation ->
@@ -509,7 +509,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     OutlinedTextField(
                         value = registrationServiceIp,
                         onValueChange = { registrationServiceIp = it },
-                        label = { Text("Service / Assistance IP") },
+                        label = { Text("VPN service / data-plane IP") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
