@@ -12,6 +12,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,12 +69,12 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         !directHotspotDetected && selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
         else -> null
     }
-    val configuredTargets = when {
-        activeGatewayConfig?.reachable == true -> activeGatewayConfig.nodes
-        directHotspotDetected -> emptyList()
-        else -> DemoClient.presets
-    }
-    val basicTarget = configuredTargets.firstOrNull()
+    // The selected gateway is authoritative for the endpoints it handles.
+    // Never substitute the app's historical presets when its configuration is unavailable.
+    val configuredTargets = activeGatewayConfig?.nodes.orEmpty()
+    var basicTargetIp by remember { mutableStateOf("") }
+    val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
+        ?: configuredTargets.firstOrNull()
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
 
@@ -91,6 +92,19 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Demo 1 is ready. Expand Demo 2 when you want to run the SSH self-healing scenario.") }
+
+    LaunchedEffect(configuredTargets) {
+        val available = configuredTargets.map { it.ip }
+        if (basicTargetIp !in available) {
+            basicTargetIp = configuredTargets.firstOrNull()?.ip.orEmpty()
+        }
+        if (targetIp !in available && configuredTargets.isNotEmpty()) {
+            val first = configuredTargets.first()
+            target = first
+            targetIp = first.ip
+            discoveredName = first.name
+        }
+    }
 
     fun validIpv4(value: String): Boolean = try {
         val a = InetAddress.getByName(value.trim())
@@ -152,10 +166,10 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
         val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
         val vpnGateway = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
-        val vpnPhone = if (vpnGateway?.reachable == true && selectedServiceBase != null) {
-            DemoClient.localThreatStatusBase(selectedServiceBase)
-        } else {
-            null
+        // Phone status belongs to the selected gateway and must not be gated on
+        // appInfection.php, which describes a different status query.
+        val vpnPhone = selectedServiceBase?.let {
+            DemoClient.localThreatStatusBase(it)
         }
 
         activity.runOnUiThread {
@@ -291,6 +305,33 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         "Configured receivers",
                         activeGatewayConfig?.nodes?.size?.toString() ?: "Configuration unavailable"
                     )
+                    if (configuredTargets.isNotEmpty()) {
+                        Text("Demo endpoint", style = MaterialTheme.typography.titleMedium)
+                        configuredTargets.forEach { endpoint ->
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    basicTargetIp = endpoint.ip
+                                    target = endpoint
+                                    targetIp = endpoint.ip
+                                    discoveredName = endpoint.name
+                                    basicReceiverProbe = null
+                                    basicReceiverState = null
+                                }
+                            ) {
+                                Text(
+                                    (if (endpoint.ip == basicTarget?.ip) "✓ " else "") +
+                                        "${endpoint.name} · ${endpoint.ip}"
+                                )
+                            }
+                        }
+                        if (configuredTargets.size == 1) {
+                            Text(
+                                "This gateway handles one demo endpoint, so it was selected automatically.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                     if (activeGatewayConfig == null) {
                         val detail = selectedGatewayConfig?.message
                             ?.takeIf { it.isNotBlank() }
