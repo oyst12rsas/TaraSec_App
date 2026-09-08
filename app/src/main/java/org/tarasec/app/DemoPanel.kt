@@ -80,6 +80,9 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     val gatewayTargets = when (selectedGatewayName) {
         "Squash" -> activeGatewayConfig?.nodes.orEmpty().filter { it.ip == "100.68.22.33" }
         "Audi" -> activeGatewayConfig?.nodes.orEmpty().filter { it.ip == "100.68.187.10" }
+        "Standard gateway" -> activeGatewayConfig?.nodes.orEmpty().filterNot {
+            it.ip == "100.68.22.33" || it.ip == "100.68.187.10"
+        }
         else -> activeGatewayConfig?.nodes.orEmpty()
     }
     var endpointIpDraft by remember { mutableStateOf("") }
@@ -342,7 +345,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     )
                     TaraStatusRow(
                         "Configured receivers",
-                        activeGatewayConfig?.nodes?.size?.toString() ?: "Configuration unavailable"
+                        if (activeGatewayConfig != null) configuredTargets.size.toString()
+                        else "Configuration unavailable"
                     )
                     if (configuredTargets.isNotEmpty()) {
                         Text("Demo endpoint", style = MaterialTheme.typography.titleMedium)
