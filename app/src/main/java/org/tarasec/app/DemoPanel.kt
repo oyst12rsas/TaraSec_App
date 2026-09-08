@@ -307,29 +307,39 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     title = "Demo configuration",
                     subtitle = "Select the gateway used between the VPN networks"
                 ) {
-                    Text("Choose gateway", style = MaterialTheme.typography.titleMedium)
-                    demoGateways.forEach { (name, address) ->
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                selectedGatewayName = name
-                                serviceIpDraft = address
-                                configuredServiceIp = address
-                                selectedGatewayConfig = null
-                                vpnGatewayState = null
-                                vpnPhoneState = null
-                                basicReceiverProbe = null
-                                basicReceiverState = null
-                                message = "Loading demo endpoints from $name…"
+                    if (directHotspotDetected) {
+                        Text(
+                            "Connected directly to a TaraSec hotspot. This hotspot is automatically the demo gateway.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        Text("Choose WireGuard gateway", style = MaterialTheme.typography.titleMedium)
+                        demoGateways.forEach { (name, address) ->
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    selectedGatewayName = name
+                                    serviceIpDraft = address
+                                    configuredServiceIp = address
+                                    selectedGatewayConfig = null
+                                    vpnGatewayState = null
+                                    vpnPhoneState = null
+                                    basicReceiverProbe = null
+                                    basicReceiverState = null
+                                    message = "Loading demo endpoints from $name…"
+                                }
+                            ) {
+                                Text(
+                                    (if (configuredServiceIp == address) "✓ " else "") +
+                                        "$name · $address"
+                                )
                             }
-                        ) {
-                            Text(
-                                (if (configuredServiceIp == address) "✓ " else "") +
-                                    "$name · $address"
-                            )
                         }
                     }
-                    TaraStatusRow("Selected gateway", selectedGatewayName)
+                    TaraStatusRow(
+                        "Selected gateway",
+                        if (directHotspotDetected) activeGatewayLabel() else selectedGatewayName
+                    )
                     TaraStatusRow(
                         "Active demo path",
                         when {
@@ -343,6 +353,25 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         if (activeGatewayConfig != null) configuredTargets.size.toString()
                         else "Configuration unavailable"
                     )
+                    if (directHotspotDetected && activeGatewayConfig != null && configuredTargets.isEmpty()) {
+                        Text(
+                            "This TaraSec hotspot has no demo endpoints configured.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                activity.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://tarasec.org/app/demo.html#configure-endpoints")
+                                    )
+                                )
+                            }
+                        ) {
+                            Text("How to configure demo endpoints")
+                        }
+                    }
                     if (configuredTargets.isNotEmpty()) {
                         Text("Demo endpoint", style = MaterialTheme.typography.titleMedium)
                         configuredTargets.forEach { endpoint ->
@@ -377,7 +406,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                             ?: "No TaraSec gateway configuration endpoint responded."
                         Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (selectedGatewayName == "Standard gateway") {
+                    if (!directHotspotDetected && selectedGatewayName == "Standard gateway") {
                         Text(
                             "The standard gateway offers its configured endpoints above. You may also test another endpoint.",
                             style = MaterialTheme.typography.bodySmall
