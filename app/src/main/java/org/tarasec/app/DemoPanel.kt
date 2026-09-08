@@ -35,7 +35,12 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         val selectedId = InstallationStore.selectedId(activity)
         items.firstOrNull { it.id == selectedId } ?: items.firstOrNull()
     }
-    val selectedGatewayName = selectedInstallation?.name
+    val demoGateways = listOf(
+        "Squash" to "100.68.25.154",
+        "Audi" to "100.68.153.251",
+        "Standard gateway" to "100.68.165.190"
+    )
+    val initialGatewayName = selectedInstallation?.name
         ?: gatewayName?.takeIf { it.isNotBlank() }
         ?: "Squash"
     val automaticGatewayIp = selectedInstallation?.serviceIp
@@ -46,14 +51,15 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             ?.takeIf { it.isNotBlank() }
             ?.let { InstallationStore.endpointHost(it) }
             ?.takeIf { it.isNotBlank() }
-        ?: when (selectedGatewayName.lowercase()) {
-            "squash" -> "100.68.25.154"
-            else -> ""
-        }
-    var configuredServiceIp by remember(selectedInstallation?.id, automaticGatewayIp) {
+        ?: demoGateways.firstOrNull { it.first.equals(initialGatewayName, ignoreCase = true) }?.second
+        ?: "100.68.25.154"
+    var selectedGatewayName by remember(selectedInstallation?.id, gatewayName) {
+        mutableStateOf(initialGatewayName)
+    }
+    var configuredServiceIp by remember(selectedInstallation?.id, gatewayBaseUrl) {
         mutableStateOf(automaticGatewayIp)
     }
-    var serviceIpDraft by remember(selectedInstallation?.id, automaticGatewayIp) {
+    var serviceIpDraft by remember(selectedInstallation?.id, gatewayBaseUrl) {
         mutableStateOf(automaticGatewayIp)
     }
     val selectedServiceBase = configuredServiceIp.takeIf { it.isNotBlank() }?.let {
@@ -292,6 +298,28 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     title = "Demo configuration",
                     subtitle = "Select the gateway used between the VPN networks"
                 ) {
+                    Text("Choose gateway", style = MaterialTheme.typography.titleMedium)
+                    demoGateways.forEach { (name, address) ->
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                selectedGatewayName = name
+                                serviceIpDraft = address
+                                configuredServiceIp = address
+                                selectedGatewayConfig = null
+                                vpnGatewayState = null
+                                vpnPhoneState = null
+                                basicReceiverProbe = null
+                                basicReceiverState = null
+                                message = "Loading demo endpoints from $name…"
+                            }
+                        ) {
+                            Text(
+                                (if (configuredServiceIp == address) "✓ " else "") +
+                                    "$name · $address"
+                            )
+                        }
+                    }
                     TaraStatusRow("Selected gateway", selectedGatewayName)
                     TaraStatusRow(
                         "Active demo path",
