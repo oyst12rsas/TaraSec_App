@@ -227,14 +227,34 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             "Demo 1: marking this phone clean through $gatewayLabel…"
         }
 
+        val usingDirectHotspot = directHotspotActive()
+        val receiverTarget = basicTarget
         Thread {
             val result = DemoClient.setGatewayInfected(base, infected)
+
+            // Generate one real connection through the selected gateway so the
+            // receiver can observe the new tag. Keep a deliberate one-second
+            // propagation step visible in the demo, then read only the states
+            // affected by this action instead of waiting for every demo probe.
+            val updatedGatewayPhone = DemoClient.localThreatStatusBase(base)
+            val updatedReceiverProbe = receiverTarget?.let { DemoClient.probe(it) }
             try {
-                Thread.sleep(if (infected) 700L else 400L)
+                Thread.sleep(1000L)
             } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
             }
-            pollAll()
+            val updatedReceiver = receiverTarget?.let { DemoClient.threatStatus(it) }
+
             activity.runOnUiThread {
+                if (usingDirectHotspot) {
+                    localPhoneState = updatedGatewayPhone
+                } else {
+                    vpnPhoneState = updatedGatewayPhone
+                }
+                if (receiverTarget != null) {
+                    basicReceiverProbe = updatedReceiverProbe
+                    basicReceiverState = updatedReceiver
+                }
                 if (!infected) auditApproved = false
                 message = result
                 busy = false
