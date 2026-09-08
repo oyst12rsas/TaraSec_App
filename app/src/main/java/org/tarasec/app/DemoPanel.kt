@@ -29,7 +29,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     val activity = LocalContext.current as Activity
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
 
-    val selectedInstallation = remember {
+    val selectedInstallation = remember(gatewayName, gatewayBaseUrl) {
         val items = InstallationStore.load(activity)
         val selectedId = InstallationStore.selectedId(activity)
         items.firstOrNull { it.id == selectedId } ?: items.firstOrNull()
@@ -37,11 +37,19 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     val selectedGatewayName = selectedInstallation?.name
         ?: gatewayName?.takeIf { it.isNotBlank() }
         ?: "Squash"
-    var configuredServiceIp by remember(selectedInstallation?.id) {
-        mutableStateOf(selectedInstallation?.serviceIp?.trim().orEmpty())
+    val automaticGatewayIp = selectedInstallation?.serviceIp
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: gatewayBaseUrl
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { InstallationStore.endpointHost(it) }
+            .orEmpty()
+    var configuredServiceIp by remember(selectedInstallation?.id, automaticGatewayIp) {
+        mutableStateOf(automaticGatewayIp)
     }
-    var serviceIpDraft by remember(selectedInstallation?.id) {
-        mutableStateOf(selectedInstallation?.serviceIp?.trim().orEmpty())
+    var serviceIpDraft by remember(selectedInstallation?.id, automaticGatewayIp) {
+        mutableStateOf(automaticGatewayIp)
     }
     val selectedServiceBase = configuredServiceIp.takeIf { it.isNotBlank() }?.let {
         if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it"
