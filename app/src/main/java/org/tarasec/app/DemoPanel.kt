@@ -134,7 +134,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         targetIp.trim()
     )
 
-    fun directHotspotActive(): Boolean = hotspotIdentity?.reachable == true
+    fun directHotspotActive(): Boolean = directHotspotDetected
 
     fun selectedVpnActive(): Boolean =
         selectedGatewayConfig?.reachable == true || vpnGatewayState?.reachable == true
