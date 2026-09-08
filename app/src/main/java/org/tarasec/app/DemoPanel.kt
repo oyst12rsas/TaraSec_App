@@ -102,6 +102,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var receiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var receiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var secondsUntilRefresh by remember { mutableStateOf(0) }
     var auditApproved by remember { mutableStateOf(false) }
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
@@ -246,10 +247,15 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         val worker = Thread {
             while (running.get()) {
                 pollAll()
-                try {
-                    Thread.sleep(2500L)
-                } catch (_: InterruptedException) {
-                    break
+                activity.runOnUiThread { secondsUntilRefresh = 3 }
+                for (remaining in 2 downTo 0) {
+                    try {
+                        Thread.sleep(1000L)
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    }
+                    if (!running.get()) return@Thread
+                    activity.runOnUiThread { secondsUntilRefresh = remaining }
                 }
             }
         }.also { it.start() }
@@ -409,6 +415,25 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                             ?: "No TaraSec gateway configuration endpoint responded."
                         Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
                     }
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !busy,
+                        onClick = {
+                            secondsUntilRefresh = 0
+                            refresh("Status refreshed")
+                        }
+                    ) {
+                        Text("Refresh now")
+                    }
+                    Text(
+                        if (secondsUntilRefresh > 0) {
+                            "Next automatic check in $secondsUntilRefresh second" +
+                                if (secondsUntilRefresh == 1) "" else "s"
+                        } else {
+                            "Checking now…"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     if (!directHotspotDetected && selectedGatewayName == "Standard gateway") {
                         Text(
                             "The standard gateway offers its configured endpoints above. You may also test another endpoint.",
