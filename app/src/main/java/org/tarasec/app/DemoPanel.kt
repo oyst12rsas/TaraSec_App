@@ -436,25 +436,6 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                             ?: "No TaraSec gateway configuration endpoint responded."
                         Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
                     }
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !busy,
-                        onClick = {
-                            secondsUntilRefresh = 0
-                            refresh("Status refreshed")
-                        }
-                    ) {
-                        Text("Refresh now")
-                    }
-                    Text(
-                        if (secondsUntilRefresh > 0) {
-                            "Next automatic check in $secondsUntilRefresh second" +
-                                if (secondsUntilRefresh == 1) "" else "s"
-                        } else {
-                            "Checking now…"
-                        },
-                        style = MaterialTheme.typography.bodySmall
-                    )
                     if (!directHotspotDetected && selectedGatewayName == "Standard gateway") {
                         Text(
                             "The standard gateway offers its configured endpoints above. You may also test another endpoint.",
@@ -486,6 +467,27 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         }
                     }
                 }
+
+                Text("Live status", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    onClick = {
+                        secondsUntilRefresh = 0
+                        refresh("Status refreshed")
+                    }
+                ) {
+                    Text("Refresh now")
+                }
+                Text(
+                    if (secondsUntilRefresh > 0) {
+                        "Next automatic check in $secondsUntilRefresh second" +
+                            if (secondsUntilRefresh == 1) "" else "s"
+                    } else {
+                        "Checking now…"
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
 
                 TaraStatusRow(
                     "Phone / unit",
