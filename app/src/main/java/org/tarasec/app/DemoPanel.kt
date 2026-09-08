@@ -285,17 +285,23 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         singleLine = true
                     )
                     Button(
-                        enabled = selectedInstallation != null && serviceIpDraft.isNotBlank(),
+                        enabled = serviceIpDraft.isNotBlank(),
                         onClick = {
-                            val installation = selectedInstallation ?: return@Button
-                            val updated = InstallationStore.register(
-                                activity,
-                                name = installation.name,
-                                managementBaseUrl = installation.managementBaseUrl,
-                                serviceIp = serviceIpDraft
-                            )
-                            configuredServiceIp = updated.serviceIp
-                            message = "Demo gateway updated to ${updated.name} at ${updated.serviceIp}."
+                            val serviceIp = serviceIpDraft.trim()
+                            configuredServiceIp = serviceIp
+                            val installation = selectedInstallation
+                            if (installation != null) {
+                                val updated = InstallationStore.register(
+                                    activity,
+                                    name = installation.name,
+                                    managementBaseUrl = installation.managementBaseUrl,
+                                    serviceIp = serviceIp
+                                )
+                                configuredServiceIp = updated.serviceIp
+                                message = "Demo gateway updated to ${updated.name} at ${updated.serviceIp}."
+                            } else {
+                                message = "Using demo gateway ${selectedGatewayName} at $serviceIp."
+                            }
                         }
                     ) {
                         Text("Use this gateway")
