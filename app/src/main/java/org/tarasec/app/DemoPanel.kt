@@ -110,6 +110,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         val available = configuredTargets.map { it.ip }
         if (basicTargetIp !in available) {
             basicTargetIp = configuredTargets.firstOrNull()?.ip.orEmpty()
+            basicReceiverProbe = null
+            basicReceiverState = null
         }
         if (targetIp !in available && configuredTargets.isNotEmpty()) {
             val first = configuredTargets.first()
