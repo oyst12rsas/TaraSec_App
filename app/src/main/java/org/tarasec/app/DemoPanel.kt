@@ -75,9 +75,20 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         !directHotspotDetected && selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
         else -> null
     }
-    // The selected gateway is authoritative for the endpoints it handles.
-    // Never substitute the app's historical presets when its configuration is unavailable.
-    val configuredTargets = activeGatewayConfig?.nodes.orEmpty()
+    // The designated WireGuard gateways have fixed route scopes. Filter stale
+    // configuration defensively so the app never offers an unreachable endpoint.
+    val gatewayTargets = when (selectedGatewayName) {
+        "Squash" -> activeGatewayConfig?.nodes.orEmpty().filter { it.ip == "100.68.22.33" }
+        "Audi" -> activeGatewayConfig?.nodes.orEmpty().filter { it.ip == "100.68.187.10" }
+        else -> activeGatewayConfig?.nodes.orEmpty()
+    }
+    var endpointIpDraft by remember { mutableStateOf("") }
+    var customEndpointIp by remember { mutableStateOf("") }
+    val configuredTargets = gatewayTargets + listOfNotNull(
+        customEndpointIp
+            .takeIf { selectedGatewayName == "Standard gateway" && it.isNotBlank() }
+            ?.let { DemoTarget("Custom endpoint", it) }
+    )
     var basicTargetIp by remember { mutableStateOf("") }
     val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
         ?: configuredTargets.firstOrNull()
@@ -367,34 +378,35 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                             ?: "No TaraSec gateway configuration endpoint responded."
                         Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
                     }
-                    OutlinedTextField(
-                        value = serviceIpDraft,
-                        onValueChange = { serviceIpDraft = it },
-                        label = { Text("Gateway service IP") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Button(
-                        enabled = serviceIpDraft.isNotBlank(),
-                        onClick = {
-                            val serviceIp = serviceIpDraft.trim()
-                            configuredServiceIp = serviceIp
-                            val installation = selectedInstallation
-                            if (installation != null) {
-                                val updated = InstallationStore.register(
-                                    activity,
-                                    name = installation.name,
-                                    managementBaseUrl = installation.managementBaseUrl,
-                                    serviceIp = serviceIp
-                                )
-                                configuredServiceIp = updated.serviceIp
-                                message = "Demo gateway updated to ${updated.name} at ${updated.serviceIp}."
-                            } else {
-                                message = "Using demo gateway ${selectedGatewayName} at $serviceIp."
+                    if (selectedGatewayName == "Standard gateway") {
+                        Text(
+                            "The standard gateway offers its configured endpoints above. You may also test another endpoint.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = endpointIpDraft,
+                            onValueChange = {
+                                endpointIpDraft = it.filter { c -> c.isDigit() || c == '.' }
+                            },
+                            label = { Text("Endpoint IP") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Button(
+                            enabled = validIpv4(endpointIpDraft),
+                            onClick = {
+                                customEndpointIp = endpointIpDraft.trim()
+                                basicTargetIp = customEndpointIp
+                                target = DemoTarget("Custom endpoint", customEndpointIp)
+                                targetIp = customEndpointIp
+                                discoveredName = "Custom endpoint"
+                                basicReceiverProbe = null
+                                basicReceiverState = null
+                                message = "Using custom endpoint $customEndpointIp."
                             }
+                        ) {
+                            Text("Use this endpoint")
                         }
-                    ) {
-                        Text("Use this gateway")
                     }
                 }
 
