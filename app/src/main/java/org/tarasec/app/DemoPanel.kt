@@ -232,18 +232,19 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         Thread {
             val result = DemoClient.setGatewayInfected(base, infected)
 
-            // Generate one real connection through the selected gateway so the
-            // receiver can observe the new tag. Keep a deliberate one-second
-            // propagation step visible in the demo, then read only the states
-            // affected by this action instead of waiting for every demo probe.
+            // The receiver status request is itself the real tagged
+            // connection. Its endpoint waits, for at most 1.5 seconds, until
+            // tarakernel reports that exact TCP session to taralink.
             val updatedGatewayPhone = DemoClient.localThreatStatusBase(base)
-            val updatedReceiverProbe = receiverTarget?.let { DemoClient.probe(it) }
-            try {
-                Thread.sleep(1000L)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
             val updatedReceiver = receiverTarget?.let { DemoClient.threatStatus(it) }
+            val updatedReceiverProbe = receiverTarget?.let {
+                DemoProbeResult(
+                    target = it,
+                    reachable = updatedReceiver?.reachable == true,
+                    nodeName = it.name,
+                    message = updatedReceiver?.message.orEmpty()
+                )
+            }
 
             activity.runOnUiThread {
                 if (usingDirectHotspot) {
