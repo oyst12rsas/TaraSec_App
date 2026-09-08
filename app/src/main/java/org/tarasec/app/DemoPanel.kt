@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 @Composable
 fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Boolean = false) {
@@ -102,6 +103,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var receiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var receiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var busy by remember { mutableStateOf(false) }
+    val actionInProgress = remember { AtomicBoolean(false) }
+    val pollGeneration = remember { AtomicInteger(0) }
     var secondsUntilRefresh by remember { mutableStateOf(0) }
     var auditApproved by remember { mutableStateOf(false) }
     var showDemo1 by remember { mutableStateOf(true) }
@@ -162,6 +165,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     }
 
     fun pollAll(after: String? = null) {
+        val generation = pollGeneration.get()
         val t = currentTarget()
         if (!validIpv4(t.ip)) {
             activity.runOnUiThread { message = "Enter a valid IPv4 address for the Demo 2 receiving node." }
@@ -192,6 +196,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
 
         activity.runOnUiThread {
+            // Ignore a poll that began before a Set CLEAN/INFECTED action.
+            // Otherwise its older responses can overwrite the targeted result.
+            if (generation != pollGeneration.get() || actionInProgress.get()) {
+                return@runOnUiThread
+            }
             hotspotIdentity = localIdentity
             hotspotGatewayConfig = localConfig
             selectedGatewayConfig = selectedConfig
@@ -221,6 +230,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }
         val gatewayLabel = activeGatewayLabel()
         busy = true
+        actionInProgress.set(true)
+        pollGeneration.incrementAndGet()
         message = if (infected) {
             "Demo 1: marking this phone infected through $gatewayLabel…"
         } else {
@@ -259,6 +270,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 if (!infected) auditApproved = false
                 message = result
                 busy = false
+                actionInProgress.set(false)
             }
         }.start()
     }
@@ -267,7 +279,9 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         val running = AtomicBoolean(true)
         val worker = Thread {
             while (running.get()) {
-                pollAll()
+                if (!actionInProgress.get()) {
+                    pollAll()
+                }
                 activity.runOnUiThread { secondsUntilRefresh = 3 }
                 for (remaining in 2 downTo 0) {
                     try {
