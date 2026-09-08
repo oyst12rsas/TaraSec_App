@@ -75,16 +75,9 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         !directHotspotDetected && selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
         else -> null
     }
-    // The designated WireGuard gateways have fixed route scopes. Filter stale
-    // configuration defensively so the app never offers an unreachable endpoint.
-    val gatewayTargets = when (selectedGatewayName) {
-        "Squash" -> activeGatewayConfig?.nodes.orEmpty().filter { it.ip == "100.68.22.33" }
-        "Audi" -> activeGatewayConfig?.nodes.orEmpty().filter { it.ip == "100.68.187.10" }
-        "Standard gateway" -> activeGatewayConfig?.nodes.orEmpty().filterNot {
-            it.ip == "100.68.22.33" || it.ip == "100.68.187.10"
-        }
-        else -> activeGatewayConfig?.nodes.orEmpty()
-    }
+    // The selected gateway is authoritative: appDemoConfiguration.php exposes
+    // DEMO_NODES and DEMO_NODE_NAMES from that gateway's tarasecfw.conf.
+    val gatewayTargets = activeGatewayConfig?.nodes.orEmpty()
     var endpointIpDraft by remember { mutableStateOf("") }
     var customEndpointIp by remember { mutableStateOf("") }
     val configuredTargets = gatewayTargets + listOfNotNull(
