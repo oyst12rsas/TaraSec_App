@@ -254,12 +254,21 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         if (showDemo1) {
             TaraSectionCard(
                 title = "Demo 1 · Basic infection demo",
-                subtitle = "Phone → WireGuard gateway → Tomato; no hotspot required"
+                subtitle = "See a phone's security status follow it through TaraSec"
             ) {
-                Text(
-                    "This is the original quick TaraSec demonstration. Toggle this phone clean/infected on the gateway and watch the same path through to Tomato.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                TaraSectionCard(
+                    title = "What this demonstrates",
+                    subtitle = "One security status, shared across the protected path"
+                ) {
+                    Text(
+                        "Mark this phone as infected and TaraSec records the warning at the selected gateway. The receiving node then sees the same warning, showing how security information follows traffic between networks.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "Mark the phone clean again and the warning is withdrawn across the path. This is a safe status demonstration: it does not install malware, infect the phone, or scan personal files.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
 
                 TaraSectionCard(
                     title = "Demo configuration",
