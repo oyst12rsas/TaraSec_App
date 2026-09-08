@@ -69,7 +69,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var hotspotIdentity by remember { mutableStateOf<DemoProbeResult?>(null) }
     var hotspotGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
     var selectedGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
-    val directHotspotDetected = hotspotIdentity?.reachable == true
+    val directHotspotDetected =
+        hotspotIdentity?.reachable == true || hotspotGatewayConfig?.reachable == true
     val activeGatewayConfig = when {
         directHotspotDetected && hotspotGatewayConfig?.reachable == true -> hotspotGatewayConfig
         !directHotspotDetected && selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
@@ -152,7 +153,9 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
 
     fun activeGatewayLabel(): String = when {
         directHotspotActive() ->
-            hotspotIdentity?.nodeName?.takeIf { it.isNotBlank() } ?: "TaraSec hotspot"
+            hotspotIdentity?.nodeName?.takeIf { hotspotIdentity?.reachable == true && it.isNotBlank() }
+                ?: hotspotGatewayConfig?.gatewayName?.takeIf { it.isNotBlank() }
+                ?: "TaraSec hotspot"
         selectedServiceBase != null -> selectedGatewayName
         else -> "No active gateway"
     }
