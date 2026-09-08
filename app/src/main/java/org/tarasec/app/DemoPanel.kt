@@ -44,7 +44,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.let { InstallationStore.endpointHost(it) }
-            .orEmpty()
+            ?.takeIf { it.isNotBlank() }
+        ?: when (selectedGatewayName.lowercase()) {
+            "squash" -> "100.68.25.154"
+            else -> ""
+        }
     var configuredServiceIp by remember(selectedInstallation?.id, automaticGatewayIp) {
         mutableStateOf(automaticGatewayIp)
     }
