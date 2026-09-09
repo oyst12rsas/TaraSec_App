@@ -305,11 +305,12 @@ gateway_cleared
 complete
 ```
 
-Node B must not reject the second SSH connection in `tarakernel`. The tagged
-connection has to reach SSH authentication so the known demo credential can establish
-that this particular connection is legitimate. This is a narrow, session-bound
-exception for the exact flow/credential; it is not a general bypass for suspicious
-traffic.
+Port 22 is reserved for the SSH honeypot/demo service. Genuine administrative SSH is
+moved to the configured alternate port (for example 5822). `tarakernel` must not block
+the honeypot port: Node B needs to observe the TaraSec tag and allow the DB-issued demo
+credential to reach SSH authentication. This is a permanent service/port distinction,
+not a temporary per-flow exception. Normal protection of the real administrative SSH
+port remains independent.
 
 The app should display the SSH host, port, username, password, a copyable SSH command,
 and the live event sequence. If no embedded SSH implementation is present, it should
