@@ -735,7 +735,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 subtitle = "DB-authoritative, session-bound demonstration"
             ) {
                 DemoSshPanel(
-                    baseUrl = activeControlBase() ?: selectedServiceBase ?: localGatewayBase
+                    baseUrl = "https://tarasec.org"
                 )
             }
         }
