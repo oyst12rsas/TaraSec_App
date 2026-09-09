@@ -1,6 +1,6 @@
 package org.tarasec.app
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @Composable
 fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Boolean = false) {
-    val activity = LocalContext.current as Activity
+    val activity = LocalContext.current as ComponentActivity
     val lifecycle = activity.lifecycle
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
     var appInForeground by remember {
