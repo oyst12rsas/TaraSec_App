@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -20,10 +21,12 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
 fun DemoSshPanel(baseUrl: String?) {
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     var setups by remember(baseUrl) { mutableStateOf<List<DemoSshSetup>>(emptyList()) }
     var selectedId by remember(baseUrl) { mutableStateOf<Int?>(null) }
     var session by remember(baseUrl) { mutableStateOf<DemoSshSession?>(null) }
