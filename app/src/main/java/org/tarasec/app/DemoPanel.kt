@@ -230,7 +230,9 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 selectedGatewayFailureCount = 0
             } else {
                 selectedGatewayFailureCount += 1
-                if (selectedGatewayConfig?.reachable != true || selectedGatewayFailureCount >= 2) {
+                // A failed check is not a new gateway state. Preserve the last
+                // confirmed configuration and report the failure separately.
+                if (selectedGatewayConfig?.reachable != true) {
                     selectedGatewayConfig = selectedConfig
                 }
             }
@@ -240,10 +242,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 basicReceiverFailureCount = 0
             } else {
                 basicReceiverFailureCount += 1
+                // Do not replace a confirmed CLEAN/INFECTED state with
+                // "checking" or a timeout from one later request.
                 if (
                     basicReceiverProbe?.reachable != true ||
-                    basicReceiverState?.reachable != true ||
-                    basicReceiverFailureCount >= 2
+                    basicReceiverState?.reachable != true
                 ) {
                     basicReceiverProbe = basicIdentity
                     basicReceiverState = basicReceiver
@@ -644,6 +647,16 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         else -> "🟢 $gatewayLabel · phone clean"
                     }
                 )
+                if (
+                    !directHotspotActive() &&
+                    selectedGatewayFailureCount > 0 &&
+                    selectedGatewayConfig?.reachable == true
+                ) {
+                    Text(
+                        "The latest gateway check did not complete; showing the last confirmed state.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 if (basicTarget == null) {
                     TaraStatusRow("Receiver", "No demo receivers configured")
                     Text(
@@ -664,6 +677,16 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                             else -> "${basicTarget.ip} · checking"
                         }
                     )
+                    if (
+                        basicReceiverFailureCount > 0 &&
+                        basicReceiverProbe?.reachable == true &&
+                        basicReceiverState?.reachable == true
+                    ) {
+                        Text(
+                            "The latest ${basicTarget.name} check did not complete; showing the last confirmed status.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                     Text(
                         "📱 Phone  →  🛡 $gatewayLabel  →  🖥 ${basicTarget.name}",
                         style = MaterialTheme.typography.titleMedium
