@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,7 +31,23 @@ import java.util.concurrent.atomic.AtomicInteger
 @Composable
 fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Boolean = false) {
     val activity = LocalContext.current as Activity
+    val lifecycle = activity.lifecycle
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
+    var appInForeground by remember {
+        mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
+
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> appInForeground = true
+                Lifecycle.Event.ON_STOP -> appInForeground = false
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     val selectedInstallation = remember(gatewayName, gatewayBaseUrl) {
         val items = InstallationStore.load(activity)
@@ -70,6 +88,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     var hotspotIdentity by remember { mutableStateOf<DemoProbeResult?>(null) }
     var hotspotGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
     var selectedGatewayConfig by remember { mutableStateOf<DemoGatewayConfiguration?>(null) }
+    var selectedGatewayFailureCount by remember { mutableStateOf(0) }
     val directHotspotDetected =
         hotspotIdentity?.reachable == true || hotspotGatewayConfig?.reachable == true
     val activeGatewayConfig = when {
@@ -92,6 +111,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         ?: configuredTargets.firstOrNull()
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
+    var basicReceiverFailureCount by remember { mutableStateOf(0) }
 
     var target by remember { mutableStateOf(DemoClient.presets.first()) }
     var targetIp by remember { mutableStateOf(target.ip) }
@@ -106,6 +126,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
     val actionInProgress = remember { AtomicBoolean(false) }
     val pollGeneration = remember { AtomicInteger(0) }
     var secondsUntilRefresh by remember { mutableStateOf(0) }
+    var automaticChecksEnabled by remember { mutableStateOf(true) }
+    var intendedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var auditApproved by remember { mutableStateOf(false) }
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
@@ -203,9 +225,30 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             }
             hotspotIdentity = localIdentity
             hotspotGatewayConfig = localConfig
-            selectedGatewayConfig = selectedConfig
-            basicReceiverProbe = basicIdentity
-            basicReceiverState = basicReceiver
+            if (selectedConfig?.reachable == true) {
+                selectedGatewayConfig = selectedConfig
+                selectedGatewayFailureCount = 0
+            } else {
+                selectedGatewayFailureCount += 1
+                if (selectedGatewayConfig?.reachable != true || selectedGatewayFailureCount >= 2) {
+                    selectedGatewayConfig = selectedConfig
+                }
+            }
+            if (basicIdentity?.reachable == true && basicReceiver?.reachable == true) {
+                basicReceiverProbe = basicIdentity
+                basicReceiverState = basicReceiver
+                basicReceiverFailureCount = 0
+            } else {
+                basicReceiverFailureCount += 1
+                if (
+                    basicReceiverProbe?.reachable != true ||
+                    basicReceiverState?.reachable != true ||
+                    basicReceiverFailureCount >= 2
+                ) {
+                    basicReceiverProbe = basicIdentity
+                    basicReceiverState = basicReceiver
+                }
+            }
             receiverProbe = identity
             discoveredName = identity.nodeName
             localPhoneState = local
@@ -229,6 +272,8 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
             return
         }
         val gatewayLabel = activeGatewayLabel()
+        intendedPhoneState = infected
+        automaticChecksEnabled = true
         busy = true
         actionInProgress.set(true)
         pollGeneration.incrementAndGet()
@@ -275,40 +320,78 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
         }.start()
     }
 
-    DisposableEffect(localGatewayBase, selectedServiceBase, targetIp, basicTarget?.ip) {
-        val running = AtomicBoolean(true)
-        val worker = Thread {
-            while (running.get()) {
-                if (!actionInProgress.get()) {
-                    pollAll()
-                }
-                activity.runOnUiThread { secondsUntilRefresh = 3 }
-                for (remaining in 2 downTo 0) {
-                    try {
-                        Thread.sleep(1000L)
-                    } catch (_: InterruptedException) {
-                        return@Thread
+    DisposableEffect(
+        localGatewayBase,
+        selectedServiceBase,
+        targetIp,
+        basicTarget?.ip,
+        automaticChecksEnabled,
+        appInForeground
+    ) {
+        if (!automaticChecksEnabled || !appInForeground) {
+            secondsUntilRefresh = 0
+            onDispose { }
+        } else {
+            val running = AtomicBoolean(true)
+            val worker = Thread {
+                while (running.get()) {
+                    if (!actionInProgress.get()) {
+                        pollAll()
                     }
-                    if (!running.get()) return@Thread
-                    activity.runOnUiThread { secondsUntilRefresh = remaining }
+                    activity.runOnUiThread { secondsUntilRefresh = 3 }
+                    for (remaining in 2 downTo 0) {
+                        try {
+                            Thread.sleep(1000L)
+                        } catch (_: InterruptedException) {
+                            return@Thread
+                        }
+                        if (!running.get()) return@Thread
+                        activity.runOnUiThread { secondsUntilRefresh = remaining }
+                    }
                 }
+            }.also { it.start() }
+            onDispose {
+                running.set(false)
+                worker.interrupt()
             }
-        }.also { it.start() }
-        onDispose {
-            running.set(false)
-            worker.interrupt()
         }
     }
 
     val phoneState = activePhoneState()
     val gatewayLabel = activeGatewayLabel()
     val gatewayState = if (directHotspotActive()) localPhoneState else vpnGatewayState
+    val gatewayReachable = when {
+        directHotspotActive() -> hotspotIdentity?.reachable == true ||
+            hotspotGatewayConfig?.reachable == true
+        else -> selectedGatewayConfig?.reachable == true
+    }
     val phase = when {
         phoneState == null || !phoneState.reachable -> "CHECKING"
         phoneState.infected && auditApproved -> "REASSESSING"
         phoneState.infected -> "INFECTED"
         auditApproved -> "REHABILITATED"
         else -> "CLEAN"
+    }
+
+    LaunchedEffect(
+        intendedPhoneState,
+        phoneState,
+        gatewayReachable,
+        basicTarget?.ip,
+        basicReceiverState
+    ) {
+        val intended = intendedPhoneState ?: return@LaunchedEffect
+        val phoneReached = phoneState?.reachable == true && phoneState.infected == intended
+        val receiverReached = basicTarget == null ||
+            (basicReceiverState?.reachable == true && basicReceiverState?.infected == intended)
+
+        if (phoneReached && gatewayReachable && receiverReached) {
+            intendedPhoneState = null
+            automaticChecksEnabled = false
+            secondsUntilRefresh = 0
+            message = "Requested " + (if (intended) "INFECTED" else "CLEAN") +
+                " state confirmed across the active demo path. Automatic checks paused."
+        }
     }
 
     Column(
@@ -366,10 +449,12 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                                     serviceIpDraft = address
                                     configuredServiceIp = address
                                     selectedGatewayConfig = null
+                                    selectedGatewayFailureCount = 0
                                     vpnGatewayState = null
                                     vpnPhoneState = null
                                     basicReceiverProbe = null
                                     basicReceiverState = null
+                                    basicReceiverFailureCount = 0
                                     message = "Loading demo endpoints from $name…"
                                 }
                             ) {
@@ -507,12 +592,37 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 ) {
                     Text("Refresh now")
                 }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    onClick = {
+                        automaticChecksEnabled = !automaticChecksEnabled
+                        intendedPhoneState = null
+                        secondsUntilRefresh = 0
+                        message = if (automaticChecksEnabled) {
+                            "Automatic checks resumed."
+                        } else {
+                            "Automatic checks paused. Use Refresh now for a single check."
+                        }
+                    }
+                ) {
+                    Text(
+                        if (automaticChecksEnabled) {
+                            "Pause automatic checks"
+                        } else {
+                            "Resume automatic checks"
+                        }
+                    )
+                }
                 Text(
-                    if (secondsUntilRefresh > 0) {
-                        "Next automatic check in $secondsUntilRefresh second" +
-                            if (secondsUntilRefresh == 1) "" else "s"
-                    } else {
-                        "Checking now…"
+                    when {
+                        !appInForeground ->
+                            "Automatic checks paused while the app is in the background"
+                        !automaticChecksEnabled -> "Automatic checks paused"
+                        secondsUntilRefresh > 0 ->
+                            "Next automatic check in $secondsUntilRefresh second" +
+                                if (secondsUntilRefresh == 1) "" else "s"
+                        else -> "Checking now…"
                     },
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -528,7 +638,7 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 TaraStatusRow(
                     "Gateway",
                     when {
-                        gatewayState?.reachable != true -> "$gatewayLabel · unavailable/checking"
+                        !gatewayReachable -> "$gatewayLabel · unavailable/checking"
                         phoneState?.reachable != true -> "🟢 $gatewayLabel · reachable; phone status unavailable"
                         phoneState.infected -> "🔴 $gatewayLabel · phone marked infected"
                         else -> "🟢 $gatewayLabel · phone clean"
