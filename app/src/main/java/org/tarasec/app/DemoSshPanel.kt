@@ -92,15 +92,16 @@ fun DemoSshPanel(baseUrl: String?) {
                         val setupId = selectedId ?: return@Button
                         busy = true
                         message = "Starting SSH demo…"
-                        Thread {
-                            val created = DemoSshClient.create(base, setupId)
-                            setups = setups
+                        scope.launch {
+                            val created = withContext(Dispatchers.IO) {
+                                DemoSshClient.create(base, setupId)
+                            }
                             session = if (created.sessionId > 0) created else null
                             message = created.message.ifBlank {
                                 "Session started. Make the Node A connection first."
                             }
                             busy = false
-                        }.start()
+                        }
                     }
                 ) {
                     Text(if (busy) "Starting…" else "Start SSH demo")
@@ -153,12 +154,14 @@ fun DemoSshPanel(baseUrl: String?) {
                 onClick = {
                     val base = baseUrl ?: return@Button
                     busy = true
-                    Thread {
-                        val updated = DemoSshClient.status(base, current)
+                    scope.launch {
+                        val updated = withContext(Dispatchers.IO) {
+                            DemoSshClient.status(base, current)
+                        }
                         session = updated
                         message = updated.message.ifBlank { "Session status refreshed." }
                         busy = false
-                    }.start()
+                    }
                 }
             ) { Text(if (busy) "Refreshing…" else "Refresh session") }
             OutlinedButton(
