@@ -157,9 +157,6 @@ object DemoClient {
     fun threatStatusBase(baseUrl: String): DemoThreatStatus =
         readThreatStatus(baseUrl, "appInfection.php")
 
-    // For the phone itself, read the gateway's direct internalInfections row.
-    // Do not let a fresh severity-0 traffic record override the explicit local
-    // Clean/Infected toggle. Remote receivers still use appInfection.php/getTagData().
     fun localThreatStatusBase(baseUrl: String): DemoThreatStatus =
         readThreatStatus(baseUrl, "appLocalInfection.php")
 
@@ -215,7 +212,7 @@ object DemoClient {
             c.doOutput = true
             c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             c.setRequestProperty("Accept", "application/json")
-            val body = "infected=" + URLEncoder.encode(if (infected) "1" else "0", Charsets.UTF_8.name())
+            val body = "infected=" + URLEncoder.encode(if (infected) "1" else "0", Charsets.UTF_8.name()) + "&demo=1"
             c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = c.responseCode
             val reply = (if (code in 200..299) c.inputStream else c.errorStream)
