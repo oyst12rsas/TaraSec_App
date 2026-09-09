@@ -388,15 +388,29 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                         "Active demo path",
                         when {
                             directHotspotActive() -> "Direct TaraSec hotspot"
-                            selectedVpnActive() -> "Selected VPN gateway"
-                            else -> "No TaraSec gateway detected"
+                            selectedVpnActive() -> "$selectedGatewayName · connected through VPN"
+                            selectedGatewayConfig == null -> "$selectedGatewayName · checking connection…"
+                            else -> "$selectedGatewayName · selected but unavailable"
                         }
                     )
                     TaraStatusRow(
                         "Configured receivers",
-                        if (activeGatewayConfig != null) configuredTargets.size.toString()
-                        else "Configuration unavailable"
+                        when {
+                            activeGatewayConfig != null -> configuredTargets.size.toString()
+                            selectedGatewayConfig == null -> "Checking gateway configuration…"
+                            else -> "Unavailable while $selectedGatewayName is disconnected"
+                        }
                     )
+                    if (
+                        !directHotspotDetected &&
+                        selectedGatewayConfig != null &&
+                        selectedGatewayConfig?.reachable != true
+                    ) {
+                        Text(
+                            "$selectedGatewayName is selected, but the app cannot reach it. Connect the TaraSec VPN or a TaraSec hotspot, then refresh.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                     if (directHotspotDetected && activeGatewayConfig != null && configuredTargets.isEmpty()) {
                         Text(
                             "This TaraSec hotspot has no demo endpoints configured.",
