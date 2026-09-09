@@ -258,3 +258,60 @@ html/script/appInfection.php
 ## Demo goal in one sentence
 
 The demo should let a user change **This phone** between Clean and Infected while the app automatically resolves the correct TaraSec identity and gateway, and then show a remote TaraSec node independently observing the resulting security state.
+
+## Demo 2: SSH attribution and correction
+
+This is a separate demo from the Clean/Infected toggle. The Android app supervises
+the demonstration and tells the DB server which registered installations and units
+will act in each role:
+
+- **SSH client**: the app itself, or a laptop used to make the two SSH attempts.
+- **Node A**: rejects the first SSH attempt and reports it as infected demo traffic.
+- **Gateway**: receives Node A's report, is deliberately not told that this is a
+  demo, and treats the source unit as suspicious through the normal TaraSec path.
+- **Node B**: receives the next tagged SSH attempt, permits authentication with the
+  DB-managed demo credential, and reports the successfully authenticated connection
+  as legitimate.
+- **DB server**: correlates all reports, reveals the demo only after the evidence is
+  complete, and instructs the gateway to clear the unit.
+
+The app-side protocol is implemented in `DemoSshClient.kt`. The expected DB-server
+endpoints are:
+
+```text
+POST /script/appDemoSshStart.php
+GET  /script/appDemoSshStatus.php?session_id=...
+POST /script/appDemoSshFinish.php
+```
+
+The DB server owns the session and credential lifecycle. It returns the same
+`demoSshNodeB` username and password to every active session using that Node B.
+It must not rotate or retire the credential until the last linked session completes,
+expires, or is cancelled. Node B receives only the password hash. The app holds the
+plaintext password in memory and must not persist it.
+
+The status response drives these app-visible stages:
+
+```text
+waiting_for_participants
+ready
+first_ssh_expected
+node_a_rejected
+gateway_marked_unit
+second_ssh_expected
+node_b_accepted_tagged_ssh
+legitimate_reported
+gateway_cleared
+complete
+```
+
+Node B must not reject the second SSH connection in `tarakernel`. The tagged
+connection has to reach SSH authentication so the known demo credential can establish
+that this particular connection is legitimate. This is a narrow, session-bound
+exception for the exact flow/credential; it is not a general bypass for suspicious
+traffic.
+
+The app should display the SSH host, port, username, password, a copyable SSH command,
+and the live event sequence. If no embedded SSH implementation is present, it should
+let the user copy the command and use a laptop or installed SSH client.
+
