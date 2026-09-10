@@ -16,6 +16,13 @@ data class DemoSshSetup(
     val expiresIn: Int
 )
 
+data class DemoGateway(
+    val address: String,
+    val name: String,
+    val recognized: Boolean,
+    val message: String = ""
+)
+
 data class DemoEligibility(
     val eligible: Boolean,
     val remediationRequired: Boolean,
@@ -79,6 +86,21 @@ object DemoSshClient {
             }
         }
         return result to if (result.isEmpty()) "No active SSH demo setups are configured" else ""
+    }
+
+    fun observedGateway(baseUrl: String): DemoGateway {
+        val reply = jsonRequest(baseUrl, "script/appDemoGateway.php", "GET")
+        val json = reply.first ?: return DemoGateway("", "", false, reply.second)
+        if (!json.optBoolean("ok", false)) {
+            return DemoGateway("", "", false, json.optString("error", "Unable to identify gateway route"))
+        }
+        val gateway = json.optJSONObject("gateway")
+            ?: return DemoGateway("", "", false, "Gateway identity missing")
+        return DemoGateway(
+            address = gateway.optString("address", "").trim(),
+            name = gateway.optString("name", "TaraSec gateway").trim(),
+            recognized = gateway.optBoolean("recognized", false)
+        )
     }
 
     fun eligibility(baseUrl: String): DemoEligibility {
