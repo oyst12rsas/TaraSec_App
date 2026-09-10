@@ -34,7 +34,7 @@ data class DemoSshSession(
     val nodeBObserved: Boolean = false,
     val progressMessage: String = "",
     val message: String = ""
-) {
+) : java.io.Serializable {
     fun nodeACommand(): String = "ssh -p $nodeAPort demo@$nodeA"
     fun nodeBCommand(): String = "ssh -p $nodeBPort $username@$nodeB"
     fun terminal(): Boolean = state in setOf("cleared", "owner_clear_required", "expired")

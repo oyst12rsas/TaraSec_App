@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -28,10 +29,13 @@ fun DemoSshPanel(baseUrl: String?) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var setups by remember(baseUrl) { mutableStateOf<List<DemoSshSetup>>(emptyList()) }
-    var selectedId by remember(baseUrl) { mutableStateOf<Int?>(null) }
-    var session by remember(baseUrl) { mutableStateOf<DemoSshSession?>(null) }
+    var selectedId by rememberSaveable(baseUrl) { mutableStateOf<Int?>(null) }
+    // Session ID and secret token must survive Activity recreation (for
+    // example, portrait/landscape rotation) so polling resumes the same
+    // DB-authoritative demo rather than silently starting over.
+    var session by rememberSaveable(baseUrl) { mutableStateOf<DemoSshSession?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var message by remember(baseUrl) {
+    var message by rememberSaveable(baseUrl) {
         mutableStateOf(if (baseUrl.isNullOrBlank()) "Select a reachable TaraSec gateway first." else "Loading SSH demo setups…")
     }
 
