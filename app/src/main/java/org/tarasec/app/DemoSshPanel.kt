@@ -27,8 +27,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun DemoSshPanel(
     baseUrl: String?,
-    controlBaseUrl: String?,
-    gatewayLabel: String,
     managerAuthenticated: Boolean,
     subscriberSignedIn: Boolean,
     onSignIn: () -> Unit
@@ -43,6 +41,7 @@ fun DemoSshPanel(
     var session by rememberSaveable(baseUrl) { mutableStateOf<DemoSshSession?>(null) }
     var busy by remember { mutableStateOf(false) }
     var eligibility by remember(baseUrl) { mutableStateOf<DemoEligibility?>(null) }
+    var observedGateway by remember(baseUrl) { mutableStateOf<DemoGateway?>(null) }
     var remediationVisible by rememberSaveable(baseUrl) { mutableStateOf(false) }
     var message by rememberSaveable(baseUrl) {
         mutableStateOf(if (baseUrl.isNullOrBlank()) "Select a reachable TaraSec gateway first." else "Loading SSH demo setups…")
@@ -52,11 +51,20 @@ fun DemoSshPanel(
         if (baseUrl.isNullOrBlank()) return@LaunchedEffect
         val (loaded, error) = withContext(Dispatchers.IO) { DemoSshClient.setups(baseUrl) }
         val check = withContext(Dispatchers.IO) { DemoSshClient.eligibility(baseUrl) }
+        val gateway = withContext(Dispatchers.IO) { DemoSshClient.observedGateway(baseUrl) }
         setups = loaded
         selectedId = loaded.firstOrNull()?.id
         eligibility = check
+        observedGateway = gateway
         remediationVisible = check.remediationRequired
-        message = error.ifBlank { check.message.ifBlank { "Choose a setup, then start a short-lived demonstration." } }
+        message = when {
+            error.isNotBlank() -> error
+            !gateway.recognized -> gateway.message.ifBlank {
+                "Connect through a recognized TaraSec gateway before starting Demo 2."
+            }
+            check.message.isNotBlank() -> check.message
+            else -> "Choose a setup, then start a short-lived demonstration."
+        }
     }
 
     var displayedSecondsRemaining by remember(session?.sessionId) {
@@ -98,7 +106,16 @@ fun DemoSshPanel(
             "The current gateway carries the demonstration traffic. The DB server assigns Node A, Node B and a temporary shared classroom credential.",
             style = MaterialTheme.typography.bodySmall
         )
-        TaraStatusRow("Current gateway", gatewayLabel)
+        TaraStatusRow(
+            "Current gateway",
+            observedGateway?.let { gateway ->
+                when {
+                    gateway.recognized -> "${gateway.name} · ${gateway.address}"
+                    gateway.address.isNotBlank() -> "Unrecognized route · ${gateway.address}"
+                    else -> gateway.message.ifBlank { "Checking…" }
+                }
+            } ?: "Checking…"
+        )
 
         if (session == null) {
             if (remediationVisible) {
@@ -136,10 +153,13 @@ fun DemoSshPanel(
                     }
                     if (eligibility?.demoResetAvailable == true) {
                         OutlinedButton(
-                            enabled = !busy && !controlBaseUrl.isNullOrBlank(),
+                            enabled = !busy && observedGateway?.recognized == true,
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
-                                val control = controlBaseUrl ?: return@OutlinedButton
+                                val gateway = observedGateway
+                                    ?.takeIf { it.recognized && it.address.isNotBlank() }
+                                    ?: return@OutlinedButton
+                                val control = "http://${gateway.address}"
                                 val base = baseUrl ?: return@OutlinedButton
                                 busy = true
                                 message = "Clearing previous demonstration state…"
@@ -173,9 +193,19 @@ fun DemoSshPanel(
                                 val check = withContext(Dispatchers.IO) {
                                     DemoSshClient.eligibility(base)
                                 }
+                                val gateway = withContext(Dispatchers.IO) {
+                                    DemoSshClient.observedGateway(base)
+                                }
                                 eligibility = check
+                                observedGateway = gateway
                                 remediationVisible = check.remediationRequired
-                                message = check.message
+                                message = if (gateway.recognized) {
+                                    check.message
+                                } else {
+                                    gateway.message.ifBlank {
+                                        "Connect through a recognized TaraSec gateway before starting Demo 2."
+                                    }
+                                }
                                 busy = false
                             }
                         }
@@ -202,7 +232,8 @@ fun DemoSshPanel(
                 }
                 Button(
                     enabled = !busy && selectedId != null && !baseUrl.isNullOrBlank() &&
-                        eligibility?.eligible == true,
+                        eligibility?.eligible == true &&
+                        observedGateway?.recognized == true,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         val base = baseUrl ?: return@Button
@@ -213,9 +244,18 @@ fun DemoSshPanel(
                             val check = withContext(Dispatchers.IO) {
                                 DemoSshClient.eligibility(base)
                             }
+                            val gateway = withContext(Dispatchers.IO) {
+                                DemoSshClient.observedGateway(base)
+                            }
                             eligibility = check
+                            observedGateway = gateway
                             remediationVisible = check.remediationRequired
-                            if (check.eligible) {
+                            if (!gateway.recognized) {
+                                session = null
+                                message = gateway.message.ifBlank {
+                                    "Connect through a recognized TaraSec gateway before starting Demo 2."
+                                }
+                            } else if (check.eligible) {
                                 val created = withContext(Dispatchers.IO) {
                                     DemoSshClient.create(base, setupId)
                                 }
@@ -236,7 +276,9 @@ fun DemoSshPanel(
                     Text(
                         when {
                             busy -> "Checking…"
-                            eligibility?.eligible == true -> "Start SSH demo"
+                            eligibility?.eligible == true &&
+                                observedGateway?.recognized == true -> "Start SSH demo"
+                            observedGateway?.recognized == false -> "Recognized gateway required"
                             else -> "Security review required"
                         }
                     )
