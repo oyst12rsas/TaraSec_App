@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 fun DemoSshPanel(
     baseUrl: String?,
     controlBaseUrl: String?,
+    gatewayLabel: String,
     managerAuthenticated: Boolean,
     subscriberSignedIn: Boolean,
     onSignIn: () -> Unit
@@ -94,9 +95,10 @@ fun DemoSshPanel(
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            "The DB server assigns Node A, Node B and a temporary shared classroom credential. The gateway remains unaware that a demo is running.",
+            "The current gateway carries the demonstration traffic. The DB server assigns Node A, Node B and a temporary shared classroom credential.",
             style = MaterialTheme.typography.bodySmall
         )
+        TaraStatusRow("Current gateway", gatewayLabel)
 
         if (session == null) {
             if (remediationVisible) {
