@@ -16,6 +16,13 @@ data class DemoSshSetup(
     val expiresIn: Int
 )
 
+data class DemoEligibility(
+    val eligible: Boolean,
+    val remediationRequired: Boolean,
+    val demoResetAvailable: Boolean,
+    val message: String
+)
+
 data class DemoSshSession(
     val sessionId: Int,
     val sessionToken: String,
@@ -72,6 +79,34 @@ object DemoSshClient {
             }
         }
         return result to if (result.isEmpty()) "No active SSH demo setups are configured" else ""
+    }
+
+    fun eligibility(baseUrl: String): DemoEligibility {
+        val reply = jsonRequest(
+            baseUrl,
+            "script/appDemoSshSession.php?action=eligibility",
+            "GET"
+        )
+        val json = reply.first ?: return DemoEligibility(
+            eligible = false,
+            remediationRequired = false,
+            demoResetAvailable = false,
+            message = reply.second.ifBlank { "Unable to confirm demo eligibility" }
+        )
+        if (!json.optBoolean("ok", false)) {
+            return DemoEligibility(
+                eligible = false,
+                remediationRequired = json.optBoolean("remediation_required", false),
+                demoResetAvailable = json.optBoolean("demo_reset_available", false),
+                message = json.optString("error", "Unable to confirm demo eligibility")
+            )
+        }
+        return DemoEligibility(
+            eligible = json.optBoolean("eligible", false),
+            remediationRequired = json.optString("next") == "remediation",
+            demoResetAvailable = json.optBoolean("demo_reset_available", false),
+            message = json.optString("message", "")
+        )
     }
 
     fun create(baseUrl: String, setupId: Int): DemoSshSession {

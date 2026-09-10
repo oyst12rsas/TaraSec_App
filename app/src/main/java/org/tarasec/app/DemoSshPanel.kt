@@ -25,7 +25,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 @Composable
-fun DemoSshPanel(baseUrl: String?) {
+fun DemoSshPanel(
+    baseUrl: String?,
+    controlBaseUrl: String?,
+    managerAuthenticated: Boolean,
+    subscriberSignedIn: Boolean,
+    onSignIn: () -> Unit
+) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var setups by remember(baseUrl) { mutableStateOf<List<DemoSshSetup>>(emptyList()) }
@@ -35,6 +41,8 @@ fun DemoSshPanel(baseUrl: String?) {
     // DB-authoritative demo rather than silently starting over.
     var session by rememberSaveable(baseUrl) { mutableStateOf<DemoSshSession?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var eligibility by remember(baseUrl) { mutableStateOf<DemoEligibility?>(null) }
+    var remediationVisible by rememberSaveable(baseUrl) { mutableStateOf(false) }
     var message by rememberSaveable(baseUrl) {
         mutableStateOf(if (baseUrl.isNullOrBlank()) "Select a reachable TaraSec gateway first." else "Loading SSH demo setups…")
     }
@@ -42,9 +50,12 @@ fun DemoSshPanel(baseUrl: String?) {
     LaunchedEffect(baseUrl) {
         if (baseUrl.isNullOrBlank()) return@LaunchedEffect
         val (loaded, error) = withContext(Dispatchers.IO) { DemoSshClient.setups(baseUrl) }
+        val check = withContext(Dispatchers.IO) { DemoSshClient.eligibility(baseUrl) }
         setups = loaded
         selectedId = loaded.firstOrNull()?.id
-        message = error.ifBlank { "Choose a setup, then start a short-lived demonstration." }
+        eligibility = check
+        remediationVisible = check.remediationRequired
+        message = error.ifBlank { check.message.ifBlank { "Choose a setup, then start a short-lived demonstration." } }
     }
 
     var displayedSecondsRemaining by remember(session?.sessionId) {
@@ -88,6 +99,88 @@ fun DemoSshPanel(baseUrl: String?) {
         )
 
         if (session == null) {
+            if (remediationVisible) {
+                TaraSectionCard(
+                    title = "Security review",
+                    subtitle = "Demo eligibility could not be confirmed"
+                ) {
+                    Text(
+                        "This demonstration cannot start until the remediation workflow confirms that this unit is eligible. No infection diagnosis is disclosed by the demo.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    when {
+                        managerAuthenticated -> {
+                            Text(
+                                "Certified hotspot owner session: technical review controls and the authorized hotspot context will appear here as the remediation service is expanded.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        subscriberSignedIn -> {
+                            Text(
+                                "Signed-in hotspot user: only this unit's review status and guided next steps are shown.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        else -> {
+                            Text(
+                                "Sign in to continue to the appropriate remediation view.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Button(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = onSignIn
+                            ) { Text("Sign in with Google or TaraSec") }
+                        }
+                    }
+                    if (eligibility?.demoResetAvailable == true) {
+                        OutlinedButton(
+                            enabled = !busy && !controlBaseUrl.isNullOrBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                val control = controlBaseUrl ?: return@OutlinedButton
+                                val base = baseUrl ?: return@OutlinedButton
+                                busy = true
+                                message = "Clearing previous demonstration state…"
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        DemoClient.setGatewayInfected(control, false)
+                                    }
+                                    delay(2500)
+                                    val check = withContext(Dispatchers.IO) {
+                                        DemoSshClient.eligibility(base)
+                                    }
+                                    eligibility = check
+                                    remediationVisible = check.remediationRequired
+                                    message = if (check.eligible) {
+                                        "Previous demonstration state cleared. Demo 2 may now start."
+                                    } else {
+                                        result + " Waiting for the clean state to propagate."
+                                    }
+                                    busy = false
+                                }
+                            }
+                        ) { Text("Clear previous demo state") }
+                    }
+                    OutlinedButton(
+                        enabled = !busy && !baseUrl.isNullOrBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            val base = baseUrl ?: return@OutlinedButton
+                            busy = true
+                            scope.launch {
+                                val check = withContext(Dispatchers.IO) {
+                                    DemoSshClient.eligibility(base)
+                                }
+                                eligibility = check
+                                remediationVisible = check.remediationRequired
+                                message = check.message
+                                busy = false
+                            }
+                        }
+                    ) { Text("Check eligibility again") }
+                }
+            }
+
             if (setups.isEmpty()) {
                 Text(message, style = MaterialTheme.typography.bodySmall)
             } else {
@@ -106,26 +199,45 @@ fun DemoSshPanel(baseUrl: String?) {
                     }
                 }
                 Button(
-                    enabled = !busy && selectedId != null && !baseUrl.isNullOrBlank(),
+                    enabled = !busy && selectedId != null && !baseUrl.isNullOrBlank() &&
+                        eligibility?.eligible == true,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         val base = baseUrl ?: return@Button
                         val setupId = selectedId ?: return@Button
                         busy = true
-                        message = "Starting SSH demo…"
+                        message = "Checking whether Demo 2 may start…"
                         scope.launch {
-                            val created = withContext(Dispatchers.IO) {
-                                DemoSshClient.create(base, setupId)
+                            val check = withContext(Dispatchers.IO) {
+                                DemoSshClient.eligibility(base)
                             }
-                            session = if (created.sessionId > 0) created else null
-                            message = created.message.ifBlank {
-                                "Session started. Make the Node A connection first."
+                            eligibility = check
+                            remediationVisible = check.remediationRequired
+                            if (check.eligible) {
+                                val created = withContext(Dispatchers.IO) {
+                                    DemoSshClient.create(base, setupId)
+                                }
+                                session = if (created.sessionId > 0) created else null
+                                message = created.message.ifBlank {
+                                    "Session started. Make the Node A connection first."
+                                }
+                            } else {
+                                session = null
+                                message = check.message.ifBlank {
+                                    "Security review is required before Demo 2 can start."
+                                }
                             }
                             busy = false
                         }
                     }
                 ) {
-                    Text(if (busy) "Starting…" else "Start SSH demo")
+                    Text(
+                        when {
+                            busy -> "Checking…"
+                            eligibility?.eligible == true -> "Start SSH demo"
+                            else -> "Security review required"
+                        }
+                    )
                 }
             }
         } else {
