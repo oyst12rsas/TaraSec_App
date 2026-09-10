@@ -741,22 +741,11 @@ fun DemoPanel(
                 subtitle = "DB-authoritative, session-bound demonstration"
             ) {
                 DemoSshPanel(
-                    // INTENTIONAL HARD-CODED NETBIRD IP: do not replace this
-                    // with tarasec.org. Demo 2 must reach dbserver1 through the
-                    // standard gateway so the DB observes that gateway's
-                    // NetBird sender IP and can correlate Node A/Node B traffic.
-                    // The returned session token authenticates later polling.
+                    // Demo 2 intentionally reaches dbserver1 directly. The
+                    // server reports the source address it observes; that
+                    // address, once recognized as a TaraSec gateway, is used
+                    // for display, eligibility gating and demo cleanup.
                     baseUrl = "http://100.68.126.0",
-                    controlBaseUrl = if (directHotspotActive()) {
-                        localGatewayBase
-                    } else {
-                        "http://100.68.165.190"
-                    },
-                    gatewayLabel = if (directHotspotActive()) {
-                        activeGatewayLabel()
-                    } else {
-                        "Standard gateway · 100.68.165.190"
-                    },
                     managerAuthenticated = managerAuthenticated,
                     subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
                     onSignIn = onRemediationSignIn
