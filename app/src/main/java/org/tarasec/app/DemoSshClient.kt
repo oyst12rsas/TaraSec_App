@@ -28,6 +28,7 @@ data class DemoSshSession(
     val password: String,
     val attempts: Int = 0,
     val expires: String = "",
+    val secondsRemaining: Int = 0,
     val nodeAObserved: Boolean = false,
     val unitMarked: Boolean = false,
     val nodeBObserved: Boolean = false,
@@ -88,7 +89,7 @@ object DemoSshClient {
             nodeBPort = json.optInt("node_b_port", 22),
             username = json.optString("username", ""),
             password = json.optString("password", ""),
-            expires = json.optString("expires_in", "")
+            secondsRemaining = json.optInt("expires_in", 0)
         )
     }
 
@@ -110,6 +111,7 @@ object DemoSshClient {
             username = json.optString("username", current.username),
             attempts = json.optInt("attempts", current.attempts),
             expires = json.optString("expires", current.expires),
+            secondsRemaining = json.optInt("seconds_remaining", current.secondsRemaining),
             nodeAObserved = json.optBoolean("node_a_observed", current.nodeAObserved),
             unitMarked = json.optBoolean("unit_marked", current.unitMarked),
             nodeBObserved = json.optBoolean("node_b_observed", current.nodeBObserved),
