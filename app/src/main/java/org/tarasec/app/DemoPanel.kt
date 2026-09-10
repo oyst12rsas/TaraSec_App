@@ -735,7 +735,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                 subtitle = "DB-authoritative, session-bound demonstration"
             ) {
                 DemoSshPanel(
-                    baseUrl = "https://tarasec.org"
+                    // Reach dbserver1 through the standard gateway and NetBird.
+                    // The DB derives the gateway identity from the observed
+                    // sender address; the returned session token authenticates
+                    // all subsequent status requests.
+                    baseUrl = "http://100.68.126.0"
                 )
             }
         }
