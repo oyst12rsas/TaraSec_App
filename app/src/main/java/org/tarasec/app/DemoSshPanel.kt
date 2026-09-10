@@ -114,7 +114,13 @@ fun DemoSshPanel(baseUrl: String?) {
             val current = session!!
             TaraSectionCard(title = "Live DB session", subtitle = "Session #${current.sessionId}") {
                 TaraStatusRow("State", stateLabel(current.state))
+                TaraStatusRow("Node A report", evidenceLabel(current.nodeAObserved))
+                TaraStatusRow("Gateway/DB update", evidenceLabel(current.unitMarked))
+                TaraStatusRow("Node B report", evidenceLabel(current.nodeBObserved))
                 TaraStatusRow("Attempts at Node B", current.attempts.toString())
+                if (current.progressMessage.isNotBlank()) {
+                    Text(current.progressMessage, style = MaterialTheme.typography.bodySmall)
+                }
                 if (current.expires.isNotBlank()) TaraStatusRow("Expires", current.expires)
             }
 
@@ -179,6 +185,9 @@ fun DemoSshPanel(baseUrl: String?) {
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
     }
 }
+
+private fun evidenceLabel(received: Boolean): String =
+    if (received) "🟢 Received" else "⚪ Waiting"
 
 private fun stateLabel(state: String): String = when (state) {
     "awaiting_node_a" -> "Waiting for Node A, then Node B"

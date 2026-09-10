@@ -28,6 +28,10 @@ data class DemoSshSession(
     val password: String,
     val attempts: Int = 0,
     val expires: String = "",
+    val nodeAObserved: Boolean = false,
+    val unitMarked: Boolean = false,
+    val nodeBObserved: Boolean = false,
+    val progressMessage: String = "",
     val message: String = ""
 ) {
     fun nodeACommand(): String = "ssh -p $nodeAPort demo@$nodeA"
@@ -106,6 +110,10 @@ object DemoSshClient {
             username = json.optString("username", current.username),
             attempts = json.optInt("attempts", current.attempts),
             expires = json.optString("expires", current.expires),
+            nodeAObserved = json.optBoolean("node_a_observed", current.nodeAObserved),
+            unitMarked = json.optBoolean("unit_marked", current.unitMarked),
+            nodeBObserved = json.optBoolean("node_b_observed", current.nodeBObserved),
+            progressMessage = json.optString("progress_message", current.progressMessage),
             message = ""
         )
     }
@@ -147,7 +155,16 @@ object DemoSshClient {
     }
 
     private fun failure(message: String) = DemoSshSession(
-        0, "", "failed", "", 22, "", 22, "", "", message = message
+        sessionId = 0,
+        sessionToken = "",
+        state = "failed",
+        nodeA = "",
+        nodeAPort = 22,
+        nodeB = "",
+        nodeBPort = 22,
+        username = "",
+        password = "",
+        message = message
     )
 
     private fun normaliseBase(value: String): String {
