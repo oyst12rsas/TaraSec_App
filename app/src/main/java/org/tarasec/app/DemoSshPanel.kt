@@ -114,9 +114,9 @@ fun DemoSshPanel(baseUrl: String?) {
             val current = session!!
             TaraSectionCard(title = "Live DB session", subtitle = "Session #${current.sessionId}") {
                 TaraStatusRow("State", stateLabel(current.state))
-                TaraStatusRow("Node A report", evidenceLabel(current.nodeAObserved))
-                TaraStatusRow("Gateway/DB update", evidenceLabel(current.unitMarked))
-                TaraStatusRow("Node B report", evidenceLabel(current.nodeBObserved))
+                TaraStatusRow("Node A report", nodeAStatus(current))
+                TaraStatusRow("Gateway/DB update", gatewayStatus(current))
+                TaraStatusRow("Node B report", nodeBStatus(current))
                 TaraStatusRow("Attempts at Node B", current.attempts.toString())
                 if (current.progressMessage.isNotBlank()) {
                     Text(current.progressMessage, style = MaterialTheme.typography.bodySmall)
@@ -186,8 +186,21 @@ fun DemoSshPanel(baseUrl: String?) {
     }
 }
 
-private fun evidenceLabel(received: Boolean): String =
-    if (received) "🟢 Received" else "⚪ Waiting"
+private fun nodeAStatus(session: DemoSshSession): String =
+    if (session.nodeAObserved) "🔴 SSH rejection received" else "⚪ Waiting"
+
+private fun gatewayStatus(session: DemoSshSession): String = when {
+    session.state == "cleared" -> "🟢 Demo infection cleared"
+    session.unitMarked -> "🔴 Unit marked infected"
+    else -> "⚪ Waiting"
+}
+
+private fun nodeBStatus(session: DemoSshSession): String = when {
+    session.state == "cleared" -> "🟢 Connection validated"
+    session.state == "owner_clear_required" && session.nodeBObserved -> "🔴 Validation rejected"
+    session.nodeBObserved -> "🟡 Report received"
+    else -> "⚪ Waiting"
+}
 
 private fun stateLabel(state: String): String = when (state) {
     "awaiting_node_a" -> "Waiting for Node A, then Node B"
