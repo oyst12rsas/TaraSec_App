@@ -747,7 +747,16 @@ fun DemoPanel(
                     // NetBird sender IP and can correlate Node A/Node B traffic.
                     // The returned session token authenticates later polling.
                     baseUrl = "http://100.68.126.0",
-                    controlBaseUrl = activeControlBase(),
+                    controlBaseUrl = if (directHotspotActive()) {
+                        localGatewayBase
+                    } else {
+                        "http://100.68.165.190"
+                    },
+                    gatewayLabel = if (directHotspotActive()) {
+                        activeGatewayLabel()
+                    } else {
+                        "Standard gateway · 100.68.165.190"
+                    },
                     managerAuthenticated = managerAuthenticated,
                     subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
                     onSignIn = onRemediationSignIn
