@@ -43,6 +43,20 @@ fun DemoSshPanel(baseUrl: String?) {
         message = error.ifBlank { "Choose a setup, then start a short-lived demonstration." }
     }
 
+    var displayedSecondsRemaining by remember(session?.sessionId) {
+        mutableStateOf(session?.secondsRemaining ?: 0)
+    }
+
+    // Tick locally for a smooth countdown. Each DB status response resets this
+    // value to the authoritative remaining seconds, correcting clock drift.
+    LaunchedEffect(session?.sessionId, session?.secondsRemaining) {
+        displayedSecondsRemaining = session?.secondsRemaining ?: 0
+        while (displayedSecondsRemaining > 0 && session?.terminal() == false) {
+            delay(1000)
+            displayedSecondsRemaining = (displayedSecondsRemaining - 1).coerceAtLeast(0)
+        }
+    }
+
     LaunchedEffect(baseUrl, session?.sessionId, session?.state) {
         val base = baseUrl ?: return@LaunchedEffect
         var current = session ?: return@LaunchedEffect
@@ -121,7 +135,10 @@ fun DemoSshPanel(baseUrl: String?) {
                 if (current.progressMessage.isNotBlank()) {
                     Text(current.progressMessage, style = MaterialTheme.typography.bodySmall)
                 }
-                if (current.expires.isNotBlank()) TaraStatusRow("Expires", current.expires)
+                TaraStatusRow(
+                    "Time remaining",
+                    formatCountdown(displayedSecondsRemaining)
+                )
             }
 
             TaraSectionCard(title = "1 · Connect to Node A", subtitle = "Create ordinary rejection evidence") {
@@ -184,6 +201,11 @@ fun DemoSshPanel(baseUrl: String?) {
 
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+private fun formatCountdown(totalSeconds: Int): String {
+    val safe = totalSeconds.coerceAtLeast(0)
+    return "%02d:%02d".format(safe / 60, safe % 60)
 }
 
 private fun nodeAStatus(session: DemoSshSession): String =
