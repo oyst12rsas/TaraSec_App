@@ -29,7 +29,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 @Composable
-fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Boolean = false) {
+fun DemoPanel(
+    gatewayName: String?,
+    gatewayBaseUrl: String?,
+    managerAuthenticated: Boolean = false,
+    onRemediationSignIn: () -> Unit = {},
+    showDebugInfo: Boolean = false
+) {
     val activity = LocalContext.current as ComponentActivity
     val lifecycle = activity.lifecycle
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
@@ -740,7 +746,11 @@ fun DemoPanel(gatewayName: String?, gatewayBaseUrl: String?, showDebugInfo: Bool
                     // standard gateway so the DB observes that gateway's
                     // NetBird sender IP and can correlate Node A/Node B traffic.
                     // The returned session token authenticates later polling.
-                    baseUrl = "http://100.68.126.0"
+                    baseUrl = "http://100.68.126.0",
+                    controlBaseUrl = activeControlBase(),
+                    managerAuthenticated = managerAuthenticated,
+                    subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
+                    onSignIn = onRemediationSignIn
                 )
             }
         }
