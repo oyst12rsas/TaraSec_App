@@ -445,7 +445,14 @@ private fun TaraSecApp(initialDestination: String?) {
             AppPage.DEMO -> {
                 DemoPanel(
                     gatewayName = selectedInstallation?.name,
-                    gatewayBaseUrl = selectedInstallation?.managementBaseUrl
+                    gatewayBaseUrl = selectedInstallation?.managementBaseUrl,
+                    managerAuthenticated = managerAuthenticated,
+                    onRemediationSignIn = {
+                        activity.startActivity(
+                            android.content.Intent(activity, SubscriberHomeActivity::class.java)
+                                .putExtra(CONSOLE_DESTINATION_EXTRA, TaraMenuDestination.MY_ACCESS.name)
+                        )
+                    }
                 )
             }
 
