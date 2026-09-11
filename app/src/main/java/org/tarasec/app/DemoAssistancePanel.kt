@@ -30,7 +30,8 @@ import kotlin.math.roundToInt
 @Composable
 fun DemoAssistancePanel(baseUrl: String) {
     val activity = LocalContext.current as ComponentActivity
-    val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
+    var gatewayControlBase by remember { mutableStateOf(LocalGateway.baseUrl(activity)) }
+    var gatewayRouteMessage by remember { mutableStateOf("Identifying the current TaraSec gateway…") }
     val scope = rememberCoroutineScope()
 
     var available by remember { mutableStateOf<List<DemoAssistanceSession>>(emptyList()) }
@@ -54,7 +55,21 @@ fun DemoAssistancePanel(baseUrl: String) {
             .onFailure { message = "Demo 3 unavailable: ${it.message}" }
     }
 
-    LaunchedEffect(Unit) { refreshAvailable() }
+    LaunchedEffect(baseUrl) {
+        refreshAvailable()
+        val observed = withContext(Dispatchers.IO) {
+            DemoSshClient.observedGateway(baseUrl)
+        }
+        if (observed.recognized && observed.address.isNotBlank()) {
+            gatewayControlBase = "http://${observed.address}"
+            gatewayRouteMessage = "${observed.name} · ${observed.address}"
+        } else {
+            gatewayControlBase = null
+            gatewayRouteMessage = observed.message.ifBlank {
+                "Connect through a recognized TaraSec gateway."
+            }
+        }
+    }
 
     LaunchedEffect(session?.id, participantToken) {
         val id = session?.id ?: return@LaunchedEffect
@@ -194,12 +209,13 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (participantToken.isNotBlank()) {
                 TaraSectionCard(title = "Your infection severity", subtitle = "Applied to this device on its local TaraSec gateway") {
                     Text("Severity: ${severity.roundToInt()}/10")
+                    TaraStatusRow("Gateway", gatewayRouteMessage)
                     Slider(enabled = current.state == "active" && !busy, value = severity, onValueChange = { severity = it }, valueRange = 0f..10f, steps = 9)
                     Button(
-                        enabled = current.state == "active" && !busy && localGatewayBase != null,
+                        enabled = current.state == "active" && !busy && gatewayControlBase != null,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
-                            val gateway = localGatewayBase ?: return@Button
+                            val gateway = gatewayControlBase ?: return@Button
                             val selected = severity.roundToInt()
                             busy = true
                             scope.launch {
@@ -215,14 +231,16 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 busy = false
                             }
                         }
-                    ) { Text(if (localGatewayBase == null) "Local TaraSec gateway required" else "Apply severity") }
+                    ) {
+                        Text(if (gatewayControlBase == null) "Recognized TaraSec gateway required" else "Apply severity")
+                    }
 
                     if (current.state == "contained" || current.state == "releasing") {
                         OutlinedButton(
-                            enabled = !busy && localGatewayBase != null,
+                            enabled = !busy && gatewayControlBase != null,
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
-                                val gateway = localGatewayBase ?: return@OutlinedButton
+                                val gateway = gatewayControlBase ?: return@OutlinedButton
                                 busy = true
                                 scope.launch {
                                     runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.setLocalSeverity(gateway, 0) } }
