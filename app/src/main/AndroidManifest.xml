@@ -26,6 +26,9 @@
             android:name=".MentalHealthChatActivity"
             android:exported="false" />
         <activity
+            android:name=".DemoAssistanceActivity"
+            android:exported="false" />
+        <activity
             android:name=".SubscriberHomeActivity"
             android:exported="true"
             android:launchMode="singleTop">
