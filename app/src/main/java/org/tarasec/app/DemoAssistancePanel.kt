@@ -48,6 +48,9 @@ fun DemoAssistancePanel(baseUrl: String) {
     var containmentAlertVisible by remember { mutableStateOf(false) }
     var containmentWarnedSessionId by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf("Loading available Demo 3 sessions…") }
+    var displayedRequestSeconds by remember { mutableStateOf(0) }
+    var displayedReleaseSeconds by remember { mutableStateOf(0) }
+    var requestSentLocally by remember { mutableStateOf(false) }
 
     suspend fun refreshAvailable() {
         runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl) } }
@@ -87,6 +90,39 @@ fun DemoAssistancePanel(baseUrl: String) {
             }.onSuccess { session = it }
             // A failed heartbeat after containment is expected for a contained
             // participant: its traffic to the requesting server is really blocked.
+        }
+    }
+
+    // A contained participant cannot poll the protected server. Keep the visible
+    // countdown moving locally until the automatic release restores connectivity;
+    // every successful server response corrects the local clock.
+    LaunchedEffect(
+        session?.id,
+        session?.state,
+        session?.secondsRemaining,
+        session?.releaseSecondsRemaining
+    ) {
+        val current = session ?: return@LaunchedEffect
+        displayedRequestSeconds = current.secondsRemaining.coerceAtLeast(0)
+        requestSentLocally = current.state != "active" || displayedRequestSeconds == 0
+        displayedReleaseSeconds = when {
+            current.state == "closed" -> 0
+            current.state != "active" -> current.releaseSecondsRemaining.coerceAtLeast(0)
+            requestSentLocally -> current.containmentSeconds
+            else -> 0
+        }
+
+        while (current.state != "closed") {
+            delay(1000)
+            if (!requestSentLocally) {
+                displayedRequestSeconds = (displayedRequestSeconds - 1).coerceAtLeast(0)
+                if (displayedRequestSeconds == 0) {
+                    requestSentLocally = true
+                    displayedReleaseSeconds = current.containmentSeconds
+                }
+            } else {
+                displayedReleaseSeconds = (displayedReleaseSeconds - 1).coerceAtLeast(0)
+            }
         }
     }
 
@@ -228,21 +264,40 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            TaraStatusRow("Exercise", current.name)
-            TaraStatusRow("State", current.state.uppercase())
-            TaraStatusRow("Threshold", "${current.threshold}/10")
-            TaraStatusRow("Protected server", current.targetIp)
-            TaraStatusRow(
-                "Request for Assistance",
-                when (current.state) {
-                    "active" -> "in ${current.secondsRemaining}s"
-                    else -> current.assistanceRequestId?.let { "issued · request #$it" } ?: "issued"
+            if (current.state == "closed") {
+                TaraSectionCard(
+                    title = "Demo 3 complete",
+                    subtitle = "The Request for Assistance has been released"
+                ) {
+                    Text(
+                        "${current.participants.size} joined · ${current.recovered} recovered · " +
+                            "${current.connected} connected"
+                    )
+                    Text(
+                        "Temporary demo containment has ended. You can now join an available " +
+                            "Demo 3 or start a new one.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
-            )
-            if (current.state == "contained" || current.state == "releasing") {
-                TaraStatusRow("Automatic release", "in ${current.releaseSecondsRemaining}s")
-            } else if (current.state == "closed") {
-                TaraStatusRow("Automatic release", "completed")
+            } else {
+                TaraStatusRow("Exercise", current.name)
+                TaraStatusRow("State", current.state.uppercase())
+                TaraStatusRow("Threshold", "${current.threshold}/10")
+                TaraStatusRow("Protected server", current.targetIp)
+                TaraStatusRow(
+                    "Request for Assistance",
+                    if (requestSentLocally || current.state != "active") {
+                        "Sent"
+                    } else {
+                        "in ${displayedRequestSeconds}s"
+                    }
+                )
+                if (requestSentLocally || current.state == "contained" || current.state == "releasing") {
+                    TaraStatusRow(
+                        "Releasing in",
+                        "${displayedReleaseSeconds.coerceAtLeast(0)} seconds"
+                    )
+                }
             }
 
             if (participantToken.isBlank() && current.state == "active") {
@@ -269,7 +324,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (participantToken.isNotBlank()) {
+            if (participantToken.isNotBlank() && current.state != "closed") {
                 TaraSectionCard(title = "Your infection severity", subtitle = "Applied to this device on its local TaraSec gateway") {
                     Text("Severity: ${severity.roundToInt()}/10")
                     TaraStatusRow("Gateway", gatewayRouteMessage)
@@ -317,7 +372,8 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            TaraSectionCard(title = "Participants", subtitle = "Watch polling stop for units above the threshold") {
+            if (current.state != "closed") {
+                TaraSectionCard(title = "Participants", subtitle = "Watch polling stop for units above the threshold") {
                 if (current.participants.isEmpty()) Text("Waiting for participants…")
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
@@ -331,10 +387,11 @@ fun DemoAssistancePanel(baseUrl: String) {
                         else -> if (expected) "🟡 will exceed threshold" else "🟢 below threshold"
                     }
                     TaraStatusRow("$label$mine", "${p.severity}/10 · $state$seen")
+                    }
                 }
             }
 
-            if (current.state == "contained" || current.state == "closed") {
+            if (current.state == "contained" || current.state == "releasing") {
                 TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
                     Text("${current.participants.size} joined · ${current.silent} currently silent · ${current.recovered} recovered · ${current.connected} polling")
                 }
@@ -345,7 +402,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 participantToken = ""
                 participantId = 0
                 scope.launch { refreshAvailable() }
-            }) { Text("Choose another demo") }
+            }) { Text(if (current.state == "closed") "Join or start another Demo 3" else "Choose another demo") }
         }
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
