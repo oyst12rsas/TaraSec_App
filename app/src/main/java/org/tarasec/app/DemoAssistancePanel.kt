@@ -209,6 +209,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (participantToken.isNotBlank()) {
                 TaraSectionCard(title = "Your infection severity", subtitle = "Applied to this device on its local TaraSec gateway") {
                     Text("Severity: ${severity.roundToInt()}/10")
+                    TaraStatusRow("Gateway", gatewayRouteMessage)
                     Slider(enabled = current.state == "active" && !busy, value = severity, onValueChange = { severity = it }, valueRange = 0f..10f, steps = 9)
                     Button(
                         enabled = current.state == "active" && !busy && gatewayControlBase != null,
@@ -230,8 +231,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 busy = false
                             }
                         }
-                    ) { TaraStatusRow("Gateway", gatewayRouteMessage)
-                    Text(if (gatewayControlBase == null) "Recognized TaraSec gateway required" else "Apply severity") }
+                    ) {
+                        Text(if (gatewayControlBase == null) "Recognized TaraSec gateway required" else "Apply severity")
+                    }
 
                     if (current.state == "contained" || current.state == "releasing") {
                         OutlinedButton(
