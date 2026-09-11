@@ -116,6 +116,13 @@ fun TaraHamburgerMenu(onSelect: (TaraMenuDestination) -> Unit) {
                 )
             }
             DropdownMenuItem(
+                text = { Text("Demo 3 · Request for Assistance") },
+                onClick = {
+                    expanded = false
+                    context.startActivity(Intent(context, DemoAssistanceActivity::class.java))
+                }
+            )
+            DropdownMenuItem(
                 text = { Text("About Us") },
                 onClick = {
                     expanded = false
