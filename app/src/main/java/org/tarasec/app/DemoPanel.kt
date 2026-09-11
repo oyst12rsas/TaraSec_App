@@ -753,6 +753,17 @@ fun DemoPanel(
             }
         }
 
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                activity.startActivity(
+                    android.content.Intent(activity, DemoAssistanceActivity::class.java)
+                )
+            }
+        ) {
+            Text("Demo 3 · Request for Assistance")
+        }
+
         if (showDebugInfo) {
             localPhoneState?.let { Text("Local status: ${it.rawJson}", style = MaterialTheme.typography.bodySmall) }
             vpnPhoneState?.let { Text("VPN phone status: ${it.rawJson}", style = MaterialTheme.typography.bodySmall) }
