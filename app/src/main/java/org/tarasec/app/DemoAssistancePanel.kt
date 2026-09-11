@@ -10,7 +10,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 
 @Composable
 fun DemoAssistancePanel(baseUrl: String) {
@@ -40,8 +38,6 @@ fun DemoAssistancePanel(baseUrl: String) {
     var participantToken by remember { mutableStateOf("") }
     var participantId by remember { mutableStateOf(0) }
     var nickname by remember { mutableStateOf("") }
-    var severity by remember { mutableStateOf(0f) }
-    var threshold by remember { mutableStateOf(7f) }
     var delaySeconds by remember { mutableStateOf(120) }
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
@@ -147,7 +143,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             message = "Selected ${demo.name}."
                         }
                     ) {
-                        Text("${demo.name} · threshold ${demo.threshold} · ${demo.secondsRemaining}s left")
+                        Text("${demo.name} · ${demo.secondsRemaining}s left")
                     }
                 }
                 OutlinedButton(
@@ -157,8 +153,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             }
 
             TaraSectionCard(title = "Start a new Demo 3", subtitle = "Request for Assistance is triggered by the countdown") {
-                Text("Blocking threshold: ${threshold.roundToInt()}")
-                Slider(value = threshold, onValueChange = { threshold = it }, valueRange = 0f..10f, steps = 9)
+                Text("Participants choose CLEAN or INFECTED. Infected units are contained when the request is sent.")
 
                 Text("Request countdown: $delaySeconds seconds")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -189,7 +184,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                                     DemoAssistanceClient.create(
                                         baseUrl,
                                         "Community infection exercise",
-                                        threshold.roundToInt(),
+                                        5,
                                         delaySeconds,
                                         containmentSeconds
                                     )
@@ -282,7 +277,6 @@ fun DemoAssistancePanel(baseUrl: String) {
             } else {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
-                TaraStatusRow("Threshold", "${current.threshold}/10")
                 TaraStatusRow("Protected server", current.targetIp)
                 TaraStatusRow(
                     "Request for Assistance",
@@ -314,7 +308,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                                         participantToken = it.participantToken
                                         participantId = it.participantId
                                         session = it.session
-                                        message = "Joined. Choose your infection severity."
+                                        message = "Joined. Choose whether this unit is CLEAN or INFECTED."
                                     }
                                     .onFailure { message = "Could not join: ${it.message}" }
                                 busy = false
@@ -325,32 +319,81 @@ fun DemoAssistancePanel(baseUrl: String) {
             }
 
             if (participantToken.isNotBlank() && current.state != "closed") {
-                TaraSectionCard(title = "Your infection severity", subtitle = "Applied to this device on its local TaraSec gateway") {
-                    Text("Severity: ${severity.roundToInt()}/10")
-                    TaraStatusRow("Gateway", gatewayRouteMessage)
-                    Slider(enabled = current.state == "active" && !busy, value = severity, onValueChange = { severity = it }, valueRange = 0f..10f, steps = 9)
-                    Button(
-                        enabled = current.state == "active" && !busy && gatewayControlBase != null,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            val gateway = gatewayControlBase ?: return@Button
-                            val selected = severity.roundToInt()
-                            busy = true
-                            scope.launch {
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        DemoAssistanceClient.setLocalSeverity(gateway, selected)
-                                        DemoAssistanceClient.setSeverity(baseUrl, current.id, participantToken, selected)
-                                    }
-                                }.onSuccess {
-                                    session = it
-                                    message = "Severity $selected is now active on the local gateway and registered for Demo 3."
-                                }.onFailure { message = "Could not update severity: ${it.message}" }
-                                busy = false
-                            }
+                TaraSectionCard(
+                    title = "This unit's demo status",
+                    subtitle = "Stored on the local TaraSec gateway"
+                ) {
+                    val ownInfected = ownParticipant?.severity?.let { it > 0 }
+                    TaraStatusRow(
+                        "Status",
+                        when (ownInfected) {
+                            true -> "🔴 INFECTED"
+                            false -> "🟢 CLEAN"
+                            null -> "Not selected"
                         }
+                    )
+                    TaraStatusRow("Gateway", gatewayRouteMessage)
+                    Text(
+                        "Unless a technical error occurs, this status tags traffic from this " +
+                            "unit to other TaraSec participants. There are currently no other " +
+                            "TaraSec participants in this demonstration. The Request for " +
+                            "Assistance contains only traffic to the protected demo server. " +
+                            "Regular Internet traffic may use the hotspot, mobile data, or be " +
+                            "unavailable, depending on the phone and hotspot routing.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    fun applyStatus(infected: Boolean) {
+                        val gateway = gatewayControlBase ?: return
+                        val selectedSeverity = if (infected) 10 else 0
+                        busy = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    DemoAssistanceClient.setLocalSeverity(gateway, selectedSeverity)
+                                    DemoAssistanceClient.setSeverity(
+                                        baseUrl,
+                                        current.id,
+                                        participantToken,
+                                        selectedSeverity
+                                    )
+                                }
+                            }.onSuccess {
+                                session = it
+                                message = if (infected) {
+                                    "This unit is marked INFECTED for Demo 3."
+                                } else {
+                                    "This unit is marked CLEAN for Demo 3."
+                                }
+                            }.onFailure {
+                                message = "Could not update demo status: ${it.message}"
+                            }
+                            busy = false
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (gatewayControlBase == null) "Recognized TaraSec gateway required" else "Apply severity")
+                        Button(
+                            enabled = current.state == "active" && !busy &&
+                                gatewayControlBase != null,
+                            modifier = Modifier.weight(1f),
+                            onClick = { applyStatus(false) }
+                        ) { Text("Set CLEAN") }
+                        Button(
+                            enabled = current.state == "active" && !busy &&
+                                gatewayControlBase != null,
+                            modifier = Modifier.weight(1f),
+                            onClick = { applyStatus(true) }
+                        ) { Text("Set INFECTED") }
+                    }
+                    if (gatewayControlBase == null) {
+                        Text(
+                            "Connect through a recognized TaraSec gateway to set the status.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
 
                     if (current.state == "contained" || current.state == "releasing") {
@@ -386,7 +429,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         "connected" -> if (expected && current.state != "active") "🟡 still polling" else "🟢 polling"
                         else -> if (expected) "🟡 will exceed threshold" else "🟢 below threshold"
                     }
-                    TaraStatusRow("$label$mine", "${p.severity}/10 · $state$seen")
+                    TaraStatusRow("$label$mine", "${if (p.severity > 0) "INFECTED" else "CLEAN"} · $state$seen")
                     }
                 }
             }
