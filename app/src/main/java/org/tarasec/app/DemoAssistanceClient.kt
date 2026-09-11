@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.net.Network
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -37,6 +38,15 @@ data class DemoAssistanceJoin(val participantId: Int, val participantToken: Stri
 data class DemoAssistanceCreate(val controllerToken: String, val session: DemoAssistanceSession)
 
 object DemoAssistanceClient {
+    @Volatile
+    private var boundWifiNetwork: Network? = null
+
+    fun bindToWifiNetwork(network: Network?) {
+        boundWifiNetwork = network
+    }
+
+    fun isWifiBound(): Boolean = boundWifiNetwork != null
+
     fun list(baseUrl: String): List<DemoAssistanceSession> {
         val json = request(baseUrl, "script/appDemoAssistance.php?action=list", "GET")
         val array = json.optJSONArray("sessions") ?: return emptyList()
@@ -83,8 +93,9 @@ object DemoAssistanceClient {
     }
 
     fun setLocalSeverity(gatewayBaseUrl: String, severity: Int): String {
+        val network = requireWifiNetwork()
         val base = normaliseBase(gatewayBaseUrl)
-        val connection = URL("$base/script/appInfectionControl.php").openConnection() as HttpURLConnection
+        val connection = network.openConnection(URL("$base/script/appInfectionControl.php")) as HttpURLConnection
         try {
             connection.connectTimeout = 4000
             connection.readTimeout = 7000
@@ -151,8 +162,12 @@ object DemoAssistanceClient {
         return if (v.startsWith("http://", true) || v.startsWith("https://", true)) v else "http://$v"
     }
 
+    private fun requireWifiNetwork(): Network = boundWifiNetwork
+        ?: throw IllegalStateException("Demo 3 requires a connected TaraSec Wi-Fi network for this test")
+
     private fun request(baseUrl: String, path: String, method: String, body: JSONObject? = null): JSONObject {
-        val connection = URL("${normaliseBase(baseUrl)}/$path").openConnection() as HttpURLConnection
+        val network = requireWifiNetwork()
+        val connection = network.openConnection(URL("${normaliseBase(baseUrl)}/$path")) as HttpURLConnection
         try {
             connection.connectTimeout = 5000
             connection.readTimeout = 10000
