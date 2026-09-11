@@ -48,6 +48,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     var displayedRequestSeconds by remember { mutableStateOf(0) }
     var displayedReleaseSeconds by remember { mutableStateOf(0) }
     var requestSentLocally by remember { mutableStateOf(false) }
+    var participantAgeTick by remember { mutableStateOf(0) }
 
     suspend fun refreshAvailable() {
         runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl) } }
@@ -120,6 +121,19 @@ fun DemoAssistancePanel(baseUrl: String) {
             } else {
                 displayedReleaseSeconds = (displayedReleaseSeconds - 1).coerceAtLeast(0)
             }
+        }
+    }
+
+    LaunchedEffect(
+        session?.id,
+        session?.participants?.map {
+            Triple(it.id, it.decision, it.secondsSinceSeen)
+        }
+    ) {
+        participantAgeTick = 0
+        while (session?.state != "closed") {
+            delay(1000)
+            participantAgeTick += 1
         }
     }
 
@@ -435,15 +449,22 @@ fun DemoAssistancePanel(baseUrl: String) {
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
                     val mine = if (p.id == participantId) " · you" else ""
+                    val infected = p.severity > 0
                     val expected = p.severity > current.threshold
-                    val seen = p.secondsSinceSeen?.let { " · last seen ${it}s ago" } ?: ""
-                    val state = when (p.decision) {
-                        "silent" -> "🔴 POLLING STOPPED"
-                        "recovered" -> "🟢 RECOVERED"
-                        "connected" -> if (expected && current.state != "active") "🟡 still polling" else "🟢 polling"
-                        else -> if (expected) "🟡 will be contained" else "🟢 will remain connected"
+                    val lostFor = (p.secondsSinceSeen ?: 0) + participantAgeTick
+                    val infectionState = if (infected) "🔴 INFECTED" else "🟢 CLEAN"
+                    val connectionState = when (p.decision) {
+                        "silent" -> "LOST CONNECTION $lostFor second" +
+                            if (lostFor == 1) " ago" else "s ago"
+                        "recovered" -> "CONNECTION RESTORED"
+                        "connected" -> if (expected && current.state != "active") {
+                            "still polling"
+                        } else {
+                            "polling"
+                        }
+                        else -> if (expected) "will be contained" else "will remain connected"
                     }
-                    TaraStatusRow("$label$mine", "${if (p.severity > 0) "INFECTED" else "CLEAN"} · $state$seen")
+                    TaraStatusRow("$label$mine", "$infectionState · $connectionState")
                     }
                 }
             }
