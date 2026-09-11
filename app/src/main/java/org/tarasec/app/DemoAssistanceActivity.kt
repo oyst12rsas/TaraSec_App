@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 class DemoAssistanceActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DemoAssistanceClient.bindToWifiNetwork(LocalGateway.wifiNetwork(this))
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -32,5 +33,15 @@ class DemoAssistanceActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        DemoAssistanceClient.bindToWifiNetwork(LocalGateway.wifiNetwork(this))
+    }
+
+    override fun onDestroy() {
+        DemoAssistanceClient.bindToWifiNetwork(null)
+        super.onDestroy()
     }
 }
