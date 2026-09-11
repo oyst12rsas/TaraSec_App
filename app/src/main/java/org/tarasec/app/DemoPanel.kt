@@ -137,6 +137,7 @@ fun DemoPanel(
     var auditApproved by remember { mutableStateOf(false) }
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
+    var showDemo3 by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Demo 1 is ready. Expand Demo 2 when you want to run the SSH self-healing scenario.") }
 
     LaunchedEffect(configuredTargets) {
@@ -755,13 +756,21 @@ fun DemoPanel(
 
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
-            onClick = {
-                activity.startActivity(
-                    android.content.Intent(activity, DemoAssistanceActivity::class.java)
-                )
-            }
+            onClick = { showDemo3 = !showDemo3 }
         ) {
-            Text("Demo 3 · Request for Assistance")
+            Text(
+                (if (showDemo3) "▼ " else "▶ ") +
+                    "Demo 3 · Request for Assistance"
+            )
+        }
+
+        if (showDemo3) {
+            TaraSectionCard(
+                title = "Demo 3 · Community containment",
+                subtitle = "Real Assistance Request with automatic recovery"
+            ) {
+                DemoAssistancePanel(baseUrl = "http://100.68.126.0")
+            }
         }
 
         if (showDebugInfo) {
