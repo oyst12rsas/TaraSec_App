@@ -125,7 +125,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Text("Anyone may join. Choose a demo with more than 15 seconds remaining, or start a new exercise lasting up to 5 minutes.")
         Text(
-            "At zero the demo server issues a real TaraSec Request for Assistance. Units whose local infection severity exceeds the request threshold should lose connectivity to the demo server, so their polling stops.",
+            "At zero the demo server issues a real TaraSec Request for Assistance. Units marked INFECTED should lose connectivity to the demo server, so their polling stops.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -226,7 +226,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                     title = { Text("TaraSec communication will pause") },
                     text = {
                         Text(
-                            "Your severity is above this demo's threshold. At zero, " +
+                            "This unit is marked INFECTED. At zero, " +
                                 "TaraSec will intentionally block this device's communication " +
                                 "with the protected server. Status updates will appear frozen " +
                                 "until the automatic release restores communication."
@@ -243,7 +243,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (containmentExpected) {
                 TaraSectionCard(
                     title = "Containment expected",
-                    subtitle = "Your severity exceeds the Request for Assistance threshold"
+                    subtitle = "This unit is marked INFECTED"
                 ) {
                     Text(
                         if (current.secondsRemaining > 15) {
@@ -416,7 +416,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             }
 
             if (current.state != "closed") {
-                TaraSectionCard(title = "Participants", subtitle = "Watch polling stop for units above the threshold") {
+                TaraSectionCard(title = "Participants", subtitle = "Watch INFECTED units stop polling") {
                 if (current.participants.isEmpty()) Text("Waiting for participants…")
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
@@ -427,7 +427,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         "silent" -> "🔴 POLLING STOPPED"
                         "recovered" -> "🟢 RECOVERED"
                         "connected" -> if (expected && current.state != "active") "🟡 still polling" else "🟢 polling"
-                        else -> if (expected) "🟡 will exceed threshold" else "🟢 below threshold"
+                        else -> if (expected) "🟡 will be contained" else "🟢 will remain connected"
                     }
                     TaraStatusRow("$label$mine", "${if (p.severity > 0) "INFECTED" else "CLEAN"} · $state$seen")
                     }
