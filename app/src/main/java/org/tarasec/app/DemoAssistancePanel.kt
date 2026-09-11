@@ -38,6 +38,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     var participantToken by remember { mutableStateOf("") }
     var participantId by remember { mutableStateOf(0) }
     var nickname by remember { mutableStateOf("") }
+    var newDemoName by remember { mutableStateOf("") }
     var delaySeconds by remember { mutableStateOf(120) }
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
@@ -143,7 +144,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             message = "Selected ${demo.name}."
                         }
                     ) {
-                        Text("${demo.name} · ${demo.secondsRemaining}s left")
+                        Text("${demo.name} · #${demo.id} · ${demo.secondsRemaining}s left")
                     }
                 }
                 OutlinedButton(
@@ -152,8 +153,19 @@ fun DemoAssistancePanel(baseUrl: String) {
                 ) { Text("Refresh available demos") }
             }
 
-            TaraSectionCard(title = "Start a new Demo 3", subtitle = "Request for Assistance is triggered by the countdown") {
+            TaraSectionCard(title = "Start a new Demo 3", subtitle = "Give it a name others can recognize") {
                 Text("Participants choose CLEAN or INFECTED. Infected units are contained when the request is sent.")
+                OutlinedTextField(
+                    value = newDemoName,
+                    onValueChange = { newDemoName = it.take(120) },
+                    label = { Text("Demo name (optional)") },
+                    placeholder = { Text("For example: UiA Grimstad – Table 2") },
+                    supportingText = {
+                        Text("Include a location, class or group if several demos may be running.")
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Text("Request countdown: $delaySeconds seconds")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -183,7 +195,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 withContext(Dispatchers.IO) {
                                     DemoAssistanceClient.create(
                                         baseUrl,
-                                        "Community infection exercise",
+                                        newDemoName.trim().ifBlank {
+                                            "Community infection exercise"
+                                        },
                                         5,
                                         delaySeconds,
                                         containmentSeconds
@@ -191,7 +205,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 }
                             }.onSuccess {
                                 session = it.session
-                                message = "Demo 3 started. Anyone can join now."
+                                message = "${it.session.name} started. Others can now find and join demo #${it.session.id}."
                             }.onFailure { message = "Could not start Demo 3: ${it.message}" }
                             busy = false
                         }
