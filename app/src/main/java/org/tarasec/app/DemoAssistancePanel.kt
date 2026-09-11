@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +45,8 @@ fun DemoAssistancePanel(baseUrl: String) {
     var delaySeconds by remember { mutableStateOf(120) }
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
+    var containmentAlertVisible by remember { mutableStateOf(false) }
+    var containmentWarnedSessionId by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf("Loading available Demo 3 sessions…") }
 
     suspend fun refreshAvailable() {
@@ -165,6 +168,66 @@ fun DemoAssistancePanel(baseUrl: String) {
                 ) { Text("Start new Demo 3") }
             }
         } else {
+            val ownParticipant = current.participants.firstOrNull { it.id == participantId }
+            val containmentExpected = participantToken.isNotBlank() &&
+                ownParticipant?.severity?.let { it > current.threshold } == true &&
+                current.state == "active"
+
+            LaunchedEffect(
+                current.id,
+                current.state,
+                current.secondsRemaining,
+                containmentExpected
+            ) {
+                if (
+                    containmentExpected &&
+                    current.secondsRemaining in 1..15 &&
+                    containmentWarnedSessionId != current.id
+                ) {
+                    containmentWarnedSessionId = current.id
+                    containmentAlertVisible = true
+                }
+            }
+
+            if (containmentAlertVisible) {
+                AlertDialog(
+                    onDismissRequest = { containmentAlertVisible = false },
+                    title = { Text("TaraSec communication will pause") },
+                    text = {
+                        Text(
+                            "Your severity is above this demo's threshold. At zero, " +
+                                "TaraSec will intentionally block this device's communication " +
+                                "with the protected server. Status updates will appear frozen " +
+                                "until the automatic release restores communication."
+                        )
+                    },
+                    confirmButton = {
+                        Button(onClick = { containmentAlertVisible = false }) {
+                            Text("Understood")
+                        }
+                    }
+                )
+            }
+
+            if (containmentExpected) {
+                TaraSectionCard(
+                    title = "Containment expected",
+                    subtitle = "Your severity exceeds the Request for Assistance threshold"
+                ) {
+                    Text(
+                        if (current.secondsRemaining > 15) {
+                            "When the countdown reaches zero, communication with TaraSec's " +
+                                "protected server will pause. The app may appear frozen until " +
+                                "automatic release."
+                        } else {
+                            "Warning: communication will pause in ${current.secondsRemaining} " +
+                                "seconds. No status updates are expected during containment."
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
             TaraStatusRow("Exercise", current.name)
             TaraStatusRow("State", current.state.uppercase())
             TaraStatusRow("Threshold", "${current.threshold}/10")
