@@ -231,6 +231,8 @@ fun DemoAssistancePanel(baseUrl: String) {
             val containmentExpected = participantToken.isNotBlank() &&
                 ownParticipant?.severity?.let { it > current.threshold } == true &&
                 current.state == "active"
+            val demoFinished = current.state == "closed" ||
+                (requestSentLocally && displayedReleaseSeconds <= 0)
 
             LaunchedEffect(
                 current.id,
@@ -248,7 +250,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (containmentAlertVisible) {
+            if (containmentAlertVisible && !demoFinished) {
                 AlertDialog(
                     onDismissRequest = { containmentAlertVisible = false },
                     title = { Text("TaraSec communication will pause") },
@@ -268,7 +270,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 )
             }
 
-            if (containmentExpected) {
+            if (containmentExpected && !demoFinished) {
                 TaraSectionCard(
                     title = "Containment expected",
                     subtitle = "This unit is marked INFECTED"
@@ -287,19 +289,14 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (current.state == "closed") {
+            if (demoFinished) {
                 TaraSectionCard(
-                    title = "Demo 3 complete",
+                    title = "Demo 3 is over",
                     subtitle = "The Request for Assistance has been released"
                 ) {
                     Text(
-                        "${current.participants.size} joined · ${current.recovered} recovered · " +
-                            "${current.connected} connected"
-                    )
-                    Text(
-                        "Temporary demo containment has ended. You can now join an available " +
-                            "Demo 3 or start a new one.",
-                        style = MaterialTheme.typography.bodySmall
+                        "You are welcome to join an available demo or start a new one. " +
+                            "Tap Reset below to return to the Demo 3 selection."
                     )
                 }
             } else {
@@ -322,7 +319,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (participantToken.isBlank() && current.state == "active") {
+            if (!demoFinished && participantToken.isBlank() && current.state == "active") {
                 TaraSectionCard(title = "Join the exercise", subtitle = "Nickname is optional") {
                     OutlinedTextField(nickname, { nickname = it.take(80) }, label = { Text("Nickname (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(
@@ -346,7 +343,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (participantToken.isNotBlank() && current.state != "closed") {
+            if (!demoFinished && participantToken.isNotBlank()) {
                 TaraSectionCard(
                     title = "This unit's demo status",
                     subtitle = "Stored on the local TaraSec gateway"
@@ -443,7 +440,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (current.state != "closed") {
+            if (!demoFinished) {
                 TaraSectionCard(title = "Participants", subtitle = "Watch INFECTED units stop polling") {
                 if (current.participants.isEmpty()) Text("Waiting for participants…")
                 current.participants.forEach { p ->
@@ -469,7 +466,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (current.state == "contained" || current.state == "releasing") {
+            if (!demoFinished && (current.state == "contained" || current.state == "releasing")) {
                 TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
                     Text("${current.participants.size} joined · ${current.silent} currently silent · ${current.recovered} recovered · ${current.connected} polling")
                 }
@@ -479,8 +476,10 @@ fun DemoAssistancePanel(baseUrl: String) {
                 session = null
                 participantToken = ""
                 participantId = 0
+                containmentAlertVisible = false
+                containmentWarnedSessionId = null
                 scope.launch { refreshAvailable() }
-            }) { Text(if (current.state == "closed") "Join or start another Demo 3" else "Choose another demo") }
+            }) { Text(if (demoFinished) "Reset" else "Choose another demo") }
         }
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
