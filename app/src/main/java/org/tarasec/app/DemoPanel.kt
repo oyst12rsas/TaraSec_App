@@ -138,6 +138,7 @@ fun DemoPanel(
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
     var showDemo3 by remember { mutableStateOf(false) }
+    var showDemo4 by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Demo 1 is ready. Expand Demo 2 when you want to run the SSH self-healing scenario.") }
 
     LaunchedEffect(configuredTargets) {
@@ -770,6 +771,25 @@ fun DemoPanel(
                 subtitle = "Real Assistance Request with automatic recovery"
             ) {
                 DemoAssistancePanel(baseUrl = "http://100.68.126.0")
+            }
+        }
+
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { showDemo4 = !showDemo4 }
+        ) {
+            Text(
+                (if (showDemo4) "▼ " else "▶ ") +
+                    "Demo 4 · NATed hotspot routing"
+            )
+        }
+
+        if (showDemo4) {
+            TaraSectionCard(
+                title = "Demo 4 · Tagged route to VPS partner",
+                subtitle = "Normal public path when clean; NetBird path when infected"
+            ) {
+                DemoRoutingPanel(baseUrl = "http://100.68.126.0")
             }
         }
 
