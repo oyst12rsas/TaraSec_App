@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -428,8 +429,79 @@ fun DemoSshPanel(
             ) { Text(if (busy) "Closing…" else "Close session") }
         }
 
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                val report = buildDemoSshDebugReport(
+                    baseUrl,
+                    observedGateway,
+                    eligibility,
+                    setups.firstOrNull { it.id == selectedId },
+                    session,
+                    displayedSecondsRemaining,
+                    message
+                )
+                copy(report, "Debug report")
+            }
+        ) { Text("Copy debug report for AI") }
+        Text(
+            "Copies the current Demo 2 state without passwords or session tokens.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+private fun buildDemoSshDebugReport(
+    baseUrl: String?,
+    gateway: DemoGateway?,
+    eligibility: DemoEligibility?,
+    setup: DemoSshSetup?,
+    session: DemoSshSession?,
+    displayedSecondsRemaining: Int,
+    message: String
+): String = buildString {
+    appendLine("TaraSec Demo 2 debug report")
+    appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
+    appendLine("app_version=" + BuildConfig.VERSION_NAME)
+    appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
+    appendLine("secrets=omitted (password and session token)")
+    appendLine()
+    appendLine("[connection]")
+    appendLine("db_endpoint=" + baseUrl.orEmpty().ifBlank { "not selected" })
+    appendLine("gateway_name=" + gateway?.name.orEmpty().ifBlank { "unknown" })
+    appendLine("gateway_address=" + gateway?.address.orEmpty().ifBlank { "unknown" })
+    appendLine("gateway_recognized=" + (gateway?.recognized ?: false))
+    appendLine("gateway_message=" + gateway?.message.orEmpty().ifBlank { "none" })
+    appendLine()
+    appendLine("[eligibility]")
+    appendLine("eligible=" + (eligibility?.eligible ?: false))
+    appendLine("remediation_required=" + (eligibility?.remediationRequired ?: false))
+    appendLine("demo_reset_available=" + (eligibility?.demoResetAvailable ?: false))
+    appendLine("eligibility_message=" + eligibility?.message.orEmpty().ifBlank { "none" })
+    appendLine()
+    appendLine("[setup]")
+    appendLine("setup_id=" + (setup?.id ?: 0))
+    appendLine("setup_name=" + setup?.name.orEmpty().ifBlank { "none" })
+    appendLine("node_a=" + (setup?.let { it.nodeA + ":" + it.nodeAPort } ?: "unknown"))
+    appendLine("node_b=" + (setup?.let { it.nodeB + ":" + it.nodeBPort } ?: "unknown"))
+    appendLine()
+    appendLine("[session]")
+    appendLine("session_id=" + (session?.sessionId ?: 0))
+    appendLine("state=" + session?.state.orEmpty().ifBlank { "none" })
+    appendLine("attempts=" + (session?.attempts ?: 0))
+    appendLine("seconds_remaining=" + displayedSecondsRemaining)
+    appendLine("expires=" + session?.expires.orEmpty().ifBlank { "unknown" })
+    appendLine("node_a_observed=" + (session?.nodeAObserved ?: false))
+    appendLine("unit_marked=" + (session?.unitMarked ?: false))
+    appendLine("node_b_observed=" + (session?.nodeBObserved ?: false))
+    appendLine("node_b_login_accepted=" + (session?.nodeBLoginAccepted?.toString() ?: "unknown"))
+    appendLine("node_a_status=" + (session?.let(::nodeAStatus) ?: "no session"))
+    appendLine("gateway_db_status=" + (session?.let(::gatewayStatus) ?: "no session"))
+    appendLine("node_b_status=" + (session?.let(::nodeBStatus) ?: "no session"))
+    appendLine("progress_message=" + session?.progressMessage.orEmpty().ifBlank { "none" })
+    appendLine("client_message=" + message.ifBlank { "none" })
 }
 
 private fun formatCountdown(totalSeconds: Int): String {
