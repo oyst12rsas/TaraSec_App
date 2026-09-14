@@ -351,10 +351,19 @@ fun DemoSshPanel(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { copy(current.nodeBCommand(), "Node B command") }
                 ) { Text("Copy Node B SSH command") }
+                // Password copying is intentionally hidden while the classroom
+                // demo uses the fixed password "1". Restore this button when
+                // per-session or generated passwords are enabled again.
+                /*
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { copy(current.password, "Password") }
                 ) { Text("Copy password") }
+                */
+                Text(
+                    "Password copying is temporarily removed while the demo password is fixed to 1.",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
 
             Text(resultExplanation(current.state), style = MaterialTheme.typography.bodySmall)
