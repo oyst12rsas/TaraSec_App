@@ -173,7 +173,6 @@ fun DemoSshPanel(
                                     ?.takeIf { it.recognized && it.address.isNotBlank() }
                                     ?: return@OutlinedButton
                                 val control = "http://${gateway.address}"
-                                val base = baseUrl ?: return@OutlinedButton
                                 busy = true
                                 message = "Clearing previous demonstration state…"
                                 scope.launch {
