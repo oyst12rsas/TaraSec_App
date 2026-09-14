@@ -46,6 +46,7 @@ data class DemoSshSession(
     val nodeAObserved: Boolean = false,
     val unitMarked: Boolean = false,
     val nodeBObserved: Boolean = false,
+    val nodeBLoginAccepted: Boolean? = null,
     val progressMessage: String = "",
     val message: String = ""
 ) : java.io.Serializable {
@@ -206,6 +207,11 @@ object DemoSshClient {
             nodeAObserved = json.optBoolean("node_a_observed", current.nodeAObserved),
             unitMarked = json.optBoolean("unit_marked", current.unitMarked),
             nodeBObserved = json.optBoolean("node_b_observed", current.nodeBObserved),
+            nodeBLoginAccepted = if (json.isNull("node_b_login_accepted")) {
+                null
+            } else {
+                json.optBoolean("node_b_login_accepted", false)
+            },
             progressMessage = json.optString("progress_message", current.progressMessage),
             message = ""
         )
