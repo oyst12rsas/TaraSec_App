@@ -8,6 +8,7 @@ plugins {
 tasks.register<org.gradle.api.tasks.Copy>("copyDebugApkToHome") {
     group = "build"
     description = "Copies the debug APK to the user home directory"
+    doNotTrackState("Destination is outside the project and contains unrelated files")
     dependsOn(":app:assembleDebug")
     from("app/build/outputs/apk/debug/app-debug.apk")
     into(System.getProperty("user.home"))
