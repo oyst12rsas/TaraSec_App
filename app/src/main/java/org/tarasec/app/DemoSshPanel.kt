@@ -402,9 +402,13 @@ private fun gatewayStatus(session: DemoSshSession): String = when {
 }
 
 private fun nodeBStatus(session: DemoSshSession): String = when {
-    session.state == "cleared" -> "🟢 Connection validated"
-    session.state == "owner_clear_required" && session.nodeBObserved -> "🔴 Validation rejected"
-    session.nodeBObserved -> "🟡 Report received"
+    session.nodeBLoginAccepted == true && session.state == "cleared" ->
+        "🟢 Login accepted · evidence validated"
+    session.nodeBLoginAccepted == true ->
+        "🟢 Login accepted · evidence validation incomplete"
+    session.nodeBLoginAccepted == false ->
+        "🔴 Login rejected"
+    session.nodeBObserved -> "🟡 Report received · checking login"
     else -> "⚪ Waiting"
 }
 
