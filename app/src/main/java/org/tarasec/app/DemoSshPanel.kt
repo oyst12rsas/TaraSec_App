@@ -375,12 +375,37 @@ fun DemoSshPanel(
                 }
             ) { Text(if (busy) "Refreshing…" else "Refresh session") }
             OutlinedButton(
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
+                    val gateway = observedGateway
                     session = null
-                    message = "Ready to start another SSH demo."
+                    if (gateway?.recognized == true && gateway.address.isNotBlank()) {
+                        busy = true
+                        message = "Closing session and clearing its demo state…"
+                        scope.launch {
+                            val control = "http://${gateway.address}"
+                            val result = withContext(Dispatchers.IO) {
+                                DemoClient.setGatewayInfected(control, false)
+                            }
+                            delay(2500)
+                            val check = withContext(Dispatchers.IO) {
+                                DemoSshClient.gatewayEligibility(control)
+                            }
+                            eligibility = check
+                            remediationVisible = check.remediationRequired
+                            message = if (check.eligible) {
+                                "Session closed and demo state cleared. Ready to start another SSH demo."
+                            } else {
+                                result + " Session closed; waiting for the clean state to propagate."
+                            }
+                            busy = false
+                        }
+                    } else {
+                        message = "Session closed. Reconnect through a recognized TaraSec gateway to verify demo cleanup."
+                    }
                 }
-            ) { Text("Close session") }
+            ) { Text(if (busy) "Closing…" else "Close session") }
         }
 
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
