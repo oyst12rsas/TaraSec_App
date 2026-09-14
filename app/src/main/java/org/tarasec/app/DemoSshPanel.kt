@@ -387,12 +387,23 @@ fun DemoSshPanel(
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
+                    val base = baseUrl ?: return@OutlinedButton
                     val gateway = observedGateway
-                    session = null
-                    if (gateway?.recognized == true && gateway.address.isNotBlank()) {
-                        busy = true
-                        message = "Closing session and clearing its demo state…"
-                        scope.launch {
+                    busy = true
+                    message = "Closing session on the DB server…"
+                    scope.launch {
+                        val (closed, closeMessage) = withContext(Dispatchers.IO) {
+                            DemoSshClient.cancel(base, current)
+                        }
+                        if (!closed) {
+                            message = closeMessage
+                            busy = false
+                            return@launch
+                        }
+
+                        session = null
+                        if (gateway?.recognized == true && gateway.address.isNotBlank()) {
+                            message = "Session closed; clearing its gateway demo state…"
                             val control = "http://${gateway.address}"
                             val result = withContext(Dispatchers.IO) {
                                 DemoClient.setGatewayInfected(control, false)
@@ -408,10 +419,10 @@ fun DemoSshPanel(
                             } else {
                                 result + " Session closed; waiting for the clean state to propagate."
                             }
-                            busy = false
+                        } else {
+                            message = "Session closed on the DB server. Reconnect through a recognized TaraSec gateway to verify demo cleanup."
                         }
-                    } else {
-                        message = "Session closed. Reconnect through a recognized TaraSec gateway to verify demo cleanup."
+                        busy = false
                     }
                 }
             ) { Text(if (busy) "Closing…" else "Close session") }
