@@ -217,6 +217,20 @@ object DemoSshClient {
         )
     }
 
+    fun cancel(baseUrl: String, current: DemoSshSession): Pair<Boolean, String> {
+        val body = JSONObject()
+            .put("action", "cancel")
+            .put("session_id", current.sessionId)
+            .put("session_token", current.sessionToken)
+        val reply = jsonRequest(baseUrl, "script/appDemoSshSession.php", "POST", body)
+        val json = reply.first
+            ?: return false to reply.second.ifBlank { "Unable to close Demo 2 session" }
+        if (!json.optBoolean("ok", false)) {
+            return false to json.optString("error", "Unable to close Demo 2 session")
+        }
+        return true to "Session closed on the DB server."
+    }
+
     private fun jsonRequest(
         baseUrl: String,
         path: String,
