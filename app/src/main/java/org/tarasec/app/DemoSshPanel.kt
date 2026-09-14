@@ -50,8 +50,21 @@ fun DemoSshPanel(
     LaunchedEffect(baseUrl) {
         if (baseUrl.isNullOrBlank()) return@LaunchedEffect
         val (loaded, error) = withContext(Dispatchers.IO) { DemoSshClient.setups(baseUrl) }
-        val check = withContext(Dispatchers.IO) { DemoSshClient.eligibility(baseUrl) }
         val gateway = withContext(Dispatchers.IO) { DemoSshClient.observedGateway(baseUrl) }
+        val check = if (gateway.recognized && gateway.address.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                DemoSshClient.gatewayEligibility("http://${gateway.address}")
+            }
+        } else {
+            DemoEligibility(
+                eligible = false,
+                remediationRequired = false,
+                demoResetAvailable = false,
+                message = gateway.message.ifBlank {
+                    "Connect through a recognized TaraSec gateway before starting Demo 2."
+                }
+            )
+        }
         setups = loaded
         selectedId = loaded.firstOrNull()?.id
         eligibility = check
@@ -124,7 +137,7 @@ fun DemoSshPanel(
                     subtitle = "Demo eligibility could not be confirmed"
                 ) {
                     Text(
-                        "This demonstration cannot start until the remediation workflow confirms that this unit is eligible. No infection diagnosis is disclosed by the demo.",
+                        "Demo 2 cannot start while this unit is infected on the current gateway. Demo-only state can be reset here; genuine security findings require the normal cleaning workflow.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     when {
@@ -169,7 +182,7 @@ fun DemoSshPanel(
                                     }
                                     delay(2500)
                                     val check = withContext(Dispatchers.IO) {
-                                        DemoSshClient.eligibility(base)
+                                        DemoSshClient.gatewayEligibility(control)
                                     }
                                     eligibility = check
                                     remediationVisible = check.remediationRequired
@@ -181,7 +194,7 @@ fun DemoSshPanel(
                                     busy = false
                                 }
                             }
-                        ) { Text("Clear previous demo state") }
+                        ) { Text("Reset demo state on this gateway") }
                     }
                     OutlinedButton(
                         enabled = !busy && !baseUrl.isNullOrBlank(),
@@ -190,11 +203,17 @@ fun DemoSshPanel(
                             val base = baseUrl ?: return@OutlinedButton
                             busy = true
                             scope.launch {
-                                val check = withContext(Dispatchers.IO) {
-                                    DemoSshClient.eligibility(base)
-                                }
                                 val gateway = withContext(Dispatchers.IO) {
                                     DemoSshClient.observedGateway(base)
+                                }
+                                val check = if (gateway.recognized && gateway.address.isNotBlank()) {
+                                    withContext(Dispatchers.IO) {
+                                        DemoSshClient.gatewayEligibility("http://${gateway.address}")
+                                    }
+                                } else {
+                                    DemoEligibility(false, false, false, gateway.message.ifBlank {
+                                        "Connect through a recognized TaraSec gateway before starting Demo 2."
+                                    })
                                 }
                                 eligibility = check
                                 observedGateway = gateway
@@ -241,11 +260,17 @@ fun DemoSshPanel(
                         busy = true
                         message = "Checking whether Demo 2 may start…"
                         scope.launch {
-                            val check = withContext(Dispatchers.IO) {
-                                DemoSshClient.eligibility(base)
-                            }
                             val gateway = withContext(Dispatchers.IO) {
                                 DemoSshClient.observedGateway(base)
+                            }
+                            val check = if (gateway.recognized && gateway.address.isNotBlank()) {
+                                withContext(Dispatchers.IO) {
+                                    DemoSshClient.gatewayEligibility("http://${gateway.address}")
+                                }
+                            } else {
+                                DemoEligibility(false, false, false, gateway.message.ifBlank {
+                                    "Connect through a recognized TaraSec gateway before starting Demo 2."
+                                })
                             }
                             eligibility = check
                             observedGateway = gateway
