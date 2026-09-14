@@ -131,6 +131,40 @@ object DemoSshClient {
         )
     }
 
+    fun gatewayEligibility(gatewayBaseUrl: String): DemoEligibility {
+        val reply = jsonRequest(
+            gatewayBaseUrl,
+            "script/appLocalInfection.php",
+            "GET"
+        )
+        val json = reply.first ?: return DemoEligibility(
+            eligible = false,
+            remediationRequired = false,
+            demoResetAvailable = false,
+            message = reply.second.ifBlank { "Unable to check the current gateway" }
+        )
+        if (!json.optBoolean("ok", false)) {
+            return DemoEligibility(
+                eligible = false,
+                remediationRequired = false,
+                demoResetAvailable = false,
+                message = json.optString("error", "Unable to check the current gateway")
+            )
+        }
+        val infected = json.optBoolean("infected", false)
+        val resetAvailable = json.optBoolean("demo_reset_available", false)
+        return DemoEligibility(
+            eligible = !infected,
+            remediationRequired = infected,
+            demoResetAvailable = resetAvailable,
+            message = json.optString(
+                "message",
+                if (infected) "This unit must be clean before Demo 2 can start"
+                else "This unit may start the demonstration"
+            )
+        )
+    }
+
     fun create(baseUrl: String, setupId: Int): DemoSshSession {
         val body = JSONObject().put("action", "create").put("setup_id", setupId)
         val reply = jsonRequest(baseUrl, "script/appDemoSshSession.php", "POST", body)
