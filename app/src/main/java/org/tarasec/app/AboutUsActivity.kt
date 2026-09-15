@@ -2,6 +2,7 @@ package org.tarasec.app
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -86,15 +87,32 @@ private fun AboutUsScreen() {
             "Income from cybersecurity will help fund Taransvar's work on mental health.",
             style = MaterialTheme.typography.bodyLarge
         )
-        Text(
-            "You can explore an example AI chatbot built on our assumptions here:",
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { activity.startActivity(Intent(activity, MentalHealthChatActivity::class.java)) }
-        ) {
-            Text("Explore Mental Health AI Chat")
+        if (MentalHealthFlowiseClient.isConfigured) {
+            Text(
+                "You can explore an example AI chatbot built on our assumptions here:",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { activity.startActivity(Intent(activity, MentalHealthChatActivity::class.java)) }
+            ) {
+                Text("Explore Mental Health AI Chat")
+            }
+        } else {
+            Text(
+                "The example AI chat is not available in this build. Please use Taransvar's official mental-health app, or contact Taransvar for access.",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    activity.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://taransvar.no/contact.php"))
+                    )
+                }
+            ) {
+                Text("Contact Taransvar")
+            }
         }
     }
 }
