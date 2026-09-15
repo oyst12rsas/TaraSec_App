@@ -69,14 +69,30 @@ private fun AboutUsScreen() {
         }
         Text("About Us", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Taransvar is a Norwegian non-profit developing practical approaches to mental health and safer Internet services.",
+            "TaraSec is developed and owned by Taransvar, a Norwegian non-profit that explores mental health through neuroplasticity.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            "We see biological differences as potential talents as well as vulnerabilities. With appropriate support, constructive patterns can be strengthened through assisted training. In this view, focus and motivation are essential for change.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            "TaraSec is our collaborative approach to cybersecurity. It connects those who know whether traffic is malicious—the receiver—with those who know which technical unit sent it—the originating network—without exposing private identity data.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            "Income from cybersecurity will help fund Taransvar's work on mental health.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            "You can explore an example AI chatbot built on our assumptions here:",
             style = MaterialTheme.typography.bodyLarge
         )
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = { activity.startActivity(Intent(activity, MentalHealthChatActivity::class.java)) }
         ) {
-            Text("Mental Health Chat")
+            Text("Explore Mental Health AI Chat")
         }
     }
 }
