@@ -7,12 +7,23 @@ import java.net.URL
 data class MentalHealthReply(val text: String, val chatId: String?)
 
 object MentalHealthFlowiseClient {
+    val isConfigured: Boolean
+        get() {
+            val flowiseUrl = BuildConfig.MENTAL_HEALTH_FLOWISE_URL
+            val flowiseApiKey = BuildConfig.MENTAL_HEALTH_FLOWISE_API_KEY
+            return flowiseUrl.isNotBlank() &&
+                !flowiseUrl.contains("YOUR-FLOWISE-HOST") &&
+                !flowiseUrl.contains("YOUR-CHATFLOW-ID") &&
+                flowiseApiKey.isNotBlank() &&
+                flowiseApiKey != "DUMMY_REPLACE_ME"
+        }
+
     fun send(message: String, chatId: String?): MentalHealthReply {
         val flowiseUrl = BuildConfig.MENTAL_HEALTH_FLOWISE_URL
         val flowiseApiKey = BuildConfig.MENTAL_HEALTH_FLOWISE_API_KEY
 
-        require(!flowiseUrl.contains("YOUR-FLOWISE-HOST")) {
-            "Mental-health Flowise endpoint is not configured in TaraSec yet."
+        require(isConfigured) {
+            "Mental-health Flowise endpoint and API key are not configured in TaraSec yet."
         }
 
         val payload = JSONObject().apply {
