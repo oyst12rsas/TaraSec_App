@@ -26,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
 data class MentalHealthChatMessage(val fromUser: Boolean, val text: String)
@@ -100,7 +102,38 @@ private fun MentalHealthChatScreen() {
     var messages by remember {
         mutableStateOf(listOf(MentalHealthChatMessage(false, "Welcome. You can write what is on your mind, and we can talk about it here.")))
     }
+    val focusManager = LocalFocusManager.current
     val scroll = rememberScrollState()
+
+    fun sendMessage() {
+        if (sending || input.isBlank()) return
+
+        val text = input.trim()
+        input = ""
+        messages = messages + MentalHealthChatMessage(true, text)
+        sending = true
+        status = "Thinking…"
+        Thread {
+            try {
+                val reply = MentalHealthFlowiseClient.send(text, chatId)
+                activity.runOnUiThread {
+                    chatId = reply.chatId
+                    messages = messages + MentalHealthChatMessage(false, reply.text)
+                    sending = false
+                    status = "Ready"
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    messages = messages + MentalHealthChatMessage(
+                        false,
+                        "I couldn't reach the conversation service right now. ${e.message ?: "Please try again."}"
+                    )
+                    sending = false
+                    status = "Connection problem"
+                }
+            }
+        }.start()
+    }
 
     Column(
         Modifier.fillMaxSize().padding(20.dp).verticalScroll(scroll),
@@ -150,36 +183,20 @@ private fun MentalHealthChatScreen() {
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
             label = { Text("What's on your mind?") },
-            enabled = !sending
+            enabled = !sending,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(
+                onSend = {
+                    focusManager.clearFocus()
+                    sendMessage()
+                }
+            )
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 enabled = !sending && input.isNotBlank(),
-                onClick = {
-                    val text = input.trim()
-                    input = ""
-                    messages = messages + MentalHealthChatMessage(true, text)
-                    sending = true
-                    status = "Thinking…"
-                    Thread {
-                        try {
-                            val reply = MentalHealthFlowiseClient.send(text, chatId)
-                            activity.runOnUiThread {
-                                chatId = reply.chatId
-                                messages = messages + MentalHealthChatMessage(false, reply.text)
-                                sending = false
-                                status = "Ready"
-                            }
-                        } catch (e: Exception) {
-                            activity.runOnUiThread {
-                                messages = messages + MentalHealthChatMessage(false, "I couldn't reach the conversation service right now. ${e.message ?: "Please try again."}")
-                                sending = false
-                                status = "Connection problem"
-                            }
-                        }
-                    }.start()
-                }
+                onClick = ::sendMessage
             ) { Text(if (sending) "Sending…" else "Send") }
 
             Button(
