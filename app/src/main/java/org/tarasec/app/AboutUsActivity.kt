@@ -75,7 +75,7 @@ private fun AboutUsScreen() {
             style = MaterialTheme.typography.bodyLarge
         )
         Text(
-            "We see biological differences as potential talents. Mental health problems can be understood as destructive patterns shaped and reinforced through neuroplasticity. With appropriate support, constructive patterns can be strengthened through assisted training. In this view, focus and motivation are essential for change.",
+            "We see biological differences as potential talents. Mental health problems can be understood as destructive patterns shaped and reinforced through neuroplasticity. With appropriate support, constructive patterns can be strengthened through assisted training, while destructive patterns can become less problematic as they grow rusty and are obscured by stronger constructive patterns. In this view, focus and motivation are essential for change.",
             style = MaterialTheme.typography.bodyLarge
         )
         Text(
