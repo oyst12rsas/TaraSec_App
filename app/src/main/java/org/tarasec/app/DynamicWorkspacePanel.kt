@@ -101,6 +101,7 @@ fun DynamicWorkspacePanel() {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
                 latestReceipt?.let { ReceiptStatusPanel(it) }
+                GithubVerificationPanel()
                 OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { refreshKey++ }) {
                     Text("Refresh workspace")
                 }
