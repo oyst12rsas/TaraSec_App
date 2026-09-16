@@ -47,6 +47,7 @@ fun DynamicWorkspacePanel() {
     var manifest by remember { mutableStateOf<DynamicWorkspaceManifest?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var latestReceipt by remember { mutableStateOf(DynamicWorkspaceClient.latestReceipt(context)) }
     var refreshKey by remember { mutableIntStateOf(0) }
     val fieldValues = remember { mutableStateMapOf<String, String>() }
 
@@ -92,12 +93,14 @@ fun DynamicWorkspacePanel() {
                         element = element,
                         fieldValues = fieldValues,
                         onNotice = { notice = it },
-                        onRefresh = { refreshKey++ }
+                        onRefresh = { refreshKey++ },
+                        onReceipt = { latestReceipt = it }
                     )
                 }
                 notice?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
+                latestReceipt?.let { ReceiptStatusPanel(it) }
                 OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { refreshKey++ }) {
                     Text("Refresh workspace")
                 }
@@ -111,7 +114,8 @@ private fun WorkspaceElement(
     element: JSONObject,
     fieldValues: MutableMap<String, String>,
     onNotice: (String) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onReceipt: (String) -> Unit
 ) {
     when (element.optString("type")) {
         "heading" -> Text(element.optString("text"), style = MaterialTheme.typography.titleLarge)
@@ -122,7 +126,7 @@ private fun WorkspaceElement(
             subtitle = element.optString("subtitle").takeIf { it.isNotBlank() }
         ) {
             element.optJSONArray("elements")?.forEachObject {
-                WorkspaceElement(it, fieldValues, onNotice, onRefresh)
+                WorkspaceElement(it, fieldValues, onNotice, onRefresh, onReceipt)
             }
         }
         "status" -> TaraStatusRow(
@@ -132,7 +136,7 @@ private fun WorkspaceElement(
         "list" -> WorkspaceList(element)
         "text_input" -> WorkspaceTextInput(element, fieldValues)
         "select" -> WorkspaceSelect(element, fieldValues)
-        "button" -> WorkspaceButton(element, fieldValues, onNotice, onRefresh)
+        "button" -> WorkspaceButton(element, fieldValues, onNotice, onRefresh, onReceipt)
         "qr_code" -> WorkspaceQrCode(element)
         "chat" -> WorkspaceChat(element)
         "divider" -> HorizontalDivider()
@@ -238,7 +242,8 @@ private fun WorkspaceButton(
     element: JSONObject,
     fieldValues: MutableMap<String, String>,
     onNotice: (String) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onReceipt: (String) -> Unit
 ) {
     val context = LocalContext.current
     val enabled = element.optBoolean("enabled", true)
@@ -273,6 +278,10 @@ private fun WorkspaceButton(
                             )
                         }.onSuccess { result ->
                             (context as? android.app.Activity)?.runOnUiThread {
+                                result.receipt?.let {
+                                    DynamicWorkspaceClient.rememberReceipt(context, it)
+                                    onReceipt(it)
+                                }
                                 val receipt = result.receipt?.let { " Receipt: $it" }.orEmpty()
                                 onNotice(result.message + receipt)
                                 busy = false
@@ -291,6 +300,64 @@ private fun WorkspaceButton(
         }
     ) {
         Text(if (busy) "Submitting…" else element.optString("label", "Continue"))
+    }
+}
+
+@Composable
+private fun ReceiptStatusPanel(receipt: String) {
+    val context = LocalContext.current
+    var result by remember(receipt) { mutableStateOf<WorkspaceReceiptStatus?>(null) }
+    var error by remember(receipt) { mutableStateOf<String?>(null) }
+    var busy by remember(receipt) { mutableStateOf(false) }
+    var requestKey by remember(receipt) { mutableIntStateOf(0) }
+
+    LaunchedEffect(receipt, requestKey) {
+        busy = true
+        error = null
+        Thread {
+            runCatching { DynamicWorkspaceClient.getReceiptStatus(receipt) }
+                .onSuccess { loaded ->
+                    (context as? android.app.Activity)?.runOnUiThread {
+                        result = loaded
+                        busy = false
+                    }
+                }
+                .onFailure { failure ->
+                    (context as? android.app.Activity)?.runOnUiThread {
+                        error = failure.message ?: "Receipt status unavailable"
+                        busy = false
+                    }
+                }
+        }.start()
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Latest contribution receipt", style = MaterialTheme.typography.titleMedium)
+            Text(receipt, style = MaterialTheme.typography.bodySmall)
+            result?.let { status ->
+                Text("Status: " + status.status.replace('_', ' '), fontWeight = FontWeight.Bold)
+                Text(status.message)
+                status.reviewerMessage?.let { Text("Reviewer: $it") }
+                status.updatedAt?.let { Text("Updated: $it", style = MaterialTheme.typography.bodySmall) }
+                if (!status.meritAwarded) {
+                    Text("No merit has been awarded.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy,
+                onClick = { requestKey++ }
+            ) {
+                Text(if (busy) "Checking…" else "Check receipt status")
+            }
+        }
     }
 }
 

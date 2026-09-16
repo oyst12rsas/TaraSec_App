@@ -22,10 +22,21 @@ data class WorkspaceActionResult(
     val refresh: Boolean
 )
 
+data class WorkspaceReceiptStatus(
+    val receipt: String,
+    val status: String,
+    val message: String,
+    val reviewerMessage: String?,
+    val receivedAt: String?,
+    val updatedAt: String?,
+    val meritAwarded: Boolean
+)
+
 object DynamicWorkspaceClient {
     private const val WORKSPACE_URL = "https://tarasec.org/api/v1/app/workspace.php"
     private const val PREFS = "tarasec_dynamic_workspace"
     private const val CACHE_KEY = "last_valid_manifest"
+    private const val RECEIPT_KEY = "latest_contribution_receipt"
     private const val MAX_BYTES = 256 * 1024
     private const val MAX_ELEMENTS = 150
 
@@ -37,6 +48,7 @@ object DynamicWorkspaceClient {
     private val allowedHosts = setOf("tarasec.org", "www.tarasec.org", "github.com")
     private val allowedChatEndpoints = setOf("/api/v1/id-chat/chat.php")
     private val allowedSubmitEndpoints = setOf("/api/v1/app/action.php")
+    private const val RECEIPT_STATUS_ENDPOINT = "/api/v1/app/status.php"
 
     fun load(context: Context): DynamicWorkspaceManifest {
         return try {
@@ -138,6 +150,53 @@ object DynamicWorkspaceClient {
                 message = json.optString("message", "Submission received"),
                 receipt = json.optString("receipt").takeIf { it.isNotBlank() },
                 refresh = json.optBoolean("refresh", false)
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun rememberReceipt(context: Context, receipt: String) {
+        require(receipt.matches(Regex("^[a-f0-9]{24}$"))) { "Invalid receipt" }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(RECEIPT_KEY, receipt).apply()
+    }
+
+    fun latestReceipt(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(RECEIPT_KEY, null)
+            ?.takeIf { it.matches(Regex("^[a-f0-9]{24}$")) }
+
+    fun getReceiptStatus(receipt: String): WorkspaceReceiptStatus {
+        require(receipt.matches(Regex("^[a-f0-9]{24}$"))) { "Invalid receipt" }
+        val encoded = java.net.URLEncoder.encode(receipt, Charsets.UTF_8.name())
+        val connection = URL("https://tarasec.org$RECEIPT_STATUS_ENDPOINT?receipt=$encoded")
+            .openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 8000
+            connection.readTimeout = 15_000
+            connection.useCaches = false
+            connection.setRequestProperty("Accept", "application/json")
+            val code = connection.responseCode
+            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val json = runCatching { JSONObject(body) }.getOrElse {
+                throw IllegalStateException("Receipt status returned HTTP $code")
+            }
+            if (code !in 200..299 || !json.optBoolean("ok", false)) {
+                throw IllegalStateException(
+                    json.optString("reason", "Receipt status returned HTTP $code").replace('_', ' ')
+                )
+            }
+            WorkspaceReceiptStatus(
+                receipt = json.getString("receipt"),
+                status = json.getString("status"),
+                message = json.optString("message", "Status received"),
+                reviewerMessage = json.optString("reviewer_message").takeIf { it.isNotBlank() },
+                receivedAt = json.optString("received_at").takeIf { it.isNotBlank() },
+                updatedAt = json.optString("updated_at").takeIf { it.isNotBlank() },
+                meritAwarded = json.optBoolean("merit_awarded", false)
             )
         } finally {
             connection.disconnect()
