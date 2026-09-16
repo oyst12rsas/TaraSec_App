@@ -90,6 +90,29 @@ private fun ContributeScreen() {
         }
 
         TaraSectionCard(
+            title = "Build your contributor profile",
+            subtitle = "Show relevant evidence and suggest what else should count."
+        ) {
+            Text("A contributor may link verified identities and professional profiles such as GitHub, LinkedIn, Facebook, Upwork, ORCID or an institutional affiliation.")
+            Text("Operating a TaraSec hotspot, node, gateway or participating server can provide stronger operational evidence: verified deployment, healthy operation, tests and useful incident participation.")
+            Text("Code, research, proposals, reviews, documentation, teaching, translation and other demonstrated work can build separate areas of merit.")
+            Text("Contributors should be able to suggest another evidence type, explain why it is relevant, provide proof and choose whether it is public, limited or private.")
+            Button(
+                onClick = { open("https://tarasec.org/governance/#contributor-profile") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("See profile evidence and safeguards")
+            }
+            Button(
+                onClick = { open("https://github.com/oyst12rsas/taransvar/issues/132") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Suggest profile evidence")
+            }
+            Text("A verified account proves control of that account, not expertise. Donations, popularity and message volume must not purchase authority.", style = MaterialTheme.typography.bodySmall)
+        }
+
+        TaraSectionCard(
             title = "Contributor community",
             subtitle = "Discuss changes with other contributors before they become formal proposals."
         ) {
