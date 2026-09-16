@@ -36,7 +36,7 @@ class SecureLauncherActivity : FragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    startActivity(Intent(this@SecureLauncherActivity, SubscriberHomeActivity::class.java))
+                    startActivity(Intent(this@SecureLauncherActivity, ChallengeGateActivity::class.java))
                     finish()
                 }
 
