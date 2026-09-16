@@ -16,6 +16,12 @@ data class DynamicWorkspaceManifest(
 
 data class WorkspaceChatMessage(val role: String, val text: String)
 
+data class WorkspaceActionResult(
+    val message: String,
+    val receipt: String?,
+    val refresh: Boolean
+)
+
 object DynamicWorkspaceClient {
     private const val WORKSPACE_URL = "https://tarasec.org/api/v1/app/workspace.php"
     private const val PREFS = "tarasec_dynamic_workspace"
@@ -27,9 +33,10 @@ object DynamicWorkspaceClient {
         "heading", "text", "ai_text", "card", "status", "list",
         "text_input", "select", "button", "qr_code", "chat", "divider"
     )
-    private val allowedActionTypes = setOf("none", "open_url", "show_message", "refresh")
+    private val allowedActionTypes = setOf("none", "open_url", "show_message", "refresh", "submit")
     private val allowedHosts = setOf("tarasec.org", "www.tarasec.org", "github.com")
     private val allowedChatEndpoints = setOf("/api/v1/id-chat/chat.php")
+    private val allowedSubmitEndpoints = setOf("/api/v1/app/action.php")
 
     fun load(context: Context): DynamicWorkspaceManifest {
         return try {
@@ -80,6 +87,58 @@ object DynamicWorkspaceClient {
             json.optString("reply").trim().ifBlank {
                 throw IllegalStateException("TaraSec AI returned an empty reply")
             }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun submitAction(
+        endpoint: String,
+        actionId: String,
+        fields: Map<String, String>
+    ): WorkspaceActionResult {
+        require(endpoint in allowedSubmitEndpoints) { "Submission endpoint is not approved" }
+        require(actionId.matches(Regex("^[a-z0-9_]{1,64}$"))) { "Invalid workspace action" }
+        require(fields.size <= 20) { "Too many submission fields" }
+        val safeFields = JSONObject()
+        fields.forEach { (id, value) ->
+            require(id.matches(Regex("^[A-Za-z0-9_-]{1,64}$"))) { "Invalid field ID" }
+            safeFields.put(id, value.take(4000))
+        }
+        val payload = JSONObject()
+            .put("schema_version", 1)
+            .put("action_id", actionId)
+            .put("fields", safeFields)
+            .toString()
+        require(payload.toByteArray(Charsets.UTF_8).size <= 16 * 1024) {
+            "Submission is too large"
+        }
+        val connection = URL("https://tarasec.org$endpoint").openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 8000
+            connection.readTimeout = 15_000
+            connection.useCaches = false
+            connection.doOutput = true
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val json = runCatching { JSONObject(body) }.getOrElse {
+                throw IllegalStateException("TaraSec returned HTTP $code")
+            }
+            if (code !in 200..299 || !json.optBoolean("ok", false)) {
+                throw IllegalStateException(
+                    json.optString("reason", "TaraSec returned HTTP $code").replace('_', ' ')
+                )
+            }
+            WorkspaceActionResult(
+                message = json.optString("message", "Submission received"),
+                receipt = json.optString("receipt").takeIf { it.isNotBlank() },
+                refresh = json.optBoolean("refresh", false)
+            )
         } finally {
             connection.disconnect()
         }
@@ -140,6 +199,22 @@ object DynamicWorkspaceClient {
                     if (actionType == "open_url") {
                         require(approvedExternalUrl(action.optString("url")) is UriResult.Valid) {
                             "Workspace contains an unapproved link"
+                        }
+                    }
+                    if (actionType == "submit") {
+                        require(action.optString("endpoint") in allowedSubmitEndpoints) {
+                            "Workspace contains an unapproved submission endpoint"
+                        }
+                        require(action.optString("action_id").matches(Regex("^[a-z0-9_]{1,64}$"))) {
+                            "Workspace contains an invalid action ID"
+                        }
+                        val fields = action.optJSONArray("fields")
+                            ?: throw IllegalArgumentException("Workspace submission fields are missing")
+                        require(fields.length() <= 20) { "Workspace submission has too many fields" }
+                        for (fieldIndex in 0 until fields.length()) {
+                            require(fields.optString(fieldIndex).matches(Regex("^[A-Za-z0-9_-]{1,64}$"))) {
+                                "Workspace submission contains an invalid field ID"
+                            }
                         }
                     }
                 }
