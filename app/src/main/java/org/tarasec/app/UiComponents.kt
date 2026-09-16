@@ -78,6 +78,7 @@ enum class TaraMenuDestination {
     STATUS_UNITS,
     SECURITY_DEMO,
     AI_ASSISTANCE,
+    CONTRIBUTE,
     RESEARCH,
     SETUP_HOTSPOTS
 }
@@ -90,6 +91,7 @@ private val taraMenuItems = listOf(
     TaraMenuDestination.STATUS_UNITS to "Status / Units",
     TaraMenuDestination.SECURITY_DEMO to "Security Demo",
     TaraMenuDestination.AI_ASSISTANCE to "AI / Assistance",
+    TaraMenuDestination.CONTRIBUTE to "Contribute / TaraSec AI",
     TaraMenuDestination.RESEARCH to "Research",
     TaraMenuDestination.SETUP_HOTSPOTS to "Setup / My hotspots"
 )
@@ -111,7 +113,11 @@ fun TaraHamburgerMenu(onSelect: (TaraMenuDestination) -> Unit) {
                     text = { Text(label) },
                     onClick = {
                         expanded = false
-                        onSelect(destination)
+                        if (destination == TaraMenuDestination.CONTRIBUTE) {
+                            context.startActivity(Intent(context, ContributeActivity::class.java))
+                        } else {
+                            onSelect(destination)
+                        }
                     }
                 )
             }
