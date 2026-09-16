@@ -17,6 +17,7 @@ private const val SUBSCRIBER_TOKEN_KEY = "global-subscriber-token"
 
 data class SubscriberUsage(
     val sessionId: Long,
+    val gatewayKey: String,
     val hotspot: String,
     val countryCode: String?,
     val priceLabel: String?,
@@ -104,6 +105,7 @@ object SubscriberAccountClient {
                     add(
                         SubscriberUsage(
                             sessionId = s.optLong("session_id"),
+                            gatewayKey = s.optString("gateway_key", ""),
                             hotspot = s.optString("hotspot", "TaraSec hotspot"),
                             countryCode = s.optString("country_code").takeIf { it.isNotBlank() && it != "null" },
                             priceLabel = s.optString("price_label").takeIf { it.isNotBlank() && it != "null" },
