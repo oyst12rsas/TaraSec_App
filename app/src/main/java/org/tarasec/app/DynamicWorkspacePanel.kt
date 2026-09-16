@@ -132,7 +132,7 @@ private fun WorkspaceElement(
         "list" -> WorkspaceList(element)
         "text_input" -> WorkspaceTextInput(element, fieldValues)
         "select" -> WorkspaceSelect(element, fieldValues)
-        "button" -> WorkspaceButton(element, onNotice, onRefresh)
+        "button" -> WorkspaceButton(element, fieldValues, onNotice, onRefresh)
         "qr_code" -> WorkspaceQrCode(element)
         "chat" -> WorkspaceChat(element)
         "divider" -> HorizontalDivider()
@@ -236,14 +236,16 @@ private fun WorkspaceSelect(element: JSONObject, fieldValues: MutableMap<String,
 @Composable
 private fun WorkspaceButton(
     element: JSONObject,
+    fieldValues: MutableMap<String, String>,
     onNotice: (String) -> Unit,
     onRefresh: () -> Unit
 ) {
     val context = LocalContext.current
     val enabled = element.optBoolean("enabled", true)
+    var busy by remember(element.optString("id")) { mutableStateOf(false) }
     Button(
         modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
+        enabled = enabled && !busy,
         onClick = {
             val action = element.optJSONObject("action") ?: JSONObject()
             when (action.optString("type", "none")) {
@@ -253,11 +255,42 @@ private fun WorkspaceButton(
                 }
                 "show_message" -> onNotice(action.optString("message", "This action is not available yet."))
                 "refresh" -> onRefresh()
+                "submit" -> {
+                    val fieldIds = action.optJSONArray("fields") ?: JSONArray()
+                    val submitted = buildMap {
+                        for (index in 0 until fieldIds.length()) {
+                            val id = fieldIds.optString(index)
+                            if (id.isNotBlank()) put(id, fieldValues[id].orEmpty())
+                        }
+                    }
+                    busy = true
+                    Thread {
+                        runCatching {
+                            DynamicWorkspaceClient.submitAction(
+                                endpoint = action.optString("endpoint"),
+                                actionId = action.optString("action_id"),
+                                fields = submitted
+                            )
+                        }.onSuccess { result ->
+                            (context as? android.app.Activity)?.runOnUiThread {
+                                val receipt = result.receipt?.let { " Receipt: $it" }.orEmpty()
+                                onNotice(result.message + receipt)
+                                busy = false
+                                if (result.refresh) onRefresh()
+                            }
+                        }.onFailure { failure ->
+                            (context as? android.app.Activity)?.runOnUiThread {
+                                onNotice(failure.message ?: "Submission failed")
+                                busy = false
+                            }
+                        }
+                    }.start()
+                }
                 else -> onNotice("This action is not available yet.")
             }
         }
     ) {
-        Text(element.optString("label", "Continue"))
+        Text(if (busy) "Submitting…" else element.optString("label", "Continue"))
     }
 }
 
