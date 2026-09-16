@@ -83,6 +83,27 @@ private fun ContributeScreen() {
         }
 
         TaraSectionCard(
+            title = "Contributor community",
+            subtitle = "Discuss changes with other contributors before they become formal proposals."
+        ) {
+            Text("Use the public contributor forum to raise ideas, challenge assumptions, review proposals and help define risks, tests and implementation criteria.")
+            Text("TaraSec AI may help summarize a discussion and prepare an editable proposal, but discussion is not a vote and cannot authorize code changes or deployment.")
+            Button(
+                onClick = { open("https://github.com/oyst12rsas/taransvar/discussions") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Open contributor discussions")
+            }
+            Button(
+                onClick = { open("https://github.com/oyst12rsas/taransvar/issues/132") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Discuss contribution design")
+            }
+            Text("GitHub Discussions is the current public community space. It will be replaced or integrated with the shared Google-linked TaraSec contributor identity and merit backend without creating a separate app-only history.", style = MaterialTheme.typography.bodySmall)
+        }
+
+        TaraSectionCard(
             title = "Chat with TaraSec AI",
             subtitle = "Turn questions and observations into useful contributions."
         ) {
@@ -107,7 +128,7 @@ private fun ContributeScreen() {
             title = "Implementation status",
             subtitle = "This screen establishes the app workflow before the shared backend is complete."
         ) {
-            Text("Next backend milestone: Google-linked contributor identity, verified infrastructure ownership/operation, contribution events, proposals, AI chat sessions, proposal conversion and notifications.")
+            Text("Next backend milestone: Google-linked contributor identity, shared community discussions and proposal threads, verified infrastructure ownership/operation, contribution events, AI chat sessions, proposal conversion, moderation and notifications.")
             Text("The app and TaraSec.org must use the same contribution and governance records.", style = MaterialTheme.typography.bodySmall)
         }
     }
