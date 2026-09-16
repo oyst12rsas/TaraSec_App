@@ -79,7 +79,14 @@ private fun ContributeScreen() {
         ) {
             Text("Deploying and responsibly operating TaraSec hotspots, nodes, gateways and participating servers counts as contribution.")
             Text("Code, proposals, testing, documentation, useful reviews and security findings can also build domain-specific merit.")
-            Text("The shared governance backend will show verified contribution history here once available. Healthy operation and usefulness matter more than raw device count.", style = MaterialTheme.typography.bodySmall)
+            Text("GitHub discussion activity is not credited automatically yet. The planned account link will attach a verified GitHub identity to the contributor's Google-linked TaraSec account and retain evidence for each awarded merit event.", style = MaterialTheme.typography.bodySmall)
+            Button(
+                onClick = { open("https://tarasec.org/governance/#github-merit") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("How GitHub contributions earn merit")
+            }
+            Text("Healthy operation and usefulness matter more than raw device or message count.", style = MaterialTheme.typography.bodySmall)
         }
 
         TaraSectionCard(
