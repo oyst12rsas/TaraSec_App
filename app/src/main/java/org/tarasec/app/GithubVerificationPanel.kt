@@ -127,6 +127,7 @@ fun GithubVerificationPanel() {
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
                     onClick = {
+                        GithubVerificationClient.clearSavedChallenge(context)
                         challenge = null
                         result = null
                     }
