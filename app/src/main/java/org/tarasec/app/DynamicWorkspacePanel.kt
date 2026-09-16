@@ -305,6 +305,7 @@ private fun WorkspaceButton(
 
 @Composable
 private fun ReceiptStatusPanel(receipt: String) {
+    val context = LocalContext.current
     var result by remember(receipt) { mutableStateOf<WorkspaceReceiptStatus?>(null) }
     var error by remember(receipt) { mutableStateOf<String?>(null) }
     var busy by remember(receipt) { mutableStateOf(false) }
@@ -316,12 +317,16 @@ private fun ReceiptStatusPanel(receipt: String) {
         Thread {
             runCatching { DynamicWorkspaceClient.getReceiptStatus(receipt) }
                 .onSuccess { loaded ->
-                    result = loaded
-                    busy = false
+                    (context as? android.app.Activity)?.runOnUiThread {
+                        result = loaded
+                        busy = false
+                    }
                 }
                 .onFailure { failure ->
-                    error = failure.message ?: "Receipt status unavailable"
-                    busy = false
+                    (context as? android.app.Activity)?.runOnUiThread {
+                        error = failure.message ?: "Receipt status unavailable"
+                        busy = false
+                    }
                 }
         }.start()
     }
