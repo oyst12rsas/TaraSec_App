@@ -73,6 +73,8 @@ private fun ContributeScreen() {
             style = MaterialTheme.typography.titleMedium
         )
 
+        DynamicWorkspacePanel()
+
         TaraSectionCard(
             title = "Your contribution",
             subtitle = "Merit is earned from useful, verifiable participation — not titles or donations."
