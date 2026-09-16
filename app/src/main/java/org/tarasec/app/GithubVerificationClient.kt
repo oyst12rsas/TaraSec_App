@@ -38,6 +38,10 @@ object GithubVerificationClient {
         return GithubVerificationChallenge(challengeId, token, marker, issueUrl, expiresAt)
     }
 
+    fun clearSavedChallenge(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
     fun start(context: Context): GithubVerificationChallenge {
         val json = post(JSONObject().put("action", "start"))
         val challenge = GithubVerificationChallenge(
