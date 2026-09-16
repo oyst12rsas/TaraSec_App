@@ -51,8 +51,8 @@ android {
         applicationId = "org.tarasec.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "0.3.7"
+        versionCode = 11
+        versionName = "0.3.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "MENTAL_HEALTH_FLOWISE_URL", quotedBuildConfig(mentalHealthFlowiseUrl))
@@ -104,6 +104,6 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.ui:ui-tooling-preview")\n    implementation("com.google.zxing:core:3.5.3")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
