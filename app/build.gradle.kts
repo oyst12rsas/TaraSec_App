@@ -12,37 +12,6 @@ val keystoreProperties = Properties().apply {
     }
 }
 
-val localProperties = Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
-}
-
-fun quotedBuildConfig(value: String): String =
-    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-
-fun mentalHealthConfigFromSibling(name: String): String? {
-    val candidates = listOf(
-        rootProject.file("../mental_health-_app/app/build.gradle.kts"),
-        rootProject.file("../mental_health_app/app/build.gradle.kts")
-    )
-    val pattern = Regex(
-        """buildConfigField\(\s*\"String\"\s*,\s*\"${Regex.escape(name)}\"\s*,\s*\"\\\\\"(.*?)\\\\\"\"\s*\)"""
-    )
-    return candidates.firstNotNullOfOrNull { file ->
-        if (!file.exists()) null else pattern.find(file.readText())?.groupValues?.getOrNull(1)
-    }
-}
-
-val mentalHealthFlowiseUrl =
-    localProperties.getProperty("MENTAL_HEALTH_FLOWISE_URL")
-        ?: mentalHealthConfigFromSibling("FLOWISE_URL")
-        ?: "https://YOUR-FLOWISE-HOST/api/v1/prediction/YOUR-CHATFLOW-ID"
-
-val mentalHealthFlowiseApiKey =
-    localProperties.getProperty("MENTAL_HEALTH_FLOWISE_API_KEY")
-        ?: mentalHealthConfigFromSibling("FLOWISE_API_KEY")
-        ?: "DUMMY_REPLACE_ME"
-
 android {
     namespace = "org.tarasec.app"
     compileSdk = 37
@@ -51,12 +20,10 @@ android {
         applicationId = "org.tarasec.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.3.9"
+        versionCode = 13
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "MENTAL_HEALTH_FLOWISE_URL", quotedBuildConfig(mentalHealthFlowiseUrl))
-        buildConfigField("String", "MENTAL_HEALTH_FLOWISE_API_KEY", quotedBuildConfig(mentalHealthFlowiseApiKey))
     }
 
     signingConfigs {
