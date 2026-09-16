@@ -412,6 +412,7 @@ private fun SubscriberHome(
                     TaraMenuDestination.AI_ASSISTANCE,
                     TaraMenuDestination.RESEARCH,
                     TaraMenuDestination.SETUP_HOTSPOTS -> openConsole(destination)
+                    TaraMenuDestination.CONTRIBUTE -> Unit
                 }
             }
         }
