@@ -6,7 +6,20 @@ local.properties
 *.iml
 .DS_Store
 
-# Local Play upload-signing credentials
+# Local Play/upload signing credentials
 keystore.properties
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.p8
+*.pem
+*.key
+
+# Local environment/credential files
+.env
+.env.*
+!.env.example
+*credentials*.json
+*secret*.json
+*.private-backup.*
