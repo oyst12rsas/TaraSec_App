@@ -95,13 +95,13 @@ private fun ContributeScreen() {
         ) {
             Text("A contributor may link verified identities and professional profiles such as GitHub, LinkedIn, Facebook, Upwork, ORCID or an institutional affiliation.")
             Text("Operating a TaraSec hotspot, node, gateway or participating server can provide stronger operational evidence: verified deployment, healthy operation, tests and useful incident participation.")
-            Text("Code, research, proposals, reviews, documentation, teaching, translation and other demonstrated work can build separate areas of merit.")
+            Text("Code, research, proposals, reviews, documentation, teaching, translation and other demonstrated work can build separate areas of merit. Specific recommendations from people with relevant verified merit can also count strongly when supported by direct experience and evidence.")
             Text("Contributors should be able to suggest another evidence type, explain why it is relevant, provide proof and choose whether it is public, limited or private.")
             Button(
-                onClick = { open("https://tarasec.org/governance/#contributor-profile") },
+                onClick = { open("https://tarasec.org/id/") },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("See profile evidence and safeguards")
+                Text("Explore TaraSec ID")
             }
             Button(
                 onClick = { open("https://github.com/oyst12rsas/taransvar/issues/132") },
@@ -109,6 +109,7 @@ private fun ContributeScreen() {
             ) {
                 Text("Suggest profile evidence")
             }
+            Text("Current status: secure personal credential storage is not live. Public profile links and information you already intentionally publish are reasonable starting points; do not submit private documents, access tokens or sensitive evidence yet.", style = MaterialTheme.typography.bodySmall)
             Text("A verified account proves control of that account, not expertise. Donations, popularity and message volume must not purchase authority.", style = MaterialTheme.typography.bodySmall)
         }
 
