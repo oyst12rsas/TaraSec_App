@@ -549,13 +549,17 @@ fun DemoAssistancePanel(baseUrl: String) {
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
                     val mine = if (p.id == participantId) " · you" else ""
-                    val infected = p.severity > 0
-                    val expected = p.severity > current.threshold
+                    val infected = p.severity?.let { it > 0 }
+                    val expected = p.severity?.let { it > current.threshold } == true
                     val lastContactAge = p.secondsSinceSeen?.plus(participantAgeTick)
                     val lastContact = lastContactAge?.let {
                         "$it second" + if (it == 1) " ago" else "s ago"
                     }
-                    val infectionState = if (infected) "🔴 INFECTED" else "🟢 CLEAN"
+                    val infectionState = when (infected) {
+                        true -> "🔴 INFECTED"
+                        false -> "🟢 CLEAN"
+                        null -> "⚪ NOT SELECTED"
+                    }
                     val connectionState = when {
                         p.decision == "pending" || lastContact == null ->
                             "WAITING · no poll received yet"
