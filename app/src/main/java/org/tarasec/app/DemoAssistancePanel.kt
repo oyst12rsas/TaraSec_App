@@ -40,6 +40,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     var available by remember { mutableStateOf<List<DemoAssistanceSession>>(emptyList()) }
     var session by remember { mutableStateOf<DemoAssistanceSession?>(null) }
     var participantToken by remember { mutableStateOf("") }
+    var controllerToken by remember { mutableStateOf("") }
     var participantId by remember { mutableStateOf(0) }
     var nickname by remember { mutableStateOf("") }
     var newDemoName by remember { mutableStateOf("") }
@@ -267,6 +268,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 }
                             }.onSuccess {
                                 session = it.session
+                                controllerToken = it.controllerToken
                                 message = "${it.session.name} started. Others can now find and join demo #${it.session.id}."
                             }.onFailure { message = "Could not start Demo 3: ${it.message}" }
                             busy = false
@@ -279,8 +281,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             val containmentExpected = participantToken.isNotBlank() &&
                 ownParticipant?.severity?.let { it > current.threshold } == true &&
                 current.state == "active"
-            val demoFinished = current.state == "closed" ||
-                (requestSentLocally && displayedReleaseSeconds <= 0)
+            val demoFinished = current.state == "closed"
 
             LaunchedEffect(
                 current.id,
@@ -307,7 +308,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             "This unit is marked INFECTED. At zero, " +
                                 "TaraSec will intentionally block this device's communication " +
                                 "with the protected server. Status updates will appear frozen " +
-                                "until the automatic release restores communication."
+                                "until the controller requests release and communication returns."
                         )
                     },
                     confirmButton = {
@@ -327,7 +328,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         if (current.secondsRemaining > 15) {
                             "When the countdown reaches zero, communication with TaraSec's " +
                                 "protected server will pause. The app may appear frozen until " +
-                                "automatic release."
+                                "the controller explicitly requests release."
                         } else {
                             "Warning: communication will pause in ${current.secondsRemaining} " +
                                 "seconds. No status updates are expected during containment."
@@ -359,12 +360,44 @@ fun DemoAssistancePanel(baseUrl: String) {
                         "in ${displayedRequestSeconds}s"
                     }
                 )
-                if (requestSentLocally || current.state == "contained" || current.state == "releasing") {
+                if (current.state == "contained") {
                     TaraStatusRow(
-                        "Releasing in",
-                        "${displayedReleaseSeconds.coerceAtLeast(0)} seconds"
+                        "Observation",
+                        if (displayedReleaseSeconds > 0) {
+                            "${displayedReleaseSeconds.coerceAtLeast(0)} seconds before suggested release"
+                        } else {
+                            "Timer complete · waiting for explicit release"
+                        }
+                    )
+                } else if (current.state == "releasing") {
+                    TaraStatusRow(
+                        "Release",
+                        "Requested · waiting for observed contact to return"
                     )
                 }
+            }
+
+            if (!demoFinished && current.state == "contained" && controllerToken.isNotBlank()) {
+                OutlinedButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    DemoAssistanceClient.release(baseUrl, current.id, controllerToken)
+                                }
+                            }.onSuccess {
+                                session = it
+                                message = "Release requested. Demo 3 will remain observable until contact recovery is recorded."
+                            }.onFailure {
+                                message = "Could not release assistance: ${it.message}"
+                            }
+                            busy = false
+                        }
+                    }
+                ) { Text("Release assistance and observe recovery") }
             }
 
             if (!demoFinished && participantToken.isBlank() && current.state == "active") {
@@ -548,6 +581,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         session = current,
                         participantId = participantId,
                         participantTokenPresent = participantToken.isNotBlank(),
+                        controllerTokenPresent = controllerToken.isNotBlank(),
                         participantAgeTick = participantAgeTick,
                         displayedRequestSeconds = displayedRequestSeconds,
                         displayedReleaseSeconds = displayedReleaseSeconds,
@@ -572,6 +606,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 session = null
                 participantToken = ""
+                controllerToken = ""
                 participantId = 0
                 containmentAlertVisible = false
                 containmentWarnedSessionId = null
@@ -590,6 +625,7 @@ private fun buildDemoAssistanceDebugReport(
     session: DemoAssistanceSession,
     participantId: Int,
     participantTokenPresent: Boolean,
+    controllerTokenPresent: Boolean,
     participantAgeTick: Int,
     displayedRequestSeconds: Int,
     displayedReleaseSeconds: Int,
@@ -616,6 +652,7 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("[polling]")
     appendLine("participant_id=" + participantId)
     appendLine("participant_token_present=" + participantTokenPresent)
+    appendLine("controller_token_present=" + controllerTokenPresent)
     appendLine("attempts=" + heartbeatAttempts)
     appendLine("successes=" + heartbeatSuccesses)
     appendLine("failures=" + heartbeatFailures)
