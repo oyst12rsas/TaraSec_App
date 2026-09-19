@@ -111,10 +111,25 @@ object DemoClient {
                             }
                         }
                     }
+                    val selectedDemo1 = json.optJSONObject("selection")
+                        ?.optJSONObject("demo1")
+                        ?.let {
+                            val ip = it.optString("address", "").trim()
+                            if (ip.isBlank()) null else DemoTarget(
+                                it.optString("name", "").trim().ifBlank {
+                                    presets.firstOrNull { preset -> preset.ip == ip }?.name ?: ip
+                                },
+                                ip
+                            )
+                        }
+                    val presentedNodes = buildList {
+                        if (selectedDemo1 != null) add(selectedDemo1)
+                        nodes.forEach { node -> if (none { it.ip == node.ip }) add(node) }
+                    }
                     DemoGatewayConfiguration(
                         reachable = true,
                         gatewayName = json.optString("gateway", "").trim(),
-                        nodes = nodes,
+                        nodes = presentedNodes,
                         configured = json.optBoolean("configured", false)
                     )
                 }
