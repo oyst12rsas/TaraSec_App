@@ -9,7 +9,11 @@ data class Demo4Route(
     val destinationIp: String,
     val netmask: String,
     val taggedTrafficRoute: String,
-    val updatedAt: String?
+    val updatedAt: String?,
+    val selected: Boolean,
+    val applyState: String,
+    val applyMessage: String,
+    val reportedAt: String?
 )
 
 data class Demo4RouteStatus(
@@ -52,7 +56,11 @@ object DemoRoutingClient {
                         destinationIp = route.optString("destinationIp"),
                         netmask = route.optString("netmask"),
                         taggedTrafficRoute = route.optString("taggedTrafficRoute"),
-                        updatedAt = route.optString("updatedAt").takeIf { it.isNotBlank() && it != "null" }
+                        updatedAt = route.optString("updatedAt").takeIf { it.isNotBlank() && it != "null" },
+                        selected = route.optBoolean("selected", false),
+                        applyState = route.optString("applyState", "configured"),
+                        applyMessage = route.optString("applyMessage", ""),
+                        reportedAt = route.optString("reportedAt").takeIf { it.isNotBlank() && it != "null" }
                     )
                 }
             }
