@@ -39,6 +39,8 @@ fun DemoAssistancePanel(baseUrl: String) {
     var participantId by remember { mutableStateOf(0) }
     var nickname by remember { mutableStateOf("") }
     var newDemoName by remember { mutableStateOf("") }
+    var groupLabel by remember { mutableStateOf("") }
+    var groupCode by remember { mutableStateOf("") }
     var delaySeconds by remember { mutableStateOf(120) }
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
@@ -51,7 +53,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     var participantAgeTick by remember { mutableStateOf(0) }
 
     suspend fun refreshAvailable() {
-        runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl) } }
+        runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl, groupCode) } }
             .onSuccess {
                 available = it
                 message = if (it.isEmpty()) "No joinable Demo 3 sessions. You can start one." else "${it.size} joinable Demo 3 session(s)."
@@ -83,7 +85,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             runCatching {
                 withContext(Dispatchers.IO) {
                     if (token.isNotBlank()) DemoAssistanceClient.heartbeat(baseUrl, id, token)
-                    else DemoAssistanceClient.status(baseUrl, id)
+                    else DemoAssistanceClient.status(baseUrl, id, groupCode)
                 }
             }.onSuccess { session = it }
             // A failed heartbeat after containment is expected for a contained
@@ -158,9 +160,17 @@ fun DemoAssistancePanel(baseUrl: String) {
                             message = "Selected ${demo.name}."
                         }
                     ) {
-                        Text("${demo.name} · #${demo.id} · ${demo.secondsRemaining}s left")
+                        Text("${demo.name}${if (demo.groupLabel.isBlank()) "" else " · ${demo.groupLabel}"} · #${demo.id} · ${demo.secondsRemaining}s left")
                     }
                 }
+                OutlinedTextField(
+                    value = groupCode,
+                    onValueChange = { groupCode = it.take(64) },
+                    label = { Text("University/group code (optional)") },
+                    supportingText = { Text("Enter the shared code, then refresh to reveal that group's demos.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { scope.launch { refreshAvailable() } }
@@ -177,6 +187,22 @@ fun DemoAssistancePanel(baseUrl: String) {
                     supportingText = {
                         Text("Include a location, class or group if several demos may be running.")
                     },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = groupLabel,
+                    onValueChange = { groupLabel = it.take(120) },
+                    label = { Text("University or group (optional)") },
+                    placeholder = { Text("For example: UiA") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = groupCode,
+                    onValueChange = { groupCode = it.take(64) },
+                    label = { Text("Private group code (optional)") },
+                    supportingText = { Text("With a code, only participants using the same code can discover or join this demo.") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -214,7 +240,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                                         },
                                         5,
                                         delaySeconds,
-                                        containmentSeconds
+                                        containmentSeconds,
+                                        groupLabel.trim(),
+                                        groupCode.trim()
                                     )
                                 }
                             }.onSuccess {
@@ -328,7 +356,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         onClick = {
                             busy = true
                             scope.launch {
-                                runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.join(baseUrl, current.id, nickname.trim()) } }
+                                runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.join(baseUrl, current.id, nickname.trim(), groupCode.trim()) } }
                                     .onSuccess {
                                         participantToken = it.participantToken
                                         participantId = it.participantId
