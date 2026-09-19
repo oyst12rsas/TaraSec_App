@@ -10,7 +10,7 @@ data class DemoAssistanceParticipant(
     val id: Int,
     val nickname: String,
     val observedIp: String,
-    val severity: Int,
+    val severity: Int?,
     val decision: String,
     val secondsSinceSeen: Int?
 )
@@ -140,7 +140,7 @@ object DemoAssistanceClient {
                         p.optInt("participant_id"),
                         p.optString("nickname"),
                         p.optString("observed_ip"),
-                        p.optInt("severity"),
+                        if (p.isNull("severity")) null else p.optInt("severity"),
                         p.optString("decision", "pending"),
                         if (p.isNull("seconds_since_seen")) null else p.optInt("seconds_since_seen")
                     )
