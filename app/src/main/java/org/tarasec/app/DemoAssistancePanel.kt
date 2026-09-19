@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -39,9 +40,9 @@ fun DemoAssistancePanel(baseUrl: String) {
 
     var available by remember { mutableStateOf<List<DemoAssistanceSession>>(emptyList()) }
     var session by remember { mutableStateOf<DemoAssistanceSession?>(null) }
-    var participantToken by remember { mutableStateOf("") }
-    var controllerToken by remember { mutableStateOf("") }
-    var participantId by remember { mutableStateOf(0) }
+    var participantToken by rememberSaveable(baseUrl) { mutableStateOf("") }
+    var controllerToken by rememberSaveable(baseUrl) { mutableStateOf("") }
+    var participantId by rememberSaveable(baseUrl) { mutableStateOf(0) }
     var nickname by remember { mutableStateOf("") }
     var newDemoName by remember { mutableStateOf("") }
     var groupLabel by remember { mutableStateOf("") }
