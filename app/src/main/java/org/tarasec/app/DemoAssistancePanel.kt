@@ -124,6 +124,11 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }.onSuccess {
                 session = it
+                // The server response contains a fresh secondsSinceSeen snapshot for
+                // every participant. Restart the local age ticker from that snapshot;
+                // otherwise participantAgeTick keeps accumulating even while polling
+                // succeeds and makes "last successful contact" appear stale.
+                participantAgeTick = 0
                 heartbeatSuccesses += 1
                 lastHeartbeatSuccessEpochMs = System.currentTimeMillis()
                 lastHeartbeatError = ""
