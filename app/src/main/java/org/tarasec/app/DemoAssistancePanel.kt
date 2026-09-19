@@ -115,7 +115,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     }
 
     // A contained participant cannot poll the protected server. Keep the visible
-    // countdown moving locally until the automatic release restores connectivity;
+    // observation timer moving locally until the controller chooses to release;
     // every successful server response corrects the local clock.
     LaunchedEffect(
         session?.id,
@@ -237,7 +237,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                     }
                 }
 
-                Text("Automatic release after: $containmentSeconds seconds")
+                Text("Suggested observation before release: $containmentSeconds seconds")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     listOf(30, 120, 300).forEach { seconds ->
                         OutlinedButton(onClick = { containmentSeconds = seconds }, modifier = Modifier.weight(1f)) {
