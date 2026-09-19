@@ -50,6 +50,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     var delaySeconds by remember { mutableStateOf(120) }
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
+    var leaving by remember { mutableStateOf(false) }
     var containmentAlertVisible by remember { mutableStateOf(false) }
     var containmentWarnedSessionId by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf("Loading available Demo 3 sessions…") }
@@ -93,6 +94,7 @@ fun DemoAssistancePanel(baseUrl: String) {
         val id = session?.id ?: return@LaunchedEffect
         while (true) {
             delay(2000)
+            if (leaving) continue
             val token = participantToken
             heartbeatAttempts += 1
             lastHeartbeatAttemptEpochMs = System.currentTimeMillis()
@@ -538,6 +540,8 @@ fun DemoAssistancePanel(baseUrl: String) {
                     val connectionState = when {
                         p.decision == "pending" || lastContact == null ->
                             "WAITING · no poll received yet"
+                        p.decision == "left" ->
+                            "LEFT DEMO · last contact $lastContact"
                         p.decision == "silent" ->
                             "NO RESPONSE · last successful contact $lastContact"
                         lastContactAge != null && lastContactAge > 6 ->
@@ -563,12 +567,15 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (current.state == "contained" || current.state == "releasing" || current.state == "closed") {
                 TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
                     val responsive = current.participants.count {
-                        it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age <= 6 } == true
+                        it.decision != "left" &&
+                            it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age <= 6 } == true
                     }
                     val unresponsive = current.participants.count {
-                        it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age > 6 } == true
+                        it.decision != "left" &&
+                            it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age > 6 } == true
                     }
-                    Text("${current.participants.size} joined · $responsive responding · $unresponsive without recent contact · ${current.recovered} recovered")
+                    val left = current.participants.count { it.decision == "left" }
+                    Text("${current.participants.size} joined · $responsive responding · $unresponsive without recent contact · $left left · ${current.recovered} recovered")
                 }
             }
 
@@ -604,15 +611,74 @@ fun DemoAssistancePanel(baseUrl: String) {
                 style = MaterialTheme.typography.bodySmall
             )
 
-            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
-                session = null
-                participantToken = ""
-                controllerToken = ""
-                participantId = 0
-                containmentAlertVisible = false
-                containmentWarnedSessionId = null
-                scope.launch { refreshAvailable() }
-            }) { Text(if (demoFinished) "Reset" else "Choose another demo") }
+            OutlinedButton(
+                enabled = !busy && !leaving,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val token = participantToken
+                    if (!demoFinished && token.isNotBlank()) {
+                        leaving = true
+                        scope.launch {
+                            gatewayControlBase?.let { gateway ->
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        DemoAssistanceClient.setLocalSeverity(gateway, 0)
+                                    }
+                                }
+                            }
+                            var leaveError = "No response from the demo server"
+                            var leftSuccessfully = false
+                            repeat(6) {
+                                if (!leftSuccessfully) {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            DemoAssistanceClient.leave(baseUrl, current.id, token)
+                                        }
+                                    }.onSuccess {
+                                        leftSuccessfully = true
+                                    }.onFailure {
+                                        leaveError = it.message ?: it.javaClass.simpleName
+                                    }
+                                    if (!leftSuccessfully) delay(2000)
+                                }
+                            }
+                            if (leftSuccessfully) {
+                                session = null
+                                participantToken = ""
+                                participantId = 0
+                                containmentAlertVisible = false
+                                containmentWarnedSessionId = null
+                                message = "You left Demo 3. The shared demo remains open for everyone else."
+                                refreshAvailable()
+                            } else {
+                                message = "Could not record that you left: $leaveError. The shared demo was not closed."
+                            }
+                            leaving = false
+                        }
+                    } else {
+                        session = null
+                        participantToken = ""
+                        participantId = 0
+                        containmentAlertVisible = false
+                        containmentWarnedSessionId = null
+                        message = if (demoFinished) {
+                            "Returned to the Demo 3 list."
+                        } else {
+                            "You left this screen. The shared demo remains open."
+                        }
+                        scope.launch { refreshAvailable() }
+                    }
+                }
+            ) {
+                Text(
+                    when {
+                        leaving -> "Leaving…"
+                        demoFinished -> "Return to demo list"
+                        participantToken.isNotBlank() -> "Leave this demo · others continue"
+                        else -> "Return to demo list · demo stays open"
+                    }
+                )
+            }
         }
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
