@@ -77,6 +77,13 @@ object DemoAssistanceClient {
         return parseSession(json.getJSONObject("session"))
     }
 
+    fun release(baseUrl: String, sessionId: Int, controllerToken: String): DemoAssistanceSession {
+        val json = request(baseUrl, "script/appDemoAssistance.php?action=release", "POST",
+            JSONObject().put("session_id", sessionId).put("controller_token", controllerToken))
+        if (!json.optBoolean("ok")) error(json.optString("error", "Release failed"))
+        return parseSession(json.getJSONObject("session"))
+    }
+
     fun heartbeat(baseUrl: String, sessionId: Int, participantToken: String): DemoAssistanceSession {
         val json = request(baseUrl, "script/appDemoAssistance.php?action=heartbeat", "POST",
             JSONObject().put("session_id", sessionId).put("participant_token", participantToken))
