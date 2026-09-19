@@ -469,7 +469,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             }
 
             if (!demoFinished) {
-                TaraSectionCard(title = "Participants", subtitle = "Watch INFECTED units stop polling") {
+                TaraSectionCard(title = "Participants", subtitle = "Watch whether each unit is still reaching the demo server") {
                 if (current.participants.isEmpty()) Text("Waiting for participants…")
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
@@ -485,13 +485,19 @@ fun DemoAssistancePanel(baseUrl: String) {
                         p.decision == "pending" || lastContact == null ->
                             "WAITING · no poll received yet"
                         p.decision == "silent" ->
-                            "BLOCKED · polling stopped · last contact $lastContact"
+                            "NO RESPONSE · last successful contact $lastContact"
+                        lastContactAge != null && lastContactAge > 6 ->
+                            if (expected && current.state != "active") {
+                                "NO RESPONSE · expected containment · last successful contact $lastContact"
+                            } else {
+                                "NO RESPONSE · unexpected · last successful contact $lastContact"
+                            }
                         p.decision == "recovered" ->
-                            "POLLING RESTORED · last contact $lastContact"
+                            "CONNECTION RESTORED · last contact $lastContact"
                         p.decision == "connected" && expected && current.state != "active" ->
-                            "POLLING · not blocked yet · last contact $lastContact"
+                            "STILL REACHABLE · last contact $lastContact"
                         p.decision == "connected" ->
-                            "POLLING · last contact $lastContact"
+                            "POLLING · response received · last contact $lastContact"
                         expected -> "WAITING · will be contained"
                         else -> "WAITING · will remain connected"
                     }
@@ -502,7 +508,13 @@ fun DemoAssistancePanel(baseUrl: String) {
 
             if (!demoFinished && (current.state == "contained" || current.state == "releasing")) {
                 TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
-                    Text("${current.participants.size} joined · ${current.silent} currently silent · ${current.recovered} recovered · ${current.connected} polling")
+                    val responsive = current.participants.count {
+                        it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age <= 6 } == true
+                    }
+                    val unresponsive = current.participants.count {
+                        it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age > 6 } == true
+                    }
+                    Text("${current.participants.size} joined · $responsive responding · $unresponsive without recent contact · ${current.recovered} recovered")
                 }
             }
 
