@@ -476,18 +476,24 @@ fun DemoAssistancePanel(baseUrl: String) {
                     val mine = if (p.id == participantId) " · you" else ""
                     val infected = p.severity > 0
                     val expected = p.severity > current.threshold
-                    val lostFor = (p.secondsSinceSeen ?: 0) + participantAgeTick
+                    val lastContactAge = p.secondsSinceSeen?.plus(participantAgeTick)
+                    val lastContact = lastContactAge?.let {
+                        "$it second" + if (it == 1) " ago" else "s ago"
+                    }
                     val infectionState = if (infected) "🔴 INFECTED" else "🟢 CLEAN"
-                    val connectionState = when (p.decision) {
-                        "silent" -> "LOST CONNECTION $lostFor second" +
-                            if (lostFor == 1) " ago" else "s ago"
-                        "recovered" -> "CONNECTION RESTORED"
-                        "connected" -> if (expected && current.state != "active") {
-                            "still polling"
-                        } else {
-                            "polling"
-                        }
-                        else -> if (expected) "will be contained" else "will remain connected"
+                    val connectionState = when {
+                        p.decision == "pending" || lastContact == null ->
+                            "WAITING · no poll received yet"
+                        p.decision == "silent" ->
+                            "BLOCKED · polling stopped · last contact $lastContact"
+                        p.decision == "recovered" ->
+                            "POLLING RESTORED · last contact $lastContact"
+                        p.decision == "connected" && expected && current.state != "active" ->
+                            "POLLING · not blocked yet · last contact $lastContact"
+                        p.decision == "connected" ->
+                            "POLLING · last contact $lastContact"
+                        expected -> "WAITING · will be contained"
+                        else -> "WAITING · will remain connected"
                     }
                     TaraStatusRow("$label$mine", "$infectionState · $connectionState")
                     }
