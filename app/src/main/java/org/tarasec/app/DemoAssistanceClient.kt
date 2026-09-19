@@ -21,6 +21,8 @@ data class DemoAssistanceSession(
     val threshold: Int,
     val state: String,
     val targetIp: String,
+    val visibility: String,
+    val groupLabel: String,
     val containmentSeconds: Int,
     val blockAt: String,
     val releaseAt: String,
@@ -38,13 +40,14 @@ data class DemoAssistanceJoin(val participantId: Int, val participantToken: Stri
 data class DemoAssistanceCreate(val controllerToken: String, val session: DemoAssistanceSession)
 
 object DemoAssistanceClient {
-    fun list(baseUrl: String): List<DemoAssistanceSession> {
-        val json = request(baseUrl, "script/appDemoAssistance.php?action=list", "GET")
+    fun list(baseUrl: String, joinCode: String = ""): List<DemoAssistanceSession> {
+        val suffix = if (joinCode.isBlank()) "" else "&join_code=" + URLEncoder.encode(joinCode, Charsets.UTF_8.name())
+        val json = request(baseUrl, "script/appDemoAssistance.php?action=list$suffix", "GET")
         val array = json.optJSONArray("sessions") ?: return emptyList()
         return buildList { for (i in 0 until array.length()) add(parseSession(array.getJSONObject(i))) }
     }
 
-    fun create(baseUrl: String, name: String, threshold: Int, delaySeconds: Int, containmentSeconds: Int): DemoAssistanceCreate {
+    fun create(baseUrl: String, name: String, threshold: Int, delaySeconds: Int, containmentSeconds: Int, groupLabel: String = "", joinCode: String = ""): DemoAssistanceCreate {
         val targetIp = URL(normaliseBase(baseUrl)).host
         val json = request(
             baseUrl,
@@ -56,13 +59,15 @@ object DemoAssistanceClient {
                 .put("delay_seconds", delaySeconds)
                 .put("containment_seconds", containmentSeconds)
                 .put("target_ip", targetIp)
+                .put("group_label", groupLabel)
+                .put("join_code", joinCode)
         )
         return DemoAssistanceCreate(json.getString("controller_token"), parseSession(json.getJSONObject("session")))
     }
 
-    fun join(baseUrl: String, sessionId: Int, nickname: String): DemoAssistanceJoin {
+    fun join(baseUrl: String, sessionId: Int, nickname: String, joinCode: String = ""): DemoAssistanceJoin {
         val json = request(baseUrl, "script/appDemoAssistance.php?action=join", "POST",
-            JSONObject().put("session_id", sessionId).put("nickname", nickname))
+            JSONObject().put("session_id", sessionId).put("nickname", nickname).put("join_code", joinCode))
         return DemoAssistanceJoin(json.getInt("participant_id"), json.getString("participant_token"), parseSession(json.getJSONObject("session")))
     }
 
@@ -78,8 +83,9 @@ object DemoAssistanceClient {
         return parseSession(json.getJSONObject("session"))
     }
 
-    fun status(baseUrl: String, sessionId: Int): DemoAssistanceSession {
-        val json = request(baseUrl, "script/appDemoAssistance.php?action=status&session_id=$sessionId", "GET")
+    fun status(baseUrl: String, sessionId: Int, joinCode: String = ""): DemoAssistanceSession {
+        val suffix = if (joinCode.isBlank()) "" else "&join_code=" + URLEncoder.encode(joinCode, Charsets.UTF_8.name())
+        val json = request(baseUrl, "script/appDemoAssistance.php?action=status&session_id=$sessionId$suffix", "GET")
         return parseSession(json.getJSONObject("session"))
     }
 
@@ -134,6 +140,8 @@ object DemoAssistanceClient {
             threshold = json.optInt("threshold", 7),
             state = json.optString("state", "active"),
             targetIp = json.optString("target_ip", ""),
+            visibility = json.optString("visibility", "public"),
+            groupLabel = json.optString("group_label", ""),
             containmentSeconds = json.optInt("containment_seconds", 120),
             blockAt = json.optString("block_at", ""),
             releaseAt = json.optString("release_at", ""),
