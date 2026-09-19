@@ -205,6 +205,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             session = demo
                             participantToken = ""
                             participantId = 0
+                            controllerToken = ""
                             message = "Selected ${demo.name}."
                         }
                     ) {
@@ -281,7 +282,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
-                                    DemoAssistanceClient.create(
+                                    val created = DemoAssistanceClient.create(
                                         baseUrl,
                                         newDemoName.trim().ifBlank {
                                             "Community infection exercise"
@@ -292,12 +293,21 @@ fun DemoAssistancePanel(baseUrl: String) {
                                         groupLabel.trim(),
                                         groupCode.trim()
                                     )
+                                    val joined = DemoAssistanceClient.join(
+                                        baseUrl,
+                                        created.session.id,
+                                        nickname.trim(),
+                                        groupCode.trim()
+                                    )
+                                    created to joined
                                 }
-                            }.onSuccess {
-                                session = it.session
-                                controllerToken = it.controllerToken
-                                message = "${it.session.name} started. Others can now find and join demo #${it.session.id}."
-                            }.onFailure { message = "Could not start Demo 3: ${it.message}" }
+                            }.onSuccess { (created, joined) ->
+                                session = joined.session
+                                controllerToken = created.controllerToken
+                                participantToken = joined.participantToken
+                                participantId = joined.participantId
+                                message = "${created.session.name} started and this unit joined demo #${created.session.id}. Choose whether this unit is CLEAN or INFECTED."
+                            }.onFailure { message = "Could not start and join Demo 3: ${it.message}" }
                             busy = false
                         }
                     }
