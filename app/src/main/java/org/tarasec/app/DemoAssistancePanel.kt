@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -29,6 +32,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DemoAssistancePanel(baseUrl: String) {
     val activity = LocalContext.current as ComponentActivity
+    val clipboard = LocalClipboardManager.current
     var gatewayControlBase by remember { mutableStateOf(LocalGateway.baseUrl(activity)) }
     var gatewayRouteMessage by remember { mutableStateOf("Identifying the current TaraSec gateway…") }
     val scope = rememberCoroutineScope()
@@ -51,6 +55,12 @@ fun DemoAssistancePanel(baseUrl: String) {
     var displayedReleaseSeconds by remember { mutableStateOf(0) }
     var requestSentLocally by remember { mutableStateOf(false) }
     var participantAgeTick by remember { mutableStateOf(0) }
+    var heartbeatAttempts by remember { mutableStateOf(0) }
+    var heartbeatSuccesses by remember { mutableStateOf(0) }
+    var heartbeatFailures by remember { mutableStateOf(0) }
+    var lastHeartbeatAttemptEpochMs by remember { mutableStateOf<Long?>(null) }
+    var lastHeartbeatSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
+    var lastHeartbeatError by remember { mutableStateOf("") }
 
     suspend fun refreshAvailable() {
         runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl, groupCode) } }
@@ -82,12 +92,22 @@ fun DemoAssistancePanel(baseUrl: String) {
         while (true) {
             delay(2000)
             val token = participantToken
+            heartbeatAttempts += 1
+            lastHeartbeatAttemptEpochMs = System.currentTimeMillis()
             runCatching {
                 withContext(Dispatchers.IO) {
                     if (token.isNotBlank()) DemoAssistanceClient.heartbeat(baseUrl, id, token)
                     else DemoAssistanceClient.status(baseUrl, id, groupCode)
                 }
-            }.onSuccess { session = it }
+            }.onSuccess {
+                session = it
+                heartbeatSuccesses += 1
+                lastHeartbeatSuccessEpochMs = System.currentTimeMillis()
+                lastHeartbeatError = ""
+            }.onFailure {
+                heartbeatFailures += 1
+                lastHeartbeatError = it.message ?: it.javaClass.simpleName
+            }
             // A failed heartbeat after containment is expected for a contained
             // participant: its traffic to the requesting server is really blocked.
         }
@@ -518,6 +538,37 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val report = buildDemoAssistanceDebugReport(
+                        baseUrl = baseUrl,
+                        gatewayControlBase = gatewayControlBase,
+                        gatewayRouteMessage = gatewayRouteMessage,
+                        session = current,
+                        participantId = participantId,
+                        participantTokenPresent = participantToken.isNotBlank(),
+                        participantAgeTick = participantAgeTick,
+                        displayedRequestSeconds = displayedRequestSeconds,
+                        displayedReleaseSeconds = displayedReleaseSeconds,
+                        requestSentLocally = requestSentLocally,
+                        heartbeatAttempts = heartbeatAttempts,
+                        heartbeatSuccesses = heartbeatSuccesses,
+                        heartbeatFailures = heartbeatFailures,
+                        lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
+                        lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
+                        lastHeartbeatError = lastHeartbeatError,
+                        message = message
+                    )
+                    clipboard.setText(AnnotatedString(report))
+                    message = "Demo 3 debug report copied."
+                }
+            ) { Text("Copy debug info for AI") }
+            Text(
+                "Copies connection and heartbeat state without participant tokens or group codes.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
             OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 session = null
                 participantToken = ""
@@ -529,4 +580,75 @@ fun DemoAssistancePanel(baseUrl: String) {
         }
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+
+private fun buildDemoAssistanceDebugReport(
+    baseUrl: String,
+    gatewayControlBase: String?,
+    gatewayRouteMessage: String,
+    session: DemoAssistanceSession,
+    participantId: Int,
+    participantTokenPresent: Boolean,
+    participantAgeTick: Int,
+    displayedRequestSeconds: Int,
+    displayedReleaseSeconds: Int,
+    requestSentLocally: Boolean,
+    heartbeatAttempts: Int,
+    heartbeatSuccesses: Int,
+    heartbeatFailures: Int,
+    lastHeartbeatAttemptEpochMs: Long?,
+    lastHeartbeatSuccessEpochMs: Long?,
+    lastHeartbeatError: String,
+    message: String
+): String = buildString {
+    appendLine("TaraSec Demo 3 debug report")
+    appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
+    appendLine("app_version=" + BuildConfig.VERSION_NAME)
+    appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
+    appendLine("secrets=omitted (participant token and group code)")
+    appendLine()
+    appendLine("[connection]")
+    appendLine("db_endpoint=" + baseUrl.ifBlank { "not selected" })
+    appendLine("gateway_control_endpoint=" + gatewayControlBase.orEmpty().ifBlank { "unavailable" })
+    appendLine("gateway=" + gatewayRouteMessage.ifBlank { "unknown" })
+    appendLine()
+    appendLine("[polling]")
+    appendLine("participant_id=" + participantId)
+    appendLine("participant_token_present=" + participantTokenPresent)
+    appendLine("attempts=" + heartbeatAttempts)
+    appendLine("successes=" + heartbeatSuccesses)
+    appendLine("failures=" + heartbeatFailures)
+    appendLine("last_attempt_epoch_ms=" + (lastHeartbeatAttemptEpochMs ?: 0))
+    appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
+    appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
+    appendLine()
+    appendLine("[session]")
+    appendLine("session_id=" + session.id)
+    appendLine("name=" + session.name)
+    appendLine("state=" + session.state)
+    appendLine("target_ip=" + session.targetIp)
+    appendLine("visibility=" + session.visibility)
+    appendLine("group_label=" + session.groupLabel.ifBlank { "none" })
+    appendLine("threshold=" + session.threshold)
+    appendLine("request_sent_locally=" + requestSentLocally)
+    appendLine("request_seconds_remaining=" + displayedRequestSeconds)
+    appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
+    appendLine("assistance_request_id=" + (session.assistanceRequestId ?: 0))
+    appendLine("release_request_id=" + (session.releaseRequestId ?: 0))
+    appendLine()
+    appendLine("[participants]")
+    session.participants.forEach { participant ->
+        val age = participant.secondsSinceSeen?.plus(participantAgeTick)
+        appendLine(
+            "id=" + participant.id +
+                ",nickname=" + participant.nickname.ifBlank { "none" } +
+                ",observed_ip=" + participant.observedIp.ifBlank { "unknown" } +
+                ",severity=" + participant.severity +
+                ",decision=" + participant.decision +
+                ",seconds_since_last_contact=" + (age?.toString() ?: "never")
+        )
+    }
+    appendLine()
+    appendLine("client_message=" + message.ifBlank { "none" })
 }
