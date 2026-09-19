@@ -315,10 +315,19 @@ fun DemoAssistancePanel(baseUrl: String) {
             }
         } else {
             val ownParticipant = current.participants.firstOrNull { it.id == participantId }
+            val ownInfected = ownParticipant?.severity?.let { it > current.threshold } == true
             val containmentExpected = participantToken.isNotBlank() &&
-                ownParticipant?.severity?.let { it > current.threshold } == true &&
+                ownInfected &&
                 current.state == "active"
             val demoFinished = current.state == "closed"
+            val localBlockedSeconds = if (
+                ownInfected &&
+                requestSentLocally &&
+                lastHeartbeatSuccessEpochMs != null
+            ) {
+                ((System.currentTimeMillis() - lastHeartbeatSuccessEpochMs!!) / 1000L)
+                    .coerceAtLeast(0L).toInt()
+            } else 0
 
             LaunchedEffect(
                 current.id,
@@ -389,6 +398,11 @@ fun DemoAssistancePanel(baseUrl: String) {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
                 TaraStatusRow("Protected server", current.targetIp)
+                if (ownInfected && requestSentLocally) {
+                    TaraStatusRow("Network", if (heartbeatFailures > 0) "🔴 INFECTED · blocked for ${localBlockedSeconds}s" else "🔴 INFECTED · waiting for network block")
+                } else if (ownParticipant?.severity != null && ownParticipant.severity <= current.threshold) {
+                    TaraStatusRow("Network", "🟢 CLEAN · polling should continue")
+                }
                 TaraStatusRow(
                     "Request for Assistance",
                     if (requestSentLocally || current.state != "active") {
@@ -466,10 +480,10 @@ fun DemoAssistancePanel(baseUrl: String) {
                     title = "This unit's demo status",
                     subtitle = "Stored on the local TaraSec gateway"
                 ) {
-                    val ownInfected = ownParticipant?.severity?.let { it > 0 }
+                    val ownInfectedForStatus = ownParticipant?.severity?.let { it > 0 }
                     TaraStatusRow(
                         "Status",
-                        when (ownInfected) {
+                        when (ownInfectedForStatus) {
                             true -> "🔴 INFECTED"
                             false -> "🟢 CLEAN"
                             null -> "Not selected"
