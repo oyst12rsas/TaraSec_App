@@ -341,11 +341,11 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (demoFinished) {
                 TaraSectionCard(
                     title = "Demo 3 is over",
-                    subtitle = "The Request for Assistance has been released"
+                    subtitle = "Release was explicitly requested"
                 ) {
                     Text(
-                        "You are welcome to join an available demo or start a new one. " +
-                            "Tap Reset below to return to the Demo 3 selection."
+                        "The session is closed, but no clean result is assumed. Review the " +
+                            "observed participant contact history below or copy the debug report."
                     )
                 }
             } else {
@@ -521,8 +521,8 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (!demoFinished) {
-                TaraSectionCard(title = "Participants", subtitle = "Watch whether each unit is still reaching the demo server") {
+            if (!demoFinished || current.participants.isNotEmpty()) {
+                TaraSectionCard(title = "Participants", subtitle = "Observed contact evidence remains visible after release") {
                 if (current.participants.isEmpty()) Text("Waiting for participants…")
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
@@ -559,7 +559,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (!demoFinished && (current.state == "contained" || current.state == "releasing")) {
+            if (current.state == "contained" || current.state == "releasing" || current.state == "closed") {
                 TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
                     val responsive = current.participants.count {
                         it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age <= 6 } == true
