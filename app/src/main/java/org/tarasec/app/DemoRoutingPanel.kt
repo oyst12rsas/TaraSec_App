@@ -43,7 +43,7 @@ fun DemoRoutingPanel(baseUrl: String) {
             style = MaterialTheme.typography.bodyMedium
         )
         Text(
-            "The gateway must fail closed if a tagged participant route is unavailable. This panel reports DB configuration; it does not yet prove that taralink installed the Linux policy route.",
+            "The gateway must fail closed if a tagged participant route is unavailable. This panel distinguishes a configured route from a route the gateway has reported as applied.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -58,10 +58,18 @@ fun DemoRoutingPanel(baseUrl: String) {
                 Text("🟢 ${current.message}")
                 Text("Seen by DB server as ${current.sourceIp}", style = MaterialTheme.typography.bodySmall)
                 current.routes.forEach { route ->
+                    val stateIcon = when (route.applyState) {
+                        "applied" -> "🟢"
+                        "error" -> "🔴"
+                        else -> "🟠"
+                    }
                     TaraStatusRow(
-                        route.partnerName.ifBlank { "TaraSec partner" },
-                        "${route.destinationIp} / ${route.netmask} → NetBird ${route.taggedTrafficRoute}"
+                        (if (route.selected) "Selected · " else "") + route.partnerName.ifBlank { "TaraSec partner" },
+                        "$stateIcon ${route.applyState.uppercase()} · ${route.destinationIp} / ${route.netmask} → NetBird ${route.taggedTrafficRoute}"
                     )
+                    if (route.applyMessage.isNotBlank()) {
+                        Text(route.applyMessage, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
