@@ -65,6 +65,25 @@ fun DemoAssistancePanel(baseUrl: String) {
     var lastHeartbeatSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var lastHeartbeatError by remember { mutableStateOf("") }
 
+    fun resetLocalDemoState() {
+        session = null
+        participantToken = ""
+        controllerToken = ""
+        participantId = 0
+        containmentAlertVisible = false
+        containmentWarnedSessionId = null
+        displayedRequestSeconds = 0
+        displayedReleaseSeconds = 0
+        requestSentLocally = false
+        participantAgeTick = 0
+        heartbeatAttempts = 0
+        heartbeatSuccesses = 0
+        heartbeatFailures = 0
+        lastHeartbeatAttemptEpochMs = null
+        lastHeartbeatSuccessEpochMs = null
+        lastHeartbeatError = ""
+    }
+
     suspend fun refreshAvailable() {
         runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl, groupCode) } }
             .onSuccess {
@@ -643,12 +662,8 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 }
                             }
                             if (leftSuccessfully) {
-                                session = null
-                                participantToken = ""
-                                participantId = 0
-                                containmentAlertVisible = false
-                                containmentWarnedSessionId = null
-                                message = "You left Demo 3. The shared demo remains open for everyone else."
+                                resetLocalDemoState()
+                                message = "You left Demo 3. You can join or start another demo now."
                                 refreshAvailable()
                             } else {
                                 message = "Could not record that you left: $leaveError. The shared demo was not closed."
@@ -656,11 +671,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             leaving = false
                         }
                     } else {
-                        session = null
-                        participantToken = ""
-                        participantId = 0
-                        containmentAlertVisible = false
-                        containmentWarnedSessionId = null
+                        resetLocalDemoState()
                         message = if (demoFinished) {
                             "Returned to the Demo 3 list."
                         } else {
