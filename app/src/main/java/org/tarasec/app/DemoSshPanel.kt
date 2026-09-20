@@ -445,7 +445,7 @@ fun DemoSshPanel(
             }
         ) { Text("Copy debug report for AI") }
         Text(
-            "Copies the current Demo 2 state without passwords or session tokens.",
+            "Copy the report, paste it into an AI assistant such as ChatGPT, and ask it to explain what happened in the demo. The report omits passwords and session tokens.",
             style = MaterialTheme.typography.bodySmall
         )
 
