@@ -141,30 +141,10 @@ fun DemoSshPanel(
                         "Demo 2 cannot start while this unit is infected on the current gateway. Demo-only state can be reset here; genuine security findings require the normal cleaning workflow.",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    when {
-                        managerAuthenticated -> {
-                            Text(
-                                "Certified hotspot owner session: technical review controls and the authorized hotspot context will appear here as the remediation service is expanded.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        subscriberSignedIn -> {
-                            Text(
-                                "Signed-in hotspot user: only this unit's review status and guided next steps are shown.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        else -> {
-                            Text(
-                                "Sign in to continue to the appropriate remediation view.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Button(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = onSignIn
-                            ) { Text("Sign in with Google or TaraSec") }
-                        }
-                    }
+                    Text(
+                        "Demo 2 does not require a TaraSec or Google account. Eligibility and demo cleanup are based on the current gateway and DB-authoritative demo state.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     if (eligibility?.demoResetAvailable == true) {
                         OutlinedButton(
                             enabled = !busy && observedGateway?.recognized == true,
