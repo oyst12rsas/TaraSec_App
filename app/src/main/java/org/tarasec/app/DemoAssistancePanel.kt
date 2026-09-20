@@ -202,7 +202,8 @@ fun DemoAssistancePanel(baseUrl: String) {
         val current = session
         if (current == null) {
             TaraSectionCard(title = "Available assistance demos", subtitle = "Only demos with more than 15 seconds left are joinable") {
-                if (available.isEmpty()) Text("No joinable demos right now.")                available.forEach { demo ->
+                if (available.isEmpty()) Text("No joinable demos right now.")
+                available.forEach { demo ->
                     OutlinedButton(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
@@ -401,7 +402,8 @@ fun DemoAssistancePanel(baseUrl: String) {
             } else {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
-                TaraStatusRow("Protected server", current.targetIp)                if (ownInfected && requestSentLocally) {
+                TaraStatusRow("Protected server", current.targetIp)
+                if (ownInfected && requestSentLocally) {
                     TaraStatusRow("Network", if (heartbeatFailures > 0) "🔴 INFECTED · blocked for ${localBlockedSeconds}s" else "🔴 INFECTED · waiting for network block")
                 } else if (ownParticipant?.severity != null && ownParticipant.severity <= current.threshold) {
                     TaraStatusRow("Network", "🟢 CLEAN · polling should continue")
