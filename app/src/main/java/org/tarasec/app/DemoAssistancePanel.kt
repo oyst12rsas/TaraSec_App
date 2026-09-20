@@ -30,6 +30,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private fun formatDemoDuration(totalSeconds: Int): String {
+    val seconds = totalSeconds.coerceAtLeast(0)
+    return "%d:%02d".format(seconds / 60, seconds % 60)
+}
+
 @Composable
 fun DemoAssistancePanel(baseUrl: String) {
     val activity = LocalContext.current as ComponentActivity
@@ -420,8 +425,15 @@ fun DemoAssistancePanel(baseUrl: String) {
                     )
                 } else if (current.state == "releasing") {
                     TaraStatusRow(
-                        "Release",
-                        "Requested · waiting for observed contact to return"
+                        "Containment completed",
+                        "Connection restored as expected · review remains open for " +
+                            formatDemoDuration(current.observationSecondsRemaining)
+                    )
+                    Text(
+                        "TaraSec blocked infected traffic while assistance was active. " +
+                            "Assistance is now cancelled, so successful polling is expected again. " +
+                            "The demo closes after the review period or when all participants leave.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -592,17 +604,22 @@ fun DemoAssistancePanel(baseUrl: String) {
                             "WAITING · no poll received yet"
                         p.decision == "left" ->
                             "LEFT DEMO · last contact $lastContact"
+                        p.decision == "silent" && current.state == "releasing" ->
+                            "WAITING FOR CONNECTION RESTORE · last successful contact $lastContact"
                         p.decision == "silent" ->
-                            "NO RESPONSE · last successful contact $lastContact"
+                            "NO RESPONSE · expected containment · last successful contact $lastContact"
                         lastContactAge != null && lastContactAge > 6 ->
-                            if (expected && current.state != "active") {                                "NO RESPONSE · expected containment · last successful contact $lastContact"
+                            if (expected && current.state == "contained") {
+                                "NO RESPONSE · expected containment · last successful contact $lastContact"
                             } else {
                                 "NO RESPONSE · unexpected · last successful contact $lastContact"
                             }
                         p.decision == "recovered" ->
-                            "CONNECTION RESTORED · last contact $lastContact"
-                        p.decision == "connected" && expected && current.state != "active" ->
-                            "STILL REACHABLE · last contact $lastContact"
+                            "CONNECTION RESTORED · expected after release · last contact $lastContact"
+                        p.decision == "connected" && expected && current.state == "releasing" ->
+                            "CONNECTION RESTORED · expected after release · last contact $lastContact"
+                        p.decision == "connected" && expected && current.state == "contained" ->
+                            "STILL REACHABLE · unexpected during containment · last contact $lastContact"
                         p.decision == "connected" ->
                             "POLLING · response received · last contact $lastContact"
                         expected -> "WAITING · will be contained"
@@ -769,9 +786,9 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
     val ownParticipant = session.participants.firstOrNull { it.id == participantId }
     val participantInfected = ownParticipant?.severity?.let { it > session.threshold } == true
-    val assistanceRequestActive = (session.assistanceRequestId ?: 0) > 0
-    val expectedToBeBlocked = participantTokenPresent && participantInfected && assistanceRequestActive &&
-        session.state != "closed"
+    val assistanceRequestActive = (session.assistanceRequestId ?: 0) > 0 &&
+        session.state == "contained"
+    val expectedToBeBlocked = participantTokenPresent && participantInfected && assistanceRequestActive
     val recentSuccessfulPoll = lastHeartbeatSuccessEpochMs?.let {
         System.currentTimeMillis() - it <= 6_000L
     } == true
@@ -810,6 +827,7 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("request_sent_locally=" + requestSentLocally)
     appendLine("request_seconds_remaining=" + displayedRequestSeconds)
     appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
+    appendLine("observation_seconds_remaining=" + session.observationSecondsRemaining)
     appendLine("assistance_request_id=" + (session.assistanceRequestId ?: 0))
     appendLine("release_request_id=" + (session.releaseRequestId ?: 0))
     appendLine()
