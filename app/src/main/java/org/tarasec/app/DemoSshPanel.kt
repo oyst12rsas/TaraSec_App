@@ -141,10 +141,6 @@ fun DemoSshPanel(
                         "Demo 2 cannot start while this unit is infected on the current gateway. Demo-only state can be reset here; genuine security findings require the normal cleaning workflow.",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Text(
-                        "Demo 2 does not require a TaraSec or Google account. Eligibility and demo cleanup are based on the current gateway and DB-authoritative demo state.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
                     if (eligibility?.demoResetAvailable == true) {
                         OutlinedButton(
                             enabled = !busy && observedGateway?.recognized == true,
