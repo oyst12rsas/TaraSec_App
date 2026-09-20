@@ -197,8 +197,7 @@ fun DemoAssistancePanel(baseUrl: String) {
         val current = session
         if (current == null) {
             TaraSectionCard(title = "Available assistance demos", subtitle = "Only demos with more than 15 seconds left are joinable") {
-                if (available.isEmpty()) Text("No joinable demos right now.")
-                available.forEach { demo ->
+                if (available.isEmpty()) Text("No joinable demos right now.")                available.forEach { demo ->
                     OutlinedButton(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
@@ -397,8 +396,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             } else {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
-                TaraStatusRow("Protected server", current.targetIp)
-                if (ownInfected && requestSentLocally) {
+                TaraStatusRow("Protected server", current.targetIp)                if (ownInfected && requestSentLocally) {
                     TaraStatusRow("Network", if (heartbeatFailures > 0) "🔴 INFECTED · blocked for ${localBlockedSeconds}s" else "🔴 INFECTED · waiting for network block")
                 } else if (ownParticipant?.severity != null && ownParticipant.severity <= current.threshold) {
                     TaraStatusRow("Network", "🟢 CLEAN · polling should continue")
@@ -597,8 +595,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         p.decision == "silent" ->
                             "NO RESPONSE · last successful contact $lastContact"
                         lastContactAge != null && lastContactAge > 6 ->
-                            if (expected && current.state != "active") {
-                                "NO RESPONSE · expected containment · last successful contact $lastContact"
+                            if (expected && current.state != "active") {                                "NO RESPONSE · expected containment · last successful contact $lastContact"
                             } else {
                                 "NO RESPONSE · unexpected · last successful contact $lastContact"
                             }
@@ -770,6 +767,37 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("last_attempt_epoch_ms=" + (lastHeartbeatAttemptEpochMs ?: 0))
     appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
     appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
+    val ownParticipant = session.participants.firstOrNull { it.id == participantId }
+    val participantInfected = ownParticipant?.severity?.let { it > session.threshold } == true
+    val assistanceRequestActive = (session.assistanceRequestId ?: 0) > 0
+    val expectedToBeBlocked = participantTokenPresent && participantInfected && assistanceRequestActive &&
+        session.state != "closed"
+    val recentSuccessfulPoll = lastHeartbeatSuccessEpochMs?.let {
+        System.currentTimeMillis() - it <= 6_000L
+    } == true
+    val unexpectedPollingSuccess = expectedToBeBlocked && recentSuccessfulPoll
+
+    appendLine("participant_infected=" + participantInfected)
+    appendLine("assistance_request_active=" + assistanceRequestActive)
+    appendLine("expected_to_be_blocked=" + expectedToBeBlocked)
+    appendLine("unexpected_success_while_infected=" + unexpectedPollingSuccess)
+    appendLine()
+    appendLine("[expected_behavior]")
+    appendLine("After Request for Assistance marks this participant INFECTED, the app MUST keep attempting normal polling.")
+    appendLine("Those polling attempts are expected to FAIL because infected traffic to the protected demo server should be rejected.")
+    appendLine("After release/clear, polling should succeed again.")
+    appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
+    appendLine()
+    appendLine("[diagnostic_flags]")
+    if (unexpectedPollingSuccess) {
+        appendLine("BUG: INFECTED PARTICIPANT CAN STILL POLL SUCCESSFULLY")
+        appendLine("Expected: polling attempts continue but fail while the assistance request contains this infected participant.")
+        appendLine("Observed: a recent poll succeeded although the participant is INFECTED and should be blocked.")
+    } else if (expectedToBeBlocked) {
+        appendLine("OK: infected participant is expected to be blocked; inspect failures and last successful contact to verify containment.")
+    } else {
+        appendLine("No active infected-participant containment contradiction detected at report generation time.")
+    }
     appendLine()
     appendLine("[session]")
     appendLine("session_id=" + session.id)
