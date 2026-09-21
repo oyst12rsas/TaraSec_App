@@ -380,12 +380,12 @@ private fun SubscriberHome(
             }
 
             activity.runOnUiThread {
-                if (identified != null) {
-                    val name = identified!!.optString("name", "").takeIf { it.isNotBlank() }
-                    val detectedRole = identified!!.optString("role", "")
+                identified?.let { gateway ->
+                    val name = gateway.optString("name", "").takeIf { it.isNotBlank() }
+                    val detectedRole = gateway.optString("role", "")
                     val kind = if (detectedRole == "tarasec-hotspot") "TaraSec hotspot" else "TaraSec gateway"
                     connectedStatus = "Connected to $kind${name?.let { ": $it" } ?: ""} · $base"
-                } else {
+                } ?: run {
                     connectedStatus = "Wi-Fi is connected through $base, but that gateway did not identify itself as TaraSec${lastError?.let { " ($it)" } ?: ""}."
                 }
                 detectingConnected = false
