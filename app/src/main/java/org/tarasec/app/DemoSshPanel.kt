@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.content.ClipData
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,8 +18,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -32,7 +33,7 @@ fun DemoSshPanel(
     subscriberSignedIn: Boolean,
     onSignIn: () -> Unit
 ) {
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var setups by remember(baseUrl) { mutableStateOf<List<DemoSshSetup>>(emptyList()) }
     var selectedId by rememberSaveable(baseUrl) { mutableStateOf<Int?>(null) }
@@ -108,8 +109,10 @@ fun DemoSshPanel(
     }
 
     fun copy(value: String, label: String) {
-        clipboard.setText(AnnotatedString(value))
-        message = "$label copied."
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, value)))
+            message = "$label copied."
+        }
     }
 
     Column(
