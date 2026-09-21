@@ -178,6 +178,7 @@ object SubscriberAccountClient {
         return false
     }
 
+    @Suppress("DEPRECATION") // Required to inspect Wi-Fi while mobile data is the default.
     private fun validatedWifiInternet(context: Context): Boolean {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return false
@@ -219,6 +220,7 @@ object SubscriberAccountClient {
         }
     }
 
+    @Suppress("DEPRECATION") // Required to bind probes to non-default Wi-Fi.
     fun checkWifiInternet(context: Context): Boolean {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return false
