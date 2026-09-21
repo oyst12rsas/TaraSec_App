@@ -1,5 +1,6 @@
 package org.tarasec.app
 
+import android.content.ClipData
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
@@ -21,9 +22,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -38,7 +39,7 @@ private fun formatDemoDuration(totalSeconds: Int): String {
 @Composable
 fun DemoAssistancePanel(baseUrl: String) {
     val activity = LocalContext.current as ComponentActivity
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     var gatewayControlBase by remember { mutableStateOf(LocalGateway.baseUrl(activity)) }
     var gatewayRouteMessage by remember { mutableStateOf("Identifying the current TaraSec gateway…") }
     val scope = rememberCoroutineScope()
@@ -610,7 +611,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             "WAITING FOR CONNECTION RESTORE · last successful contact $lastContact"
                         p.decision == "silent" ->
                             "NO RESPONSE · expected containment · last successful contact $lastContact"
-                        lastContactAge != null && lastContactAge > 6 ->
+                        lastContactAge > 6 ->
                             if (expected && current.state == "contained") {
                                 "NO RESPONSE · expected containment · last successful contact $lastContact"
                             } else {
@@ -670,7 +671,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                         lastHeartbeatError = lastHeartbeatError,
                         message = message
                     )
-                    clipboard.setText(AnnotatedString(report))
+                    scope.launch {
+                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
+                    }
                     message = "Demo 3 debug report copied."
                 }
             ) { Text("Copy debug info for AI") }
