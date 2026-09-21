@@ -96,6 +96,7 @@ private const val DIRECTORY_PREFS = "tarasec_directory_state"
 private const val PREF_DIRECTORY_REACHED = "directory_reached"
 private const val PREF_DIRECTORY_REACHED_WITH_VPN = "directory_reached_with_vpn"
 
+@Suppress("DEPRECATION") // Required to detect a VPN that is not the default network.
 private fun vpnIsActive(context: Context): Boolean {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
     return cm.allNetworks.any { network ->
