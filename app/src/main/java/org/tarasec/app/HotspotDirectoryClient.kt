@@ -116,6 +116,7 @@ object HotspotDirectoryClient {
             .apply()
     }
 
+    @Suppress("DEPRECATION") // Required to inspect non-default Wi-Fi networks synchronously.
     private fun wifiNetwork(context: Context): android.net.Network? {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
         return cm.allNetworks.firstOrNull { network ->
