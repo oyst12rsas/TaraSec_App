@@ -102,6 +102,18 @@ fun DemoAssistancePanel(baseUrl: String) {
     }
 
     LaunchedEffect(baseUrl) {
+        // A previous Demo 3 may have left this unit tagged locally. Clear that
+        // tag before the first DB request, otherwise even listing or creating a
+        // new demo can be blocked by an old assistance request.
+        gatewayControlBase?.let { gateway ->
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    DemoAssistanceClient.setLocalSeverity(gateway, 0)
+                }
+            }.onSuccess {
+                appliedLocalSeverity = 0
+            }
+        }
         refreshAvailable()
         val observed = withContext(Dispatchers.IO) {
             DemoSshClient.observedGateway(baseUrl)
@@ -290,6 +302,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                         scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
+                                    val gateway = gatewayControlBase
+                                        ?: error("Connect through a recognized TaraSec gateway first")
+                                    DemoAssistanceClient.setLocalSeverity(gateway, 0)
                                     val created = DemoAssistanceClient.create(
                                         baseUrl,
                                         newDemoName.trim().ifBlank {
@@ -498,7 +513,19 @@ fun DemoAssistancePanel(baseUrl: String) {
                         onClick = {
                             busy = true
                             scope.launch {
-                                runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.join(baseUrl, current.id, nickname.trim(), groupCode.trim()) } }
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        val gateway = gatewayControlBase
+                                            ?: error("Connect through a recognized TaraSec gateway first")
+                                        DemoAssistanceClient.setLocalSeverity(gateway, 0)
+                                        DemoAssistanceClient.join(
+                                            baseUrl,
+                                            current.id,
+                                            nickname.trim(),
+                                            groupCode.trim()
+                                        )
+                                    }
+                                }
                                     .onSuccess {
                                         participantToken = it.participantToken
                                         participantId = it.participantId
