@@ -70,6 +70,7 @@ fun DemoAssistancePanel(baseUrl: String) {
     var lastHeartbeatAttemptEpochMs by remember { mutableStateOf<Long?>(null) }
     var lastHeartbeatSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var lastHeartbeatError by remember { mutableStateOf("") }
+    var appliedLocalSeverity by remember { mutableStateOf<Int?>(null) }
 
     fun resetLocalDemoState() {
         session = null
@@ -88,6 +89,7 @@ fun DemoAssistancePanel(baseUrl: String) {
         lastHeartbeatAttemptEpochMs = null
         lastHeartbeatSuccessEpochMs = null
         lastHeartbeatError = ""
+        appliedLocalSeverity = null
     }
 
     suspend fun refreshAvailable() {
@@ -325,6 +327,8 @@ fun DemoAssistancePanel(baseUrl: String) {
             val containmentExpected = participantToken.isNotBlank() &&
                 ownInfected &&
                 current.state == "active"
+            val assistanceRequestActive =
+                (current.assistanceRequestId ?: 0) > 0 && current.state == "contained"
             val demoFinished = current.state == "closed"
             val localBlockedSeconds = if (
                 ownInfected &&
@@ -348,6 +352,27 @@ fun DemoAssistancePanel(baseUrl: String) {
                 ) {
                     containmentWarnedSessionId = current.id
                     containmentAlertVisible = true
+                }
+            }
+
+            // Infection is classification only. Keep the local gateway clean until
+            // the server confirms that a Request for Assistance is active; that
+            // request, not choosing INFECTED, is the containment boundary.
+            val desiredLocalSeverity = if (ownInfected && assistanceRequestActive) 10 else 0
+            LaunchedEffect(current.id, desiredLocalSeverity, gatewayControlBase) {
+                val gateway = gatewayControlBase ?: return@LaunchedEffect
+                if (appliedLocalSeverity == desiredLocalSeverity) return@LaunchedEffect
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        DemoAssistanceClient.setLocalSeverity(gateway, desiredLocalSeverity)
+                    }
+                }.onSuccess {
+                    appliedLocalSeverity = desiredLocalSeverity
+                    if (desiredLocalSeverity > 0) {
+                        message = "Request for Assistance is active. This INFECTED unit is now contained."
+                    }
+                }.onFailure {
+                    message = "Could not synchronize local demo status: ${it.message}"
                 }
             }
 
@@ -491,7 +516,7 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (!demoFinished && participantToken.isNotBlank()) {
                 TaraSectionCard(
                     title = "This unit's demo status",
-                    subtitle = "Stored on the local TaraSec gateway"
+                    subtitle = "Classification now · containment only after assistance is requested"
                 ) {
                     val ownInfectedForStatus = ownParticipant?.severity?.let { it > 0 }
                     TaraStatusRow(
@@ -504,8 +529,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                     )
                     TaraStatusRow("Gateway", gatewayRouteMessage)
                     Text(
-                        "Unless a technical error occurs, this status tags traffic from this " +
-                            "unit to other TaraSec participants. There are currently no other " +
+                        "CLEAN or INFECTED records this unit's demo classification. It does not " +
+                            "block polling by itself. When a Request for Assistance becomes active, " +
+                            "the local gateway contains an INFECTED unit. There are currently no other " +
                             "TaraSec participants in this demonstration. The Request for " +
                             "Assistance contains only traffic to the protected demo server. " +
                             "Regular Internet traffic may use the hotspot, mobile data, or be " +
@@ -520,7 +546,10 @@ fun DemoAssistancePanel(baseUrl: String) {
                         scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
-                                    DemoAssistanceClient.setLocalSeverity(gateway, selectedSeverity)
+                                    // Always clear any stale local demo tag first. The
+                                    // reconciliation effect applies INFECTED only after
+                                    // an assistance request is confirmed active.
+                                    DemoAssistanceClient.setLocalSeverity(gateway, 0)
                                     DemoAssistanceClient.setSeverity(
                                         baseUrl,
                                         current.id,
@@ -530,8 +559,9 @@ fun DemoAssistancePanel(baseUrl: String) {
                                 }
                             }.onSuccess {
                                 session = it
+                                appliedLocalSeverity = 0
                                 message = if (infected) {
-                                    "This unit is marked INFECTED for Demo 3."
+                                    "This unit is marked INFECTED. Polling continues until a Request for Assistance is active."
                                 } else {
                                     "This unit is marked CLEAN for Demo 3."
                                 }
