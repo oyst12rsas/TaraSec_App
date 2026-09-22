@@ -778,7 +778,10 @@ fun DemoPanel(
                 title = "Demo 3 · Community containment",
                 subtitle = "Real Assistance Request with automatic recovery"
             ) {
-                DemoAssistancePanel(baseUrl = "http://100.68.126.0")
+                DemoAssistancePanel(
+                    baseUrl = "http://100.68.126.0",
+                    initialGatewayControlBase = activeControlBase()
+                )
             }
         }
 

@@ -17,6 +17,14 @@ import androidx.compose.ui.unit.dp
 class DemoAssistanceActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val installations = InstallationStore.load(this)
+        val selectedId = InstallationStore.selectedId(this)
+        val selectedInstallation = installations.firstOrNull { it.id == selectedId }
+            ?: installations.firstOrNull()
+        val gatewayControlBase = selectedInstallation?.serviceIp
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "http://$it" }
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -27,7 +35,10 @@ class DemoAssistanceActivity : ComponentActivity() {
                             .padding(20.dp)
                     ) {
                         Text("Demo 3 · Request for Assistance", style = MaterialTheme.typography.headlineSmall)
-                        DemoAssistancePanel(baseUrl = "http://100.68.126.0")
+                        DemoAssistancePanel(
+                            baseUrl = "http://100.68.126.0",
+                            initialGatewayControlBase = gatewayControlBase
+                        )
                     }
                 }
             }

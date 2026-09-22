@@ -37,10 +37,15 @@ private fun formatDemoDuration(totalSeconds: Int): String {
 }
 
 @Composable
-fun DemoAssistancePanel(baseUrl: String) {
+fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = null) {
     val activity = LocalContext.current as ComponentActivity
     val clipboard = LocalClipboard.current
-    var gatewayControlBase by remember { mutableStateOf(LocalGateway.baseUrl(activity)) }
+    // Only use a gateway already selected and verified by DemoPanel. The
+    // ordinary Wi-Fi default route may be a home router such as
+    // 192.168.1.1:8080 and must never receive TaraSec control requests.
+    var gatewayControlBase by remember(initialGatewayControlBase) {
+        mutableStateOf(initialGatewayControlBase)
+    }
     var gatewayRouteMessage by remember { mutableStateOf("Identifying the current TaraSec gateway…") }
     val scope = rememberCoroutineScope()
 
