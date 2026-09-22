@@ -410,6 +410,10 @@ fun DemoPanel(
         modifier = Modifier.fillMaxWidth()
     ) {
         Text("TaraSec Security Demos", style = MaterialTheme.typography.titleLarge)
+
+        if (!directHotspotDetected && !selectedVpnActive()) {
+            WireGuardQrHelp()
+        }
         Text(
             "The demos can be difficult to interpret while they are running. At any time, use the demo's Copy info/debug report for AI button, paste it into an AI assistant such as ChatGPT, and ask what happened or what to do next.",
             style = MaterialTheme.typography.bodyMedium
