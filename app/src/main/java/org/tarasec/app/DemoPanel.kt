@@ -411,7 +411,11 @@ fun DemoPanel(
     ) {
         Text("TaraSec Security Demos", style = MaterialTheme.typography.titleLarge)
         Text(
-            "The quick infection demo and the SSH self-healing demo are separate. Expand only the one you want to run.",
+            "The demos can be difficult to interpret while they are running. At any time, use the demo's Copy info/debug report for AI button, paste it into an AI assistant such as ChatGPT, and ask what happened or what to do next.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            "The copied information includes a TaraSec background link so an AI session that has never seen TaraSec or this app can understand the demo before interpreting the live result.",
             style = MaterialTheme.typography.bodySmall
         )
 
