@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 
 private fun demo4DebugReport(baseUrl: String, status: Demo4RouteStatus?): String = buildString {
     appendLine("TaraSec Demo 4 debug report")
+    appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
+    appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
     appendLine("generated_at_epoch_ms=${System.currentTimeMillis()}")
     appendLine()
     appendLine("[instructions_for_ai]")
