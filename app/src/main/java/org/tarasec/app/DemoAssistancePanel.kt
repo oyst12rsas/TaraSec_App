@@ -36,6 +36,12 @@ private fun formatDemoDuration(totalSeconds: Int): String {
     return "%d:%02d".format(seconds / 60, seconds % 60)
 }
 
+private fun demo3ParticipantName(nickname: String): String {
+    val suffix = " (app)"
+    val name = nickname.trim()
+    return if (name.isBlank()) "App participant" else name.take(80 - suffix.length) + suffix
+}
+
 @Composable
 fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = null) {
     val activity = LocalContext.current as ComponentActivity
@@ -324,7 +330,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                                     val joined = DemoAssistanceClient.join(
                                         baseUrl,
                                         created.session.id,
-                                        nickname.trim(),
+                                        demo3ParticipantName(nickname),
                                         groupCode.trim()
                                     )
                                     created to joined
@@ -526,7 +532,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                                         DemoAssistanceClient.join(
                                             baseUrl,
                                             current.id,
-                                            nickname.trim(),
+                                            demo3ParticipantName(nickname),
                                             groupCode.trim()
                                         )
                                     }
