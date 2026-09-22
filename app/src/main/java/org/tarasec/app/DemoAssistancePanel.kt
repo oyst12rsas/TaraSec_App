@@ -769,6 +769,8 @@ private fun buildDemoAssistanceDebugReport(
     message: String
 ): String = buildString {
     appendLine("TaraSec Demo 3 debug report")
+    appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
+    appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
     appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
     appendLine("app_version=" + BuildConfig.VERSION_NAME)
     appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
