@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -498,6 +499,8 @@ private fun SubscriberHome(
 
         Text(connectedStatus, style = MaterialTheme.typography.bodySmall)
 
+        WireGuardQrHelp()
+
         HorizontalDivider()
         Text("Published TaraSec hotspots", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -546,4 +549,38 @@ private fun SubscriberHome(
             Text("Owner/admin mode is remembered on this device. Remote management still requires the installation's manager authentication.")
         }
     }
+}
+
+@Composable
+internal fun WireGuardQrHelp() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Text("No TaraSec hotspot nearby?", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "If you cannot otherwise access the TaraSec NetBird network, request a WireGuard QR code using your normal Internet connection.",
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Text(
+        "Open the request page, enter your name, email and tester password, and confirm the assignment and email notice. One QR code is assigned per email. Ask the TaraSec team for a tester password if you do not have one.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        "Install the WireGuard app. Display your assigned QR code on another screen, then use WireGuard on this phone to scan it and enable the tunnel. Return to TaraSec, choose a demo gateway and refresh its status.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    OutlinedButton(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = {
+            try {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://tarasec.org/app/wireguard.php"))
+                )
+            } catch (_: android.content.ActivityNotFoundException) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Open https://tarasec.org/app/wireguard.php in a web browser.",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    ) { Text("Get a WireGuard QR code") }
 }
