@@ -116,6 +116,7 @@ object HotspotDirectoryClient {
             .apply()
     }
 
+    @Suppress("DEPRECATION") // Required to inspect non-default Wi-Fi networks synchronously.
     private fun wifiNetwork(context: Context): android.net.Network? {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
         return cm.allNetworks.firstOrNull { network ->
@@ -125,19 +126,44 @@ object HotspotDirectoryClient {
 
     private fun pollTime(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
 
+    private fun connectedGatewayKey(context: Context): String? {
+        val base = LocalGateway.baseUrl(context)?.trimEnd('/') ?: return null
+        val host = runCatching { URL(base).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        val network = wifiNetwork(context) ?: return null
+        val connection = runCatching {
+            network.openConnection(URL("http://$host:8080/hotspot/tarasec_identity.php")) as HttpURLConnection
+        }.getOrNull() ?: return null
+        return try {
+            connection.connectTimeout = 2500
+            connection.readTimeout = 3500
+            connection.useCaches = false
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            if (connection.responseCode !in 200..299) return null
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            json.optString("gateway_key").trim().takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun connectedCentralUsageLabel(context: Context): String? {
         if (SubscriberAccountClient.storedToken(context) == null) return null
         val time = pollTime()
+        val gatewayKey = connectedGatewayKey(context)
+            ?: return "Usage poll $time · connected hotspot identity unavailable"
         val account = runCatching { SubscriberAccountClient.account(context) }.getOrElse { error ->
             return "Usage poll $time · failed: ${error.message ?: error.javaClass.simpleName}"
         }
 
-        // subscriber-account.php returns newest sessions first. Prefer the newest
-        // open session. During the pilot this is the session for the Wi-Fi that
-        // is currently serving the device. Falling back to the newest session
-        // keeps diagnostics visible even if a previous session was not closed.
-        val usage = account.usages.firstOrNull { it.endedAt == null } ?: account.usages.firstOrNull()
-            ?: return "Usage poll $time · no central TaraSec session"
+        // Only an open session belonging to the gateway serving this Wi-Fi may
+        // be labelled as the current session. Never fall back to another open
+        // or historical session from the subscriber account.
+        val usage = account.usages.firstOrNull {
+            it.endedAt == null && it.gatewayKey == gatewayKey
+        } ?: return "Usage poll $time · current session is starting"
 
         return buildString {
             append("TaraSec roaming: ${usage.priceCreditsPerMiB} credits/MiB")

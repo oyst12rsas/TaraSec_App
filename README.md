@@ -1,13 +1,13 @@
 # TaraSec App
 
-Private Android application for TaraSec owners/operators.
+TaraSec App is the primary mobile implementation and source of truth for TaraSec client behaviour. It provides owner, subscriber, gateway-management, research, and end-to-end demonstration interfaces for the wider TaraSec system.
 
-Initial goals:
+## Development order
 
-- A2: compilable Android project and setup.
-- A3: connect to configured TaraSec DB server and gateway, later add discovery.
-- A4: authenticated/encrypted application traffic.
-- A5: controlled demo/infection verification workflow.
-- A6: Assistance Request workflow.
+New features, protocol changes, security improvements, and behavioural fixes are implemented and validated in this repository first. Platform-specific versions, including [TaraSec for iOS](https://github.com/oyst12rsas/tarasec_iOS), are then updated to preserve the same API contracts and behaviour.
 
-The app source is intentionally kept separate from the public TaraSec node repository.
+## Build
+
+See [AI_DEMO_GUIDE.md](AI_DEMO_GUIDE.md) for the current Android build, deployment, demonstration, and troubleshooting workflow.
+
+Release signing credentials, local configuration, API credentials, keystores, APKs, and app bundles must not be committed. See [PLAY_STORE_RELEASE.md](PLAY_STORE_RELEASE.md) for release-signing guidance.

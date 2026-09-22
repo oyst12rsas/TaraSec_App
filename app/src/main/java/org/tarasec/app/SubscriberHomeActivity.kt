@@ -96,6 +96,7 @@ private const val DIRECTORY_PREFS = "tarasec_directory_state"
 private const val PREF_DIRECTORY_REACHED = "directory_reached"
 private const val PREF_DIRECTORY_REACHED_WITH_VPN = "directory_reached_with_vpn"
 
+@Suppress("DEPRECATION") // Required to detect a VPN that is not the default network.
 private fun vpnIsActive(context: Context): Boolean {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
     return cm.allNetworks.any { network ->
@@ -379,12 +380,12 @@ private fun SubscriberHome(
             }
 
             activity.runOnUiThread {
-                if (identified != null) {
-                    val name = identified!!.optString("name", "").takeIf { it.isNotBlank() }
-                    val detectedRole = identified!!.optString("role", "")
+                identified?.let { gateway ->
+                    val name = gateway.optString("name", "").takeIf { it.isNotBlank() }
+                    val detectedRole = gateway.optString("role", "")
                     val kind = if (detectedRole == "tarasec-hotspot") "TaraSec hotspot" else "TaraSec gateway"
                     connectedStatus = "Connected to $kind${name?.let { ": $it" } ?: ""} · $base"
-                } else {
+                } ?: run {
                     connectedStatus = "Wi-Fi is connected through $base, but that gateway did not identify itself as TaraSec${lastError?.let { " ($it)" } ?: ""}."
                 }
                 detectingConnected = false
@@ -412,6 +413,7 @@ private fun SubscriberHome(
                     TaraMenuDestination.AI_ASSISTANCE,
                     TaraMenuDestination.RESEARCH,
                     TaraMenuDestination.SETUP_HOTSPOTS -> openConsole(destination)
+                    TaraMenuDestination.CONTRIBUTE -> Unit
                 }
             }
         }

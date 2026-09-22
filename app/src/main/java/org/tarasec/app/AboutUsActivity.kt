@@ -2,6 +2,7 @@ package org.tarasec.app
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,6 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
 data class MentalHealthChatMessage(val fromUser: Boolean, val text: String)
@@ -45,7 +50,7 @@ class AboutUsActivity : ComponentActivity() {
 private fun AboutUsScreen() {
     val activity = LocalContext.current as Activity
     Column(
-        Modifier.fillMaxSize().padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -67,14 +72,47 @@ private fun AboutUsScreen() {
         }
         Text("About Us", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Taransvar is a Norwegian non-profit developing practical approaches to mental health and safer Internet services.",
+            "TaraSec is developed and owned by Taransvar, a Norwegian non-profit that explores mental health through neuroplasticity.",
             style = MaterialTheme.typography.bodyLarge
         )
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { activity.startActivity(Intent(activity, MentalHealthChatActivity::class.java)) }
-        ) {
-            Text("Mental Health Chat")
+        Text(
+            "We see biological differences as potential talents. Mental health problems can be understood as destructive patterns shaped and reinforced through neuroplasticity. With appropriate support, constructive patterns can be strengthened through assisted training, while destructive patterns can become less problematic as they grow rusty and are obscured by stronger constructive patterns. In this view, focus and motivation are essential for change.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            "TaraSec is our collaborative approach to cybersecurity. It connects those who know whether traffic is malicious—the receiver—with those who know which technical unit sent it—the originating network—without exposing private identity data.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            "Income from cybersecurity will help fund Taransvar's work on mental health.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        if (MentalHealthFlowiseClient.isConfigured) {
+            Text(
+                "You can explore an example AI chatbot built on our assumptions here:",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { activity.startActivity(Intent(activity, MentalHealthChatActivity::class.java)) }
+            ) {
+                Text("Explore Mental Health AI Chat")
+            }
+        } else {
+            Text(
+                "The example AI chat is not available in this build. Please use Taransvar's official mental-health app, or contact Taransvar for access.",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    activity.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://taransvar.no/contact.php"))
+                    )
+                }
+            ) {
+                Text("Contact Taransvar")
+            }
         }
     }
 }
@@ -100,7 +138,38 @@ private fun MentalHealthChatScreen() {
     var messages by remember {
         mutableStateOf(listOf(MentalHealthChatMessage(false, "Welcome. You can write what is on your mind, and we can talk about it here.")))
     }
+    val focusManager = LocalFocusManager.current
     val scroll = rememberScrollState()
+
+    fun sendMessage() {
+        if (sending || input.isBlank()) return
+
+        val text = input.trim()
+        input = ""
+        messages = messages + MentalHealthChatMessage(true, text)
+        sending = true
+        status = "Thinking…"
+        Thread {
+            try {
+                val reply = MentalHealthFlowiseClient.send(text, chatId)
+                activity.runOnUiThread {
+                    chatId = reply.chatId
+                    messages = messages + MentalHealthChatMessage(false, reply.text)
+                    sending = false
+                    status = "Ready"
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    messages = messages + MentalHealthChatMessage(
+                        false,
+                        "I couldn't reach the conversation service right now. ${e.message ?: "Please try again."}"
+                    )
+                    sending = false
+                    status = "Connection problem"
+                }
+            }
+        }.start()
+    }
 
     Column(
         Modifier.fillMaxSize().padding(20.dp).verticalScroll(scroll),
@@ -150,36 +219,20 @@ private fun MentalHealthChatScreen() {
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
             label = { Text("What's on your mind?") },
-            enabled = !sending
+            enabled = !sending,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(
+                onSend = {
+                    focusManager.clearFocus()
+                    sendMessage()
+                }
+            )
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 enabled = !sending && input.isNotBlank(),
-                onClick = {
-                    val text = input.trim()
-                    input = ""
-                    messages = messages + MentalHealthChatMessage(true, text)
-                    sending = true
-                    status = "Thinking…"
-                    Thread {
-                        try {
-                            val reply = MentalHealthFlowiseClient.send(text, chatId)
-                            activity.runOnUiThread {
-                                chatId = reply.chatId
-                                messages = messages + MentalHealthChatMessage(false, reply.text)
-                                sending = false
-                                status = "Ready"
-                            }
-                        } catch (e: Exception) {
-                            activity.runOnUiThread {
-                                messages = messages + MentalHealthChatMessage(false, "I couldn't reach the conversation service right now. ${e.message ?: "Please try again."}")
-                                sending = false
-                                status = "Connection problem"
-                            }
-                        }
-                    }.start()
-                }
+                onClick = ::sendMessage
             ) { Text(if (sending) "Sending…" else "Send") }
 
             Button(

@@ -1,5 +1,7 @@
 package org.tarasec.app
 
+import android.content.ClipData
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,8 +19,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -26,22 +31,32 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private fun formatDemoDuration(totalSeconds: Int): String {
+    val seconds = totalSeconds.coerceAtLeast(0)
+    return "%d:%02d".format(seconds / 60, seconds % 60)
+}
+
 @Composable
 fun DemoAssistancePanel(baseUrl: String) {
     val activity = LocalContext.current as ComponentActivity
+    val clipboard = LocalClipboard.current
     var gatewayControlBase by remember { mutableStateOf(LocalGateway.baseUrl(activity)) }
     var gatewayRouteMessage by remember { mutableStateOf("Identifying the current TaraSec gateway…") }
     val scope = rememberCoroutineScope()
 
     var available by remember { mutableStateOf<List<DemoAssistanceSession>>(emptyList()) }
     var session by remember { mutableStateOf<DemoAssistanceSession?>(null) }
-    var participantToken by remember { mutableStateOf("") }
-    var participantId by remember { mutableStateOf(0) }
+    var participantToken by rememberSaveable(baseUrl) { mutableStateOf("") }
+    var controllerToken by rememberSaveable(baseUrl) { mutableStateOf("") }
+    var participantId by rememberSaveable(baseUrl) { mutableStateOf(0) }
     var nickname by remember { mutableStateOf("") }
     var newDemoName by remember { mutableStateOf("") }
+    var groupLabel by remember { mutableStateOf("") }
+    var groupCode by remember { mutableStateOf("") }
     var delaySeconds by remember { mutableStateOf(120) }
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
+    var leaving by remember { mutableStateOf(false) }
     var containmentAlertVisible by remember { mutableStateOf(false) }
     var containmentWarnedSessionId by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf("Loading available Demo 3 sessions…") }
@@ -49,9 +64,34 @@ fun DemoAssistancePanel(baseUrl: String) {
     var displayedReleaseSeconds by remember { mutableStateOf(0) }
     var requestSentLocally by remember { mutableStateOf(false) }
     var participantAgeTick by remember { mutableStateOf(0) }
+    var heartbeatAttempts by remember { mutableStateOf(0) }
+    var heartbeatSuccesses by remember { mutableStateOf(0) }
+    var heartbeatFailures by remember { mutableStateOf(0) }
+    var lastHeartbeatAttemptEpochMs by remember { mutableStateOf<Long?>(null) }
+    var lastHeartbeatSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
+    var lastHeartbeatError by remember { mutableStateOf("") }
+
+    fun resetLocalDemoState() {
+        session = null
+        participantToken = ""
+        controllerToken = ""
+        participantId = 0
+        containmentAlertVisible = false
+        containmentWarnedSessionId = null
+        displayedRequestSeconds = 0
+        displayedReleaseSeconds = 0
+        requestSentLocally = false
+        participantAgeTick = 0
+        heartbeatAttempts = 0
+        heartbeatSuccesses = 0
+        heartbeatFailures = 0
+        lastHeartbeatAttemptEpochMs = null
+        lastHeartbeatSuccessEpochMs = null
+        lastHeartbeatError = ""
+    }
 
     suspend fun refreshAvailable() {
-        runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl) } }
+        runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.list(baseUrl, groupCode) } }
             .onSuccess {
                 available = it
                 message = if (it.isEmpty()) "No joinable Demo 3 sessions. You can start one." else "${it.size} joinable Demo 3 session(s)."
@@ -79,20 +119,36 @@ fun DemoAssistancePanel(baseUrl: String) {
         val id = session?.id ?: return@LaunchedEffect
         while (true) {
             delay(2000)
+            if (leaving) continue
             val token = participantToken
+            heartbeatAttempts += 1
+            lastHeartbeatAttemptEpochMs = System.currentTimeMillis()
             runCatching {
                 withContext(Dispatchers.IO) {
                     if (token.isNotBlank()) DemoAssistanceClient.heartbeat(baseUrl, id, token)
-                    else DemoAssistanceClient.status(baseUrl, id)
+                    else DemoAssistanceClient.status(baseUrl, id, groupCode)
                 }
-            }.onSuccess { session = it }
+            }.onSuccess {
+                session = it
+                // The server response contains a fresh secondsSinceSeen snapshot for
+                // every participant. Restart the local age ticker from that snapshot;
+                // otherwise participantAgeTick keeps accumulating even while polling
+                // succeeds and makes "last successful contact" appear stale.
+                participantAgeTick = 0
+                heartbeatSuccesses += 1
+                lastHeartbeatSuccessEpochMs = System.currentTimeMillis()
+                lastHeartbeatError = ""
+            }.onFailure {
+                heartbeatFailures += 1
+                lastHeartbeatError = it.message ?: it.javaClass.simpleName
+            }
             // A failed heartbeat after containment is expected for a contained
             // participant: its traffic to the requesting server is really blocked.
         }
     }
 
     // A contained participant cannot poll the protected server. Keep the visible
-    // countdown moving locally until the automatic release restores connectivity;
+    // observation timer moving locally until the controller chooses to release;
     // every successful server response corrects the local clock.
     LaunchedEffect(
         session?.id,
@@ -155,12 +211,21 @@ fun DemoAssistancePanel(baseUrl: String) {
                             session = demo
                             participantToken = ""
                             participantId = 0
+                            controllerToken = ""
                             message = "Selected ${demo.name}."
                         }
                     ) {
-                        Text("${demo.name} · #${demo.id} · ${demo.secondsRemaining}s left")
+                        Text("${demo.name}${if (demo.groupLabel.isBlank()) "" else " · ${demo.groupLabel}"} · #${demo.id} · ${demo.secondsRemaining}s left")
                     }
                 }
+                OutlinedTextField(
+                    value = groupCode,
+                    onValueChange = { groupCode = it.take(64) },
+                    label = { Text("University/group code (optional)") },
+                    supportingText = { Text("Enter the shared code, then refresh to reveal that group's demos.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { scope.launch { refreshAvailable() } }
@@ -180,6 +245,22 @@ fun DemoAssistancePanel(baseUrl: String) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = groupLabel,
+                    onValueChange = { groupLabel = it.take(120) },
+                    label = { Text("University or group (optional)") },
+                    placeholder = { Text("For example: UiA") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = groupCode,
+                    onValueChange = { groupCode = it.take(64) },
+                    label = { Text("Private group code (optional)") },
+                    supportingText = { Text("With a code, only participants using the same code can discover or join this demo.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Text("Request countdown: $delaySeconds seconds")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -190,7 +271,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                     }
                 }
 
-                Text("Automatic release after: $containmentSeconds seconds")
+                Text("Suggested observation before release: $containmentSeconds seconds")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     listOf(30, 120, 300).forEach { seconds ->
                         OutlinedButton(onClick = { containmentSeconds = seconds }, modifier = Modifier.weight(1f)) {
@@ -207,20 +288,32 @@ fun DemoAssistancePanel(baseUrl: String) {
                         scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
-                                    DemoAssistanceClient.create(
+                                    val created = DemoAssistanceClient.create(
                                         baseUrl,
                                         newDemoName.trim().ifBlank {
                                             "Community infection exercise"
                                         },
                                         5,
                                         delaySeconds,
-                                        containmentSeconds
+                                        containmentSeconds,
+                                        groupLabel.trim(),
+                                        groupCode.trim()
                                     )
+                                    val joined = DemoAssistanceClient.join(
+                                        baseUrl,
+                                        created.session.id,
+                                        nickname.trim(),
+                                        groupCode.trim()
+                                    )
+                                    created to joined
                                 }
-                            }.onSuccess {
-                                session = it.session
-                                message = "${it.session.name} started. Others can now find and join demo #${it.session.id}."
-                            }.onFailure { message = "Could not start Demo 3: ${it.message}" }
+                            }.onSuccess { (created, joined) ->
+                                session = joined.session
+                                controllerToken = created.controllerToken
+                                participantToken = joined.participantToken
+                                participantId = joined.participantId
+                                message = "${created.session.name} started and this unit joined demo #${created.session.id}. Choose whether this unit is CLEAN or INFECTED."
+                            }.onFailure { message = "Could not start and join Demo 3: ${it.message}" }
                             busy = false
                         }
                     }
@@ -228,11 +321,19 @@ fun DemoAssistancePanel(baseUrl: String) {
             }
         } else {
             val ownParticipant = current.participants.firstOrNull { it.id == participantId }
+            val ownInfected = ownParticipant?.severity?.let { it > current.threshold } == true
             val containmentExpected = participantToken.isNotBlank() &&
-                ownParticipant?.severity?.let { it > current.threshold } == true &&
+                ownInfected &&
                 current.state == "active"
-            val demoFinished = current.state == "closed" ||
-                (requestSentLocally && displayedReleaseSeconds <= 0)
+            val demoFinished = current.state == "closed"
+            val localBlockedSeconds = if (
+                ownInfected &&
+                requestSentLocally &&
+                lastHeartbeatSuccessEpochMs != null
+            ) {
+                ((System.currentTimeMillis() - lastHeartbeatSuccessEpochMs!!) / 1000L)
+                    .coerceAtLeast(0L).toInt()
+            } else 0
 
             LaunchedEffect(
                 current.id,
@@ -259,7 +360,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                             "This unit is marked INFECTED. At zero, " +
                                 "TaraSec will intentionally block this device's communication " +
                                 "with the protected server. Status updates will appear frozen " +
-                                "until the automatic release restores communication."
+                                "until the controller requests release and communication returns."
                         )
                     },
                     confirmButton = {
@@ -279,7 +380,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         if (current.secondsRemaining > 15) {
                             "When the countdown reaches zero, communication with TaraSec's " +
                                 "protected server will pause. The app may appear frozen until " +
-                                "automatic release."
+                                "the controller explicitly requests release."
                         } else {
                             "Warning: communication will pause in ${current.secondsRemaining} " +
                                 "seconds. No status updates are expected during containment."
@@ -292,17 +393,22 @@ fun DemoAssistancePanel(baseUrl: String) {
             if (demoFinished) {
                 TaraSectionCard(
                     title = "Demo 3 is over",
-                    subtitle = "The Request for Assistance has been released"
+                    subtitle = "Release was explicitly requested"
                 ) {
                     Text(
-                        "You are welcome to join an available demo or start a new one. " +
-                            "Tap Reset below to return to the Demo 3 selection."
+                        "The session is closed, but no clean result is assumed. Review the " +
+                            "observed participant contact history below or copy the debug report."
                     )
                 }
             } else {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
                 TaraStatusRow("Protected server", current.targetIp)
+                if (ownInfected && requestSentLocally) {
+                    TaraStatusRow("Network", if (heartbeatFailures > 0) "🔴 INFECTED · blocked for ${localBlockedSeconds}s" else "🔴 INFECTED · waiting for network block")
+                } else if (ownParticipant?.severity != null && ownParticipant.severity <= current.threshold) {
+                    TaraStatusRow("Network", "🟢 CLEAN · polling should continue")
+                }
                 TaraStatusRow(
                     "Request for Assistance",
                     if (requestSentLocally || current.state != "active") {
@@ -311,12 +417,51 @@ fun DemoAssistancePanel(baseUrl: String) {
                         "in ${displayedRequestSeconds}s"
                     }
                 )
-                if (requestSentLocally || current.state == "contained" || current.state == "releasing") {
+                if (current.state == "contained") {
                     TaraStatusRow(
-                        "Releasing in",
-                        "${displayedReleaseSeconds.coerceAtLeast(0)} seconds"
+                        "Observation",
+                        if (displayedReleaseSeconds > 0) {
+                            "${displayedReleaseSeconds.coerceAtLeast(0)} seconds before suggested release"
+                        } else {
+                            "Timer complete · waiting for explicit release"
+                        }
+                    )
+                } else if (current.state == "releasing") {
+                    TaraStatusRow(
+                        "Containment completed",
+                        "Connection restored as expected · review remains open for " +
+                            formatDemoDuration(current.observationSecondsRemaining)
+                    )
+                    Text(
+                        "TaraSec blocked infected traffic while assistance was active. " +
+                            "Assistance is now cancelled, so successful polling is expected again. " +
+                            "The demo closes after the review period or when all participants leave.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+
+            if (!demoFinished && current.state == "contained" && controllerToken.isNotBlank()) {
+                OutlinedButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    DemoAssistanceClient.release(baseUrl, current.id, controllerToken)
+                                }
+                            }.onSuccess {
+                                session = it
+                                message = "Release requested. Demo 3 will remain observable until contact recovery is recorded."
+                            }.onFailure {
+                                message = "Could not release assistance: ${it.message}"
+                            }
+                            busy = false
+                        }
+                    }
+                ) { Text("Release assistance and observe recovery") }
             }
 
             if (!demoFinished && participantToken.isBlank() && current.state == "active") {
@@ -328,7 +473,7 @@ fun DemoAssistancePanel(baseUrl: String) {
                         onClick = {
                             busy = true
                             scope.launch {
-                                runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.join(baseUrl, current.id, nickname.trim()) } }
+                                runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.join(baseUrl, current.id, nickname.trim(), groupCode.trim()) } }
                                     .onSuccess {
                                         participantToken = it.participantToken
                                         participantId = it.participantId
@@ -348,10 +493,10 @@ fun DemoAssistancePanel(baseUrl: String) {
                     title = "This unit's demo status",
                     subtitle = "Stored on the local TaraSec gateway"
                 ) {
-                    val ownInfected = ownParticipant?.severity?.let { it > 0 }
+                    val ownInfectedForStatus = ownParticipant?.severity?.let { it > 0 }
                     TaraStatusRow(
                         "Status",
-                        when (ownInfected) {
+                        when (ownInfectedForStatus) {
                             true -> "🔴 INFECTED"
                             false -> "🟢 CLEAN"
                             null -> "Not selected"
@@ -440,47 +585,271 @@ fun DemoAssistancePanel(baseUrl: String) {
                 }
             }
 
-            if (!demoFinished) {
-                TaraSectionCard(title = "Participants", subtitle = "Watch INFECTED units stop polling") {
+            if (!demoFinished || current.participants.isNotEmpty()) {
+                TaraSectionCard(title = "Participants", subtitle = "Observed contact evidence remains visible after release") {
                 if (current.participants.isEmpty()) Text("Waiting for participants…")
                 current.participants.forEach { p ->
                     val label = p.nickname.ifBlank { p.observedIp.ifBlank { "Participant ${p.id}" } }
                     val mine = if (p.id == participantId) " · you" else ""
-                    val infected = p.severity > 0
-                    val expected = p.severity > current.threshold
-                    val lostFor = (p.secondsSinceSeen ?: 0) + participantAgeTick
-                    val infectionState = if (infected) "🔴 INFECTED" else "🟢 CLEAN"
-                    val connectionState = when (p.decision) {
-                        "silent" -> "LOST CONNECTION $lostFor second" +
-                            if (lostFor == 1) " ago" else "s ago"
-                        "recovered" -> "CONNECTION RESTORED"
-                        "connected" -> if (expected && current.state != "active") {
-                            "still polling"
-                        } else {
-                            "polling"
-                        }
-                        else -> if (expected) "will be contained" else "will remain connected"
+                    val infected = p.severity?.let { it > 0 }
+                    val expected = p.severity?.let { it > current.threshold } == true
+                    val lastContactAge = p.secondsSinceSeen?.plus(participantAgeTick)
+                    val lastContact = lastContactAge?.let {
+                        "$it second" + if (it == 1) " ago" else "s ago"
+                    }
+                    val infectionState = when (infected) {
+                        true -> "🔴 INFECTED"
+                        false -> "🟢 CLEAN"
+                        null -> "⚪ NOT SELECTED"
+                    }
+                    val connectionState = when {
+                        p.decision == "pending" || lastContact == null ->
+                            "WAITING · no poll received yet"
+                        p.decision == "left" ->
+                            "LEFT DEMO · last contact $lastContact"
+                        p.decision == "silent" && current.state == "releasing" ->
+                            "WAITING FOR CONNECTION RESTORE · last successful contact $lastContact"
+                        p.decision == "silent" ->
+                            "NO RESPONSE · expected containment · last successful contact $lastContact"
+                        lastContactAge > 6 ->
+                            if (expected && current.state == "contained") {
+                                "NO RESPONSE · expected containment · last successful contact $lastContact"
+                            } else {
+                                "NO RESPONSE · unexpected · last successful contact $lastContact"
+                            }
+                        p.decision == "recovered" ->
+                            "CONNECTION RESTORED · expected after release · last contact $lastContact"
+                        p.decision == "connected" && expected && current.state == "releasing" ->
+                            "CONNECTION RESTORED · expected after release · last contact $lastContact"
+                        p.decision == "connected" && expected && current.state == "contained" ->
+                            "STILL REACHABLE · unexpected during containment · last contact $lastContact"
+                        p.decision == "connected" ->
+                            "POLLING · response received · last contact $lastContact"
+                        expected -> "WAITING · will be contained"
+                        else -> "WAITING · will remain connected"
                     }
                     TaraStatusRow("$label$mine", "$infectionState · $connectionState")
                     }
                 }
             }
 
-            if (!demoFinished && (current.state == "contained" || current.state == "releasing")) {
+            if (current.state == "contained" || current.state == "releasing" || current.state == "closed") {
                 TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
-                    Text("${current.participants.size} joined · ${current.silent} currently silent · ${current.recovered} recovered · ${current.connected} polling")
+                    val responsive = current.participants.count {
+                        it.decision != "left" &&
+                            it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age <= 6 } == true
+                    }
+                    val unresponsive = current.participants.count {
+                        it.decision != "left" &&
+                            it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age > 6 } == true
+                    }
+                    val left = current.participants.count { it.decision == "left" }
+                    Text("${current.participants.size} joined · $responsive responding · $unresponsive without recent contact · $left left · ${current.recovered} recovered")
                 }
             }
 
-            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
-                session = null
-                participantToken = ""
-                participantId = 0
-                containmentAlertVisible = false
-                containmentWarnedSessionId = null
-                scope.launch { refreshAvailable() }
-            }) { Text(if (demoFinished) "Reset" else "Choose another demo") }
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val report = buildDemoAssistanceDebugReport(
+                        baseUrl = baseUrl,
+                        gatewayControlBase = gatewayControlBase,
+                        gatewayRouteMessage = gatewayRouteMessage,
+                        session = current,
+                        participantId = participantId,
+                        participantTokenPresent = participantToken.isNotBlank(),
+                        controllerTokenPresent = controllerToken.isNotBlank(),
+                        participantAgeTick = participantAgeTick,
+                        displayedRequestSeconds = displayedRequestSeconds,
+                        displayedReleaseSeconds = displayedReleaseSeconds,
+                        requestSentLocally = requestSentLocally,
+                        heartbeatAttempts = heartbeatAttempts,
+                        heartbeatSuccesses = heartbeatSuccesses,
+                        heartbeatFailures = heartbeatFailures,
+                        lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
+                        lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
+                        lastHeartbeatError = lastHeartbeatError,
+                        message = message
+                    )
+                    scope.launch {
+                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
+                    }
+                    message = "Demo 3 debug report copied."
+                }
+            ) { Text("Copy debug info for AI") }
+            Text(
+                "Copies connection and heartbeat state without participant tokens or group codes.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            OutlinedButton(
+                enabled = !busy && !leaving,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val token = participantToken
+                    if (!demoFinished && token.isNotBlank()) {
+                        leaving = true
+                        scope.launch {
+                            gatewayControlBase?.let { gateway ->
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        DemoAssistanceClient.setLocalSeverity(gateway, 0)
+                                    }
+                                }
+                            }
+                            var leaveError = "No response from the demo server"
+                            var leftSuccessfully = false
+                            repeat(6) {
+                                if (!leftSuccessfully) {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            DemoAssistanceClient.leave(baseUrl, current.id, token)
+                                        }
+                                    }.onSuccess {
+                                        leftSuccessfully = true
+                                    }.onFailure {
+                                        leaveError = it.message ?: it.javaClass.simpleName
+                                    }
+                                    if (!leftSuccessfully) delay(2000)
+                                }
+                            }
+                            if (leftSuccessfully) {
+                                resetLocalDemoState()
+                                message = "You left Demo 3. You can join or start another demo now."
+                                refreshAvailable()
+                            } else {
+                                message = "Could not record that you left: $leaveError. The shared demo was not closed."
+                            }
+                            leaving = false
+                        }
+                    } else {
+                        resetLocalDemoState()
+                        message = if (demoFinished) {
+                            "Returned to the Demo 3 list."
+                        } else {
+                            "You left this screen. The shared demo remains open."
+                        }
+                        scope.launch { refreshAvailable() }
+                    }
+                }
+            ) {
+                Text(
+                    when {
+                        leaving -> "Leaving…"
+                        demoFinished -> "Return to demo list"
+                        participantToken.isNotBlank() -> "Leave this demo · others continue"
+                        else -> "Return to demo list · demo stays open"
+                    }
+                )
+            }
         }
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+
+private fun buildDemoAssistanceDebugReport(
+    baseUrl: String,
+    gatewayControlBase: String?,
+    gatewayRouteMessage: String,
+    session: DemoAssistanceSession,
+    participantId: Int,
+    participantTokenPresent: Boolean,
+    controllerTokenPresent: Boolean,
+    participantAgeTick: Int,
+    displayedRequestSeconds: Int,
+    displayedReleaseSeconds: Int,
+    requestSentLocally: Boolean,
+    heartbeatAttempts: Int,
+    heartbeatSuccesses: Int,
+    heartbeatFailures: Int,
+    lastHeartbeatAttemptEpochMs: Long?,
+    lastHeartbeatSuccessEpochMs: Long?,
+    lastHeartbeatError: String,
+    message: String
+): String = buildString {
+    appendLine("TaraSec Demo 3 debug report")
+    appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
+    appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
+    appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
+    appendLine("app_version=" + BuildConfig.VERSION_NAME)
+    appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
+    appendLine("secrets=omitted (participant token and group code)")
+    appendLine()
+    appendLine("[connection]")
+    appendLine("db_endpoint=" + baseUrl.ifBlank { "not selected" })
+    appendLine("gateway_control_endpoint=" + gatewayControlBase.orEmpty().ifBlank { "unavailable" })
+    appendLine("gateway=" + gatewayRouteMessage.ifBlank { "unknown" })
+    appendLine()
+    appendLine("[polling]")
+    appendLine("participant_id=" + participantId)
+    appendLine("participant_token_present=" + participantTokenPresent)
+    appendLine("controller_token_present=" + controllerTokenPresent)
+    appendLine("attempts=" + heartbeatAttempts)
+    appendLine("successes=" + heartbeatSuccesses)
+    appendLine("failures=" + heartbeatFailures)
+    appendLine("last_attempt_epoch_ms=" + (lastHeartbeatAttemptEpochMs ?: 0))
+    appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
+    appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
+    val ownParticipant = session.participants.firstOrNull { it.id == participantId }
+    val participantInfected = ownParticipant?.severity?.let { it > session.threshold } == true
+    val assistanceRequestActive = (session.assistanceRequestId ?: 0) > 0 &&
+        session.state == "contained"
+    val expectedToBeBlocked = participantTokenPresent && participantInfected && assistanceRequestActive
+    val recentSuccessfulPoll = lastHeartbeatSuccessEpochMs?.let {
+        System.currentTimeMillis() - it <= 6_000L
+    } == true
+    val unexpectedPollingSuccess = expectedToBeBlocked && recentSuccessfulPoll
+
+    appendLine("participant_infected=" + participantInfected)
+    appendLine("assistance_request_active=" + assistanceRequestActive)
+    appendLine("expected_to_be_blocked=" + expectedToBeBlocked)
+    appendLine("unexpected_success_while_infected=" + unexpectedPollingSuccess)
+    appendLine()
+    appendLine("[expected_behavior]")
+    appendLine("After Request for Assistance marks this participant INFECTED, the app MUST keep attempting normal polling.")
+    appendLine("Those polling attempts are expected to FAIL because infected traffic to the protected demo server should be rejected.")
+    appendLine("After release/clear, polling should succeed again.")
+    appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
+    appendLine()
+    appendLine("[diagnostic_flags]")
+    if (unexpectedPollingSuccess) {
+        appendLine("BUG: INFECTED PARTICIPANT CAN STILL POLL SUCCESSFULLY")
+        appendLine("Expected: polling attempts continue but fail while the assistance request contains this infected participant.")
+        appendLine("Observed: a recent poll succeeded although the participant is INFECTED and should be blocked.")
+    } else if (expectedToBeBlocked) {
+        appendLine("OK: infected participant is expected to be blocked; inspect failures and last successful contact to verify containment.")
+    } else {
+        appendLine("No active infected-participant containment contradiction detected at report generation time.")
+    }
+    appendLine()
+    appendLine("[session]")
+    appendLine("session_id=" + session.id)
+    appendLine("name=" + session.name)
+    appendLine("state=" + session.state)
+    appendLine("target_ip=" + session.targetIp)
+    appendLine("visibility=" + session.visibility)
+    appendLine("group_label=" + session.groupLabel.ifBlank { "none" })
+    appendLine("threshold=" + session.threshold)
+    appendLine("request_sent_locally=" + requestSentLocally)
+    appendLine("request_seconds_remaining=" + displayedRequestSeconds)
+    appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
+    appendLine("observation_seconds_remaining=" + session.observationSecondsRemaining)
+    appendLine("assistance_request_id=" + (session.assistanceRequestId ?: 0))
+    appendLine("release_request_id=" + (session.releaseRequestId ?: 0))
+    appendLine()
+    appendLine("[participants]")
+    session.participants.forEach { participant ->
+        val age = participant.secondsSinceSeen?.plus(participantAgeTick)
+        appendLine(
+            "id=" + participant.id +
+                ",nickname=" + participant.nickname.ifBlank { "none" } +
+                ",observed_ip=" + participant.observedIp.ifBlank { "unknown" } +
+                ",severity=" + participant.severity +
+                ",decision=" + participant.decision +
+                ",seconds_since_last_contact=" + (age?.toString() ?: "never")
+        )
+    }
+    appendLine()
+    appendLine("client_message=" + message.ifBlank { "none" })
 }

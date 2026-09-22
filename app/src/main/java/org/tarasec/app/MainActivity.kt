@@ -389,6 +389,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     TaraMenuDestination.AI_ASSISTANCE -> page = AppPage.MANAGER
                     TaraMenuDestination.RESEARCH -> page = AppPage.RESEARCH
                     TaraMenuDestination.SETUP_HOTSPOTS -> page = AppPage.SETUP
+                    TaraMenuDestination.CONTRIBUTE -> Unit
                 }
             }
         }

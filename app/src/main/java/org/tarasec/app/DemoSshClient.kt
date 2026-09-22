@@ -46,6 +46,7 @@ data class DemoSshSession(
     val nodeAObserved: Boolean = false,
     val unitMarked: Boolean = false,
     val nodeBObserved: Boolean = false,
+    val nodeBLoginAccepted: Boolean? = null,
     val progressMessage: String = "",
     val message: String = ""
 ) : java.io.Serializable {
@@ -131,6 +132,40 @@ object DemoSshClient {
         )
     }
 
+    fun gatewayEligibility(gatewayBaseUrl: String): DemoEligibility {
+        val reply = jsonRequest(
+            gatewayBaseUrl,
+            "script/appLocalInfection.php",
+            "GET"
+        )
+        val json = reply.first ?: return DemoEligibility(
+            eligible = false,
+            remediationRequired = false,
+            demoResetAvailable = false,
+            message = reply.second.ifBlank { "Unable to check the current gateway" }
+        )
+        if (!json.optBoolean("ok", false)) {
+            return DemoEligibility(
+                eligible = false,
+                remediationRequired = false,
+                demoResetAvailable = false,
+                message = json.optString("error", "Unable to check the current gateway")
+            )
+        }
+        val infected = json.optBoolean("infected", false)
+        val resetAvailable = json.optBoolean("demo_reset_available", false)
+        return DemoEligibility(
+            eligible = !infected,
+            remediationRequired = infected,
+            demoResetAvailable = resetAvailable,
+            message = json.optString(
+                "message",
+                if (infected) "This unit must be clean before Demo 2 can start"
+                else "This unit may start the demonstration"
+            )
+        )
+    }
+
     fun create(baseUrl: String, setupId: Int): DemoSshSession {
         val body = JSONObject().put("action", "create").put("setup_id", setupId)
         val reply = jsonRequest(baseUrl, "script/appDemoSshSession.php", "POST", body)
@@ -172,9 +207,28 @@ object DemoSshClient {
             nodeAObserved = json.optBoolean("node_a_observed", current.nodeAObserved),
             unitMarked = json.optBoolean("unit_marked", current.unitMarked),
             nodeBObserved = json.optBoolean("node_b_observed", current.nodeBObserved),
+            nodeBLoginAccepted = if (json.isNull("node_b_login_accepted")) {
+                null
+            } else {
+                json.optBoolean("node_b_login_accepted", false)
+            },
             progressMessage = json.optString("progress_message", current.progressMessage),
             message = ""
         )
+    }
+
+    fun cancel(baseUrl: String, current: DemoSshSession): Pair<Boolean, String> {
+        val body = JSONObject()
+            .put("action", "cancel")
+            .put("session_id", current.sessionId)
+            .put("session_token", current.sessionToken)
+        val reply = jsonRequest(baseUrl, "script/appDemoSshSession.php", "POST", body)
+        val json = reply.first
+            ?: return false to reply.second.ifBlank { "Unable to close Demo 2 session" }
+        if (!json.optBoolean("ok", false)) {
+            return false to json.optString("error", "Unable to close Demo 2 session")
+        }
+        return true to "Session closed on the DB server."
     }
 
     private fun jsonRequest(

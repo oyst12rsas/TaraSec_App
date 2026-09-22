@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import java.net.Inet4Address
 
 object LocalGateway {
+    @Suppress("DEPRECATION") // Required to inspect a connected non-default Wi-Fi network.
     fun baseUrl(context: Context): String? {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
         for (network in cm.allNetworks) {

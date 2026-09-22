@@ -1,5 +1,7 @@
 package org.tarasec.app
 
+import android.content.ClipData
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,8 +18,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -31,7 +33,7 @@ fun DemoSshPanel(
     subscriberSignedIn: Boolean,
     onSignIn: () -> Unit
 ) {
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var setups by remember(baseUrl) { mutableStateOf<List<DemoSshSetup>>(emptyList()) }
     var selectedId by rememberSaveable(baseUrl) { mutableStateOf<Int?>(null) }
@@ -50,8 +52,21 @@ fun DemoSshPanel(
     LaunchedEffect(baseUrl) {
         if (baseUrl.isNullOrBlank()) return@LaunchedEffect
         val (loaded, error) = withContext(Dispatchers.IO) { DemoSshClient.setups(baseUrl) }
-        val check = withContext(Dispatchers.IO) { DemoSshClient.eligibility(baseUrl) }
         val gateway = withContext(Dispatchers.IO) { DemoSshClient.observedGateway(baseUrl) }
+        val check = if (gateway.recognized && gateway.address.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                DemoSshClient.gatewayEligibility("http://${gateway.address}")
+            }
+        } else {
+            DemoEligibility(
+                eligible = false,
+                remediationRequired = false,
+                demoResetAvailable = false,
+                message = gateway.message.ifBlank {
+                    "Connect through a recognized TaraSec gateway before starting Demo 2."
+                }
+            )
+        }
         setups = loaded
         selectedId = loaded.firstOrNull()?.id
         eligibility = check
@@ -94,8 +109,10 @@ fun DemoSshPanel(
     }
 
     fun copy(value: String, label: String) {
-        clipboard.setText(AnnotatedString(value))
-        message = "$label copied."
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, value)))
+            message = "$label copied."
+        }
     }
 
     Column(
@@ -124,33 +141,9 @@ fun DemoSshPanel(
                     subtitle = "Demo eligibility could not be confirmed"
                 ) {
                     Text(
-                        "This demonstration cannot start until the remediation workflow confirms that this unit is eligible. No infection diagnosis is disclosed by the demo.",
+                        "Demo 2 cannot start while this unit is infected on the current gateway. Demo-only state can be reset here; genuine security findings require the normal cleaning workflow.",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    when {
-                        managerAuthenticated -> {
-                            Text(
-                                "Certified hotspot owner session: technical review controls and the authorized hotspot context will appear here as the remediation service is expanded.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        subscriberSignedIn -> {
-                            Text(
-                                "Signed-in hotspot user: only this unit's review status and guided next steps are shown.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        else -> {
-                            Text(
-                                "Sign in to continue to the appropriate remediation view.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Button(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = onSignIn
-                            ) { Text("Sign in with Google or TaraSec") }
-                        }
-                    }
                     if (eligibility?.demoResetAvailable == true) {
                         OutlinedButton(
                             enabled = !busy && observedGateway?.recognized == true,
@@ -160,7 +153,6 @@ fun DemoSshPanel(
                                     ?.takeIf { it.recognized && it.address.isNotBlank() }
                                     ?: return@OutlinedButton
                                 val control = "http://${gateway.address}"
-                                val base = baseUrl ?: return@OutlinedButton
                                 busy = true
                                 message = "Clearing previous demonstration state…"
                                 scope.launch {
@@ -169,7 +161,7 @@ fun DemoSshPanel(
                                     }
                                     delay(2500)
                                     val check = withContext(Dispatchers.IO) {
-                                        DemoSshClient.eligibility(base)
+                                        DemoSshClient.gatewayEligibility(control)
                                     }
                                     eligibility = check
                                     remediationVisible = check.remediationRequired
@@ -181,7 +173,7 @@ fun DemoSshPanel(
                                     busy = false
                                 }
                             }
-                        ) { Text("Clear previous demo state") }
+                        ) { Text("Reset demo state on this gateway") }
                     }
                     OutlinedButton(
                         enabled = !busy && !baseUrl.isNullOrBlank(),
@@ -190,11 +182,17 @@ fun DemoSshPanel(
                             val base = baseUrl ?: return@OutlinedButton
                             busy = true
                             scope.launch {
-                                val check = withContext(Dispatchers.IO) {
-                                    DemoSshClient.eligibility(base)
-                                }
                                 val gateway = withContext(Dispatchers.IO) {
                                     DemoSshClient.observedGateway(base)
+                                }
+                                val check = if (gateway.recognized && gateway.address.isNotBlank()) {
+                                    withContext(Dispatchers.IO) {
+                                        DemoSshClient.gatewayEligibility("http://${gateway.address}")
+                                    }
+                                } else {
+                                    DemoEligibility(false, false, false, gateway.message.ifBlank {
+                                        "Connect through a recognized TaraSec gateway before starting Demo 2."
+                                    })
                                 }
                                 eligibility = check
                                 observedGateway = gateway
@@ -241,11 +239,17 @@ fun DemoSshPanel(
                         busy = true
                         message = "Checking whether Demo 2 may start…"
                         scope.launch {
-                            val check = withContext(Dispatchers.IO) {
-                                DemoSshClient.eligibility(base)
-                            }
                             val gateway = withContext(Dispatchers.IO) {
                                 DemoSshClient.observedGateway(base)
+                            }
+                            val check = if (gateway.recognized && gateway.address.isNotBlank()) {
+                                withContext(Dispatchers.IO) {
+                                    DemoSshClient.gatewayEligibility("http://${gateway.address}")
+                                }
+                            } else {
+                                DemoEligibility(false, false, false, gateway.message.ifBlank {
+                                    "Connect through a recognized TaraSec gateway before starting Demo 2."
+                                })
                             }
                             eligibility = check
                             observedGateway = gateway
@@ -327,10 +331,19 @@ fun DemoSshPanel(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { copy(current.nodeBCommand(), "Node B command") }
                 ) { Text("Copy Node B SSH command") }
+                // Password copying is intentionally hidden while the classroom
+                // demo uses the fixed password "1". Restore this button when
+                // per-session or generated passwords are enabled again.
+                /*
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { copy(current.password, "Password") }
                 ) { Text("Copy password") }
+                */
+                Text(
+                    "Password copying is temporarily removed while the demo password is fixed to 1.",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
 
             Text(resultExplanation(current.state), style = MaterialTheme.typography.bodySmall)
@@ -351,16 +364,125 @@ fun DemoSshPanel(
                 }
             ) { Text(if (busy) "Refreshing…" else "Refresh session") }
             OutlinedButton(
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
-                    session = null
-                    message = "Ready to start another SSH demo."
+                    val base = baseUrl ?: return@OutlinedButton
+                    val gateway = observedGateway
+                    busy = true
+                    message = "Closing session on the DB server…"
+                    scope.launch {
+                        val (closed, closeMessage) = withContext(Dispatchers.IO) {
+                            DemoSshClient.cancel(base, current)
+                        }
+                        if (!closed) {
+                            message = closeMessage
+                            busy = false
+                            return@launch
+                        }
+
+                        session = null
+                        if (gateway?.recognized == true && gateway.address.isNotBlank()) {
+                            message = "Session closed; clearing its gateway demo state…"
+                            val control = "http://${gateway.address}"
+                            val result = withContext(Dispatchers.IO) {
+                                DemoClient.setGatewayInfected(control, false)
+                            }
+                            delay(2500)
+                            val check = withContext(Dispatchers.IO) {
+                                DemoSshClient.gatewayEligibility(control)
+                            }
+                            eligibility = check
+                            remediationVisible = check.remediationRequired
+                            message = if (check.eligible) {
+                                "Session closed and demo state cleared. Ready to start another SSH demo."
+                            } else {
+                                result + " Session closed; waiting for the clean state to propagate."
+                            }
+                        } else {
+                            message = "Session closed on the DB server. Reconnect through a recognized TaraSec gateway to verify demo cleanup."
+                        }
+                        busy = false
+                    }
                 }
-            ) { Text("Close session") }
+            ) { Text(if (busy) "Closing…" else "Close session") }
         }
+
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                val report = buildDemoSshDebugReport(
+                    baseUrl,
+                    observedGateway,
+                    eligibility,
+                    setups.firstOrNull { it.id == selectedId },
+                    session,
+                    displayedSecondsRemaining,
+                    message
+                )
+                copy(report, "Debug report")
+            }
+        ) { Text("Copy debug report for AI") }
+        Text(
+            "Copy the report, paste it into an AI assistant such as ChatGPT, and ask it to explain what happened in the demo. The report omits passwords and session tokens.",
+            style = MaterialTheme.typography.bodySmall
+        )
 
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+private fun buildDemoSshDebugReport(
+    baseUrl: String?,
+    gateway: DemoGateway?,
+    eligibility: DemoEligibility?,
+    setup: DemoSshSetup?,
+    session: DemoSshSession?,
+    displayedSecondsRemaining: Int,
+    message: String
+): String = buildString {
+    appendLine("TaraSec Demo 2 debug report")
+    appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
+    appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
+    appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
+    appendLine("app_version=" + BuildConfig.VERSION_NAME)
+    appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
+    appendLine("secrets=omitted (password and session token)")
+    appendLine()
+    appendLine("[connection]")
+    appendLine("db_endpoint=" + baseUrl.orEmpty().ifBlank { "not selected" })
+    appendLine("gateway_name=" + gateway?.name.orEmpty().ifBlank { "unknown" })
+    appendLine("gateway_address=" + gateway?.address.orEmpty().ifBlank { "unknown" })
+    appendLine("gateway_recognized=" + (gateway?.recognized ?: false))
+    appendLine("gateway_message=" + gateway?.message.orEmpty().ifBlank { "none" })
+    appendLine()
+    appendLine("[eligibility]")
+    appendLine("eligible=" + (eligibility?.eligible ?: false))
+    appendLine("remediation_required=" + (eligibility?.remediationRequired ?: false))
+    appendLine("demo_reset_available=" + (eligibility?.demoResetAvailable ?: false))
+    appendLine("eligibility_message=" + eligibility?.message.orEmpty().ifBlank { "none" })
+    appendLine()
+    appendLine("[setup]")
+    appendLine("setup_id=" + (setup?.id ?: 0))
+    appendLine("setup_name=" + setup?.name.orEmpty().ifBlank { "none" })
+    appendLine("node_a=" + (setup?.let { it.nodeA + ":" + it.nodeAPort } ?: "unknown"))
+    appendLine("node_b=" + (setup?.let { it.nodeB + ":" + it.nodeBPort } ?: "unknown"))
+    appendLine()
+    appendLine("[session]")
+    appendLine("session_id=" + (session?.sessionId ?: 0))
+    appendLine("state=" + session?.state.orEmpty().ifBlank { "none" })
+    appendLine("attempts=" + (session?.attempts ?: 0))
+    appendLine("seconds_remaining=" + displayedSecondsRemaining)
+    appendLine("expires=" + session?.expires.orEmpty().ifBlank { "unknown" })
+    appendLine("node_a_observed=" + (session?.nodeAObserved ?: false))
+    appendLine("unit_marked=" + (session?.unitMarked ?: false))
+    appendLine("node_b_observed=" + (session?.nodeBObserved ?: false))
+    appendLine("node_b_login_accepted=" + (session?.nodeBLoginAccepted?.toString() ?: "unknown"))
+    appendLine("node_a_status=" + (session?.let(::nodeAStatus) ?: "no session"))
+    appendLine("gateway_db_status=" + (session?.let(::gatewayStatus) ?: "no session"))
+    appendLine("node_b_status=" + (session?.let(::nodeBStatus) ?: "no session"))
+    appendLine("progress_message=" + session?.progressMessage.orEmpty().ifBlank { "none" })
+    appendLine("client_message=" + message.ifBlank { "none" })
 }
 
 private fun formatCountdown(totalSeconds: Int): String {
@@ -378,9 +500,13 @@ private fun gatewayStatus(session: DemoSshSession): String = when {
 }
 
 private fun nodeBStatus(session: DemoSshSession): String = when {
-    session.state == "cleared" -> "🟢 Connection validated"
-    session.state == "owner_clear_required" && session.nodeBObserved -> "🔴 Validation rejected"
-    session.nodeBObserved -> "🟡 Report received"
+    session.nodeBLoginAccepted == true && session.state == "cleared" ->
+        "🟢 Login accepted · evidence validated"
+    session.nodeBLoginAccepted == true ->
+        "🟢 Login accepted · evidence validation incomplete"
+    session.nodeBLoginAccepted == false ->
+        "🔴 Login rejected"
+    session.nodeBObserved -> "🟡 Report received · checking login"
     else -> "⚪ Waiting"
 }
 
