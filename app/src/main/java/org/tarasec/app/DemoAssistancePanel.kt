@@ -74,7 +74,6 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var displayedRequestSeconds by remember { mutableStateOf(0) }
     var displayedReleaseSeconds by remember { mutableStateOf(0) }
     var requestSentLocally by remember { mutableStateOf(false) }
-    var automaticReleaseInProgress by remember { mutableStateOf(false) }
     var participantAgeTick by remember { mutableStateOf(0) }
     var heartbeatAttempts by remember { mutableStateOf(0) }
     var heartbeatSuccesses by remember { mutableStateOf(0) }
@@ -94,7 +93,6 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         displayedRequestSeconds = 0
         displayedReleaseSeconds = 0
         requestSentLocally = false
-        automaticReleaseInProgress = false
         participantAgeTick = 0
         heartbeatAttempts = 0
         heartbeatSuccesses = 0
@@ -176,9 +174,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         session?.id,
         session?.state,
         session?.secondsRemaining,
-        session?.releaseSecondsRemaining,
-        controllerToken,
-        gatewayControlBase
+        session?.releaseSecondsRemaining
     ) {
         val current = session ?: return@LaunchedEffect
         displayedRequestSeconds = current.secondsRemaining.coerceAtLeast(0)
@@ -200,32 +196,6 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 }
             } else {
                 displayedReleaseSeconds = (displayedReleaseSeconds - 1).coerceAtLeast(0)
-                if (
-                    displayedReleaseSeconds == 0 &&
-                    current.state == "contained" &&
-                    controllerToken.isNotBlank() &&
-                    gatewayControlBase != null &&
-                    !automaticReleaseInProgress
-                ) {
-                    automaticReleaseInProgress = true
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            // The infected unit cannot reach the DB while containment is
-                            // active. Clear only this demo's local gateway classification
-                            // when the configured containment period expires, then submit
-                            // the authenticated release to the DB.
-                            DemoAssistanceClient.setLocalSeverity(gatewayControlBase!!, 0)
-                            DemoAssistanceClient.release(baseUrl, current.id, controllerToken)
-                        }
-                    }.onSuccess { released ->
-                        appliedLocalSeverity = 0
-                        session = released
-                        message = "Automatic release sent. Confirming restored connectivity."
-                    }.onFailure {
-                        message = "Automatic release is overdue; retrying: ${it.message}"
-                    }
-                    automaticReleaseInProgress = false
-                }
             }
         }
     }
