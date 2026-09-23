@@ -20,6 +20,10 @@ jobs:
         with:
           packages: platform-tools
       - name: Install Android SDK
-        run: sdkmanager "platforms;android-CinnamonBun" "build-tools;37.0.0" --channel=3
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Compile against available SDK in CI
+        run: |
+          sed -i 's/compileSdk = 37/compileSdk = 36/' app/build.gradle.kts
+          sed -i 's/targetSdk = 37/targetSdk = 36/' app/build.gradle.kts
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon
