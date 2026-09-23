@@ -3,7 +3,6 @@ package org.tarasec.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import java.util.UUID
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,7 +38,7 @@ private fun demo4DebugReport(baseUrl: String, status: Demo4RouteStatus?, runLog:
     appendLine()
     appendLine("[phone_test]")
     if (runLog.isEmpty()) appendLine("not_run") else runLog.forEach { appendLine(it) }
-    appendLine("The website records the source IP received for each app request. The gateway and relay must also confirm the phone status and route.")
+    appendLine("The DB session joins gateway-confirmed phone state with website-observed source IP. A relay observation is still needed for full route proof.")
     appendLine()
     appendLine("[connection]")
     appendLine("db_endpoint=${baseUrl.trimEnd('/')}")
@@ -101,13 +100,12 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
     fun runDemo(route: Demo4Route, control: String) {
         if (running) return
         running = true
-        runStage = "Setting CLEAN…"
+        runStage = "Creating DB session…"
         runLog = emptyList()
-        val sessionId = UUID.randomUUID().toString().replace("-", "")
-        val writerKey = UUID.randomUUID().toString().replace("-", "")
-        viewerId = sessionId
+        viewerId = ""
         Thread {
             val lines = mutableListOf<String>()
+            var touchedState = false
             fun stage(value: String) { activity.runOnUiThread { runStage = value } }
             fun confirmed(infected: Boolean): Boolean {
                 repeat(6) {
@@ -118,18 +116,33 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 return false
             }
             try {
+                val session = DemoRoutingClient.createSession(baseUrl)
+                check(session.sessionId.isNotBlank()) { session.error }
+                activity.runOnUiThread { viewerId = session.sessionId }
+                lines += "db_session=${session.sessionId}"
+                stage("Setting CLEAN…")
+                touchedState = true
                 DemoClient.setGatewayInfected(control, false)
-                check(confirmed(false)) { "Gateway did not confirm CLEAN" }
-                stage("Testing the normal route…")
-                val clean = DemoRoutingClient.recordObservation(sessionId, writerKey, "clean")
+                check(confirmed(false)) { "Gateway did not confirm CLEAN locally" }
+                val cleanGateway = DemoRoutingClient.confirmGateway(
+                    control, session.sessionId, session.token, "clean")
+                check(cleanGateway.reachable) { cleanGateway.detail }
+                lines += "clean_gateway_confirmed=true"
+                stage("Website observing CLEAN request…")
+                val clean = DemoRoutingClient.recordObservation(session.sessionId, session.token, "clean")
                 lines += "clean_website_observation=${clean.detail}"
                 check(clean.reachable) { "CLEAN website request failed" }
 
                 stage("Setting INFECTED…")
                 DemoClient.setGatewayInfected(control, true)
-                check(confirmed(true)) { "Gateway did not confirm INFECTED" }
-                stage("Testing a new tagged connection…")
-                val infected = DemoRoutingClient.recordObservation(sessionId, writerKey, "infected")
+                check(confirmed(true)) { "Gateway did not confirm INFECTED locally" }
+                val infectedGateway = DemoRoutingClient.confirmGateway(
+                    control, session.sessionId, session.token, "infected")
+                check(infectedGateway.reachable) { infectedGateway.detail }
+                lines += "infected_gateway_confirmed=true"
+                stage("Website observing a new tagged connection…")
+                val infected = DemoRoutingClient.recordObservation(
+                    session.sessionId, session.token, "infected")
                 lines += "infected_website_observation=${infected.detail}"
                 check(infected.reachable) { "INFECTED website request failed" }
                 lines += "phone_test=completed"
@@ -137,12 +150,13 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 lines += "phone_test=incomplete"
                 lines += "reason=${e.message ?: "Unexpected test error"}"
             } finally {
-                stage("Restoring CLEAN…")
-                DemoClient.setGatewayInfected(control, false)
-                lines += "restored_clean=${runCatching { confirmed(false) }.getOrDefault(false)}"
-                lines += "viewer=https://tarasec.org/demo4/observe.php?id=$sessionId"
+                if (touchedState) {
+                    stage("Restoring CLEAN…")
+                    DemoClient.setGatewayInfected(control, false)
+                    lines += "restored_clean=${runCatching { confirmed(false) }.getOrDefault(false)}"
+                }
                 lines += "gateway_route_state_at_start=${route.applyState}"
-                lines += "route_proof=unverified_from_phone"
+                lines += "route_proof=requires_relay_evidence"
                 activity.runOnUiThread {
                     runLog = lines.toList()
                     runStage = ""
@@ -205,7 +219,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
         val chosenRoute = status?.routes?.firstOrNull { it.selected }
             ?: status?.routes?.singleOrNull()
         Text(
-            "Run the test in this app and share the website viewer link. TaraSec.org records the source IP received for each request; the gateway still controls the phone's status.",
+            "Run the test in this app and share the website viewer link. The DB server coordinates the session, the gateway confirms the phone status, and TaraSec.org records each source IP it receives.",
             style = MaterialTheme.typography.bodySmall
         )
         val websiteRouteReady = websiteIps.size == 1 &&
