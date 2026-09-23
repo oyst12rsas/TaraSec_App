@@ -716,39 +716,6 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 }
             }
 
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    val report = buildDemoAssistanceDebugReport(
-                        baseUrl = baseUrl,
-                        gatewayControlBase = gatewayControlBase,
-                        gatewayRouteMessage = gatewayRouteMessage,
-                        session = current,
-                        participantId = participantId,
-                        participantTokenPresent = participantToken.isNotBlank(),
-                        controllerTokenPresent = controllerToken.isNotBlank(),
-                        participantAgeTick = participantAgeTick,
-                        displayedRequestSeconds = displayedRequestSeconds,
-                        displayedReleaseSeconds = displayedReleaseSeconds,
-                        requestSentLocally = requestSentLocally,
-                        heartbeatAttempts = heartbeatAttempts,
-                        heartbeatSuccesses = heartbeatSuccesses,
-                        heartbeatFailures = heartbeatFailures,
-                        lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
-                        lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
-                        lastHeartbeatError = lastHeartbeatError,
-                        message = message
-                    )
-                    scope.launch {
-                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
-                    }
-                    message = "Demo 3 debug report copied."
-                }
-            ) { Text("Copy debug info for AI") }
-            Text(
-                "Copies connection and heartbeat state without participant tokens or group codes.",
-                style = MaterialTheme.typography.bodySmall
-            )
 
             OutlinedButton(
                 enabled = !busy && !leaving,
@@ -811,6 +778,40 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 )
             }
         }
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val report = buildDemoAssistanceDebugReport(
+                        baseUrl = baseUrl,
+                        gatewayControlBase = gatewayControlBase,
+                        gatewayRouteMessage = gatewayRouteMessage,
+                        session = session,
+                        participantId = participantId,
+                        participantTokenPresent = participantToken.isNotBlank(),
+                        controllerTokenPresent = controllerToken.isNotBlank(),
+                        participantAgeTick = participantAgeTick,
+                        displayedRequestSeconds = displayedRequestSeconds,
+                        displayedReleaseSeconds = displayedReleaseSeconds,
+                        requestSentLocally = requestSentLocally,
+                        heartbeatAttempts = heartbeatAttempts,
+                        heartbeatSuccesses = heartbeatSuccesses,
+                        heartbeatFailures = heartbeatFailures,
+                        lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
+                        lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
+                        lastHeartbeatError = lastHeartbeatError,
+                        message = message
+                    )
+                    scope.launch {
+                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
+                    }
+                    message = "Demo 3 debug report copied."
+                }
+            ) { Text("Copy debug info for AI") }
+            Text(
+                "Copies connection and heartbeat state without participant tokens or group codes.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -820,7 +821,7 @@ private fun buildDemoAssistanceDebugReport(
     baseUrl: String,
     gatewayControlBase: String?,
     gatewayRouteMessage: String,
-    session: DemoAssistanceSession,
+    session: DemoAssistanceSession?,
     participantId: Int,
     participantTokenPresent: Boolean,
     controllerTokenPresent: Boolean,
@@ -848,6 +849,7 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("db_endpoint=" + baseUrl.ifBlank { "not selected" })
     appendLine("gateway_control_endpoint=" + gatewayControlBase.orEmpty().ifBlank { "unavailable" })
     appendLine("gateway=" + gatewayRouteMessage.ifBlank { "unknown" })
+    appendLine("gateway_recognized=" + (gatewayControlBase != null))
     appendLine()
     appendLine("[polling]")
     appendLine("participant_id=" + participantId)
@@ -859,6 +861,19 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("last_attempt_epoch_ms=" + (lastHeartbeatAttemptEpochMs ?: 0))
     appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
     appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
+    if (session == null) {
+        appendLine("participant_infected=unknown (no session)")
+        appendLine("assistance_request_active=false")
+        appendLine("expected_to_be_blocked=false")
+        appendLine()
+        appendLine("[startup_diagnostics]")
+        appendLine("session_created=false")
+        appendLine("gateway_recognized=" + (gatewayControlBase != null))
+        appendLine("gateway_recognition_result=" + gatewayRouteMessage)
+        appendLine("start_or_join_error=" + message)
+        appendLine("client_message=" + message)
+        return@buildString
+    }
     val ownParticipant = session.participants.firstOrNull { it.id == participantId }
     val participantInfected = ownParticipant?.severity?.let { it > session.threshold } == true
     val assistanceRequestActive = (session.assistanceRequestId ?: 0) > 0 &&
