@@ -208,7 +208,8 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
             "Run the test in this app and share the website viewer link. TaraSec.org records the source IP received for each request; the gateway still controls the phone's status.",
             style = MaterialTheme.typography.bodySmall
         )
-        val websiteRouteReady = chosenRoute?.destinationIp?.let { it in websiteIps } == true
+        val websiteRouteReady = websiteIps.size == 1 &&
+            chosenRoute?.destinationIp == websiteIps.first()
         Button(
             modifier = Modifier.fillMaxWidth(),
             enabled = !running && chosenRoute != null && websiteRouteReady &&
@@ -227,7 +228,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
             Text("Demo 4 needs a single /32 destination.", color = MaterialTheme.colorScheme.error)
         } else if (!websiteRouteReady) {
             Text(
-                "The selected route targets ${chosenRoute.destinationIp}, but tarasec.org currently resolves to ${websiteIps.joinToString().ifEmpty { "unknown" }}. The website IP check cannot demonstrate the selected route until the gateway and relay use the website destination.",
+                "The selected route targets ${chosenRoute.destinationIp}, but tarasec.org currently resolves to ${websiteIps.joinToString().ifEmpty { "unknown" }}. The website must have one stable IPv4 destination authorized by the gateway and relay before this test can run.",
                 color = MaterialTheme.colorScheme.error
             )
         }
