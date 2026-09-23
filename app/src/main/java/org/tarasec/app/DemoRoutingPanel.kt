@@ -238,27 +238,29 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
         val demoGatewayAddresses = setOf("100.68.25.154", "100.68.153.251", "100.68.165.190")
         val controlHost = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
         val expectedGateway = current?.sourceIp?.takeIf { it in demoGatewayAddresses }
-        val gatewayMismatch = expectedGateway != null &&
-            controlHost in demoGatewayAddresses && controlHost != expectedGateway
-        Text("Gateway control: ${gatewayControlBase ?: "unavailable"}",
+        val demo4Control = if (expectedGateway != null && controlHost in demoGatewayAddresses) {
+            "http://$expectedGateway"
+        } else {
+            gatewayControlBase
+        }
+        Text("Demo 4 gateway control: ${demo4Control ?: "unavailable"}",
             style = MaterialTheme.typography.bodySmall)
+        if (demo4Control != gatewayControlBase) {
+            Text("Demo 4 selected the gateway used by this phone's DB connection.",
+                style = MaterialTheme.typography.bodySmall)
+        }
         Button(
             modifier = Modifier.fillMaxWidth(),
             enabled = !running && chosenRoute != null && websiteRouteReady &&
-                chosenRoute.netmask == "255.255.255.255" && gatewayControlBase != null && !gatewayMismatch,
+                chosenRoute.netmask == "255.255.255.255" && demo4Control != null,
             onClick = {
                 val route = chosenRoute
-                val control = gatewayControlBase
+                val control = demo4Control
                 if (route != null && control != null) runDemo(route, control)
             }
         ) { Text(if (running) "Running Demo 4…" else "Run Demo 4 and show IP on website") }
-        if (gatewayControlBase == null) {
+        if (demo4Control == null) {
             Text("Connect to a TaraSec gateway to run the test.", color = MaterialTheme.colorScheme.error)
-        } else if (gatewayMismatch) {
-            Text(
-                "The DB server sees this phone through ${expectedGateway}, but gateway control is ${controlHost}. In Demo 1 → Demo configuration, select the matching gateway before running Demo 4.",
-                color = MaterialTheme.colorScheme.error
-            )
         } else if (chosenRoute == null) {
             Text("Select a Demo 4 route on the gateway first.", color = MaterialTheme.colorScheme.error)
         } else if (chosenRoute.netmask != "255.255.255.255") {
