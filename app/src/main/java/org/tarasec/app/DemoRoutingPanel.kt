@@ -75,28 +75,22 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
     val activity = LocalContext.current as ComponentActivity
     val context = LocalContext.current
     var status by remember { mutableStateOf<Demo4RouteStatus?>(null) }
-    var loading by remember { mutableStateOf(false) }
     var websiteIps by remember { mutableStateOf<List<String>>(emptyList()) }
     var viewerId by remember(baseUrl, gatewayControlBase) { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
     var runStage by remember { mutableStateOf("") }
     var runLog by remember(baseUrl, gatewayControlBase) { mutableStateOf<List<String>>(emptyList()) }
 
-    fun refresh() {
-        if (loading) return
-        loading = true
+    LaunchedEffect(baseUrl) {
         Thread {
             val result = DemoRoutingClient.routes(baseUrl)
             val resolvedIps = DemoRoutingClient.websiteAddresses()
             activity.runOnUiThread {
                 status = result
                 websiteIps = resolvedIps
-                loading = false
             }
         }.start()
     }
-
-    LaunchedEffect(baseUrl) { refresh() }
 
     fun runDemo(route: Demo4Route, control: String) {
         if (running) return
@@ -284,14 +278,6 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
         }
         if (runStage.isNotBlank()) Text(runStage)
         runLog.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            onClick = { refresh() }
-        ) {
-            Text(if (loading) "Checking…" else "Refresh Demo 4 partner routes")
-        }
 
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
