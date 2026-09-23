@@ -20,6 +20,6 @@ jobs:
         with:
           packages: platform-tools
       - name: Install Android SDK
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0" --channel=3
+        run: sdkmanager "platforms;android-CinnamonBun" "build-tools;37.0.0" --channel=3
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon
