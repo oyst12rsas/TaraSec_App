@@ -716,39 +716,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 }
             }
 
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    val report = buildDemoAssistanceDebugReport(
-                        baseUrl = baseUrl,
-                        gatewayControlBase = gatewayControlBase,
-                        gatewayRouteMessage = gatewayRouteMessage,
-                        session = current,
-                        participantId = participantId,
-                        participantTokenPresent = participantToken.isNotBlank(),
-                        controllerTokenPresent = controllerToken.isNotBlank(),
-                        participantAgeTick = participantAgeTick,
-                        displayedRequestSeconds = displayedRequestSeconds,
-                        displayedReleaseSeconds = displayedReleaseSeconds,
-                        requestSentLocally = requestSentLocally,
-                        heartbeatAttempts = heartbeatAttempts,
-                        heartbeatSuccesses = heartbeatSuccesses,
-                        heartbeatFailures = heartbeatFailures,
-                        lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
-                        lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
-                        lastHeartbeatError = lastHeartbeatError,
-                        message = message
-                    )
-                    scope.launch {
-                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
-                    }
-                    message = "Demo 3 debug report copied."
-                }
-            ) { Text("Copy debug info for AI") }
-            Text(
-                "Copies connection and heartbeat state without participant tokens or group codes.",
-                style = MaterialTheme.typography.bodySmall
-            )
+
 
             OutlinedButton(
                 enabled = !busy && !leaving,
@@ -811,6 +779,40 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 )
             }
         }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                val report = buildDemoAssistanceDebugReport(
+                    baseUrl = baseUrl,
+                    gatewayControlBase = gatewayControlBase,
+                    gatewayRouteMessage = gatewayRouteMessage,
+                    session = session,
+                    participantId = participantId,
+                    participantTokenPresent = participantToken.isNotBlank(),
+                    controllerTokenPresent = controllerToken.isNotBlank(),
+                    participantAgeTick = participantAgeTick,
+                    displayedRequestSeconds = displayedRequestSeconds,
+                    displayedReleaseSeconds = displayedReleaseSeconds,
+                    requestSentLocally = requestSentLocally,
+                    heartbeatAttempts = heartbeatAttempts,
+                    heartbeatSuccesses = heartbeatSuccesses,
+                    heartbeatFailures = heartbeatFailures,
+                    lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
+                    lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
+                    lastHeartbeatError = lastHeartbeatError,
+                    message = message
+                )
+                scope.launch {
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
+                }
+                message = "Demo 3 debug report copied."
+            }
+        ) { Text("Copy debug info for AI") }
+        Text(
+            "Copies connection, gateway recognition and heartbeat state without participant tokens or group codes.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -820,7 +822,7 @@ private fun buildDemoAssistanceDebugReport(
     baseUrl: String,
     gatewayControlBase: String?,
     gatewayRouteMessage: String,
-    session: DemoAssistanceSession,
+    session: DemoAssistanceSession?,
     participantId: Int,
     participantTokenPresent: Boolean,
     controllerTokenPresent: Boolean,
@@ -859,10 +861,13 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("last_attempt_epoch_ms=" + (lastHeartbeatAttemptEpochMs ?: 0))
     appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
     appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
-    val ownParticipant = session.participants.firstOrNull { it.id == participantId }
-    val participantInfected = ownParticipant?.severity?.let { it > session.threshold } == true
-    val assistanceRequestActive = (session.assistanceRequestId ?: 0) > 0 &&
-        session.state == "contained"
+    val ownParticipant = session?.participants?.firstOrNull { it.id == participantId }
+    val participantInfected = ownParticipant?.severity?.let { severity ->
+        session?.let { severity > it.threshold }
+    } == true
+    val assistanceRequestActive = session?.let {
+        (it.assistanceRequestId ?: 0) > 0 && it.state == "contained"
+    } == true
     val expectedToBeBlocked = participantTokenPresent && participantInfected && assistanceRequestActive
     val recentSuccessfulPoll = lastHeartbeatSuccessEpochMs?.let {
         System.currentTimeMillis() - it <= 6_000L
@@ -892,31 +897,37 @@ private fun buildDemoAssistanceDebugReport(
     }
     appendLine()
     appendLine("[session]")
-    appendLine("session_id=" + session.id)
-    appendLine("name=" + session.name)
-    appendLine("state=" + session.state)
-    appendLine("target_ip=" + session.targetIp)
-    appendLine("visibility=" + session.visibility)
-    appendLine("group_label=" + session.groupLabel.ifBlank { "none" })
-    appendLine("threshold=" + session.threshold)
-    appendLine("request_sent_locally=" + requestSentLocally)
-    appendLine("request_seconds_remaining=" + displayedRequestSeconds)
-    appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
-    appendLine("observation_seconds_remaining=" + session.observationSecondsRemaining)
-    appendLine("assistance_request_id=" + (session.assistanceRequestId ?: 0))
-    appendLine("release_request_id=" + (session.releaseRequestId ?: 0))
-    appendLine()
-    appendLine("[participants]")
-    session.participants.forEach { participant ->
-        val age = participant.secondsSinceSeen?.plus(participantAgeTick)
-        appendLine(
-            "id=" + participant.id +
-                ",nickname=" + participant.nickname.ifBlank { "none" } +
-                ",observed_ip=" + participant.observedIp.ifBlank { "unknown" } +
-                ",severity=" + participant.severity +
-                ",decision=" + participant.decision +
-                ",seconds_since_last_contact=" + (age?.toString() ?: "never")
-        )
+    if (session == null) {
+        appendLine("session_id=none")
+        appendLine("state=not_started_or_joined")
+        appendLine("participants=none")
+    } else {
+        appendLine("session_id=" + session.id)
+        appendLine("name=" + session.name)
+        appendLine("state=" + session.state)
+        appendLine("target_ip=" + session.targetIp)
+        appendLine("visibility=" + session.visibility)
+        appendLine("group_label=" + session.groupLabel.ifBlank { "none" })
+        appendLine("threshold=" + session.threshold)
+        appendLine("request_sent_locally=" + requestSentLocally)
+        appendLine("request_seconds_remaining=" + displayedRequestSeconds)
+        appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
+        appendLine("observation_seconds_remaining=" + session.observationSecondsRemaining)
+        appendLine("assistance_request_id=" + (session.assistanceRequestId ?: 0))
+        appendLine("release_request_id=" + (session.releaseRequestId ?: 0))
+        appendLine()
+        appendLine("[participants]")
+        session.participants.forEach { participant ->
+            val age = participant.secondsSinceSeen?.plus(participantAgeTick)
+            appendLine(
+                "id=" + participant.id +
+                    ",nickname=" + participant.nickname.ifBlank { "none" } +
+                    ",observed_ip=" + participant.observedIp.ifBlank { "unknown" } +
+                    ",severity=" + participant.severity +
+                    ",decision=" + participant.decision +
+                    ",seconds_since_last_contact=" + (age?.toString() ?: "never")
+            )
+        }
     }
     appendLine()
     appendLine("client_message=" + message.ifBlank { "none" })
