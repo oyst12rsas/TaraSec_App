@@ -887,14 +887,16 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("[expected_behavior]")
     appendLine("After Request for Assistance marks this participant INFECTED, the app MUST keep attempting normal polling.")
     appendLine("Those polling attempts are expected to FAIL because infected traffic to the protected demo server should be rejected.")
-    appendLine("After release/clear, polling should succeed again.")
+    appendLine("After the configured containment period, the DB server MUST issue the release; polling should then succeed again.")
+    appendLine("The Android app must never clear its own infection or send the release.")
     appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
     appendLine()
     appendLine("[diagnostic_flags]")
     if (automaticReleaseOverdue) {
         appendLine("ERROR: AUTOMATIC RELEASE IS OVERDUE")
         appendLine("The configured containment period ended, but no release request was created.")
-        appendLine("Expected: create the release request, clear the demo infection, and restore DB polling.")
+        appendLine("Expected: the DB server creates the release request, clears the demo infection, and restores DB polling.")
+        appendLine("The app must remain blocked and must not release itself.")
         appendLine("This is separate from the post-release observation window.")
     } else if (unexpectedPollingSuccess) {
         appendLine("BUG: INFECTED PARTICIPANT CAN STILL POLL SUCCESSFULLY")
