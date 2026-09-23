@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-private fun demo4DebugReport(baseUrl: String, status: Demo4RouteStatus?): String = buildString {
+private fun demo4DebugReport(baseUrl: String, status: Demo4RouteStatus?, runLog: List<String>): String = buildString {
     appendLine("TaraSec Demo 4 debug report")
     appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
     appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
@@ -35,6 +35,10 @@ private fun demo4DebugReport(baseUrl: String, status: Demo4RouteStatus?): String
     appendLine("For each issue, name the most likely component involved (app, DB/API, gateway, NetBird route, or partner route) only when supported by this report. Do not invent a cause.")
     appendLine("Give the safest next diagnostic step and explicitly say which computer/device it should be run on. Do not suggest destructive changes before diagnostics.")
     appendLine("If everything shown is green/applied, explain what is verified and what this report alone does NOT prove.")
+    appendLine()
+    appendLine("[phone_test]")
+    if (runLog.isEmpty()) appendLine("not_run") else runLog.forEach { appendLine(it) }
+    appendLine("The DB session joins gateway-confirmed phone state with website-observed source IP. A relay observation is still needed for full route proof.")
     appendLine()
     appendLine("[connection]")
     appendLine("db_endpoint=${baseUrl.trimEnd('/')}")
@@ -66,25 +70,104 @@ private fun demo4DebugReport(baseUrl: String, status: Demo4RouteStatus?): String
 }
 
 @Composable
-fun DemoRoutingPanel(baseUrl: String) {
+fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
     val activity = LocalContext.current as ComponentActivity
     val context = LocalContext.current
     var status by remember { mutableStateOf<Demo4RouteStatus?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var websiteIps by remember { mutableStateOf<List<String>>(emptyList()) }
+    var viewerId by remember(baseUrl, gatewayControlBase) { mutableStateOf("") }
+    var running by remember { mutableStateOf(false) }
+    var runStage by remember { mutableStateOf("") }
+    var runLog by remember(baseUrl, gatewayControlBase) { mutableStateOf<List<String>>(emptyList()) }
 
     fun refresh() {
         if (loading) return
         loading = true
         Thread {
             val result = DemoRoutingClient.routes(baseUrl)
+            val resolvedIps = DemoRoutingClient.websiteAddresses()
             activity.runOnUiThread {
                 status = result
+                websiteIps = resolvedIps
                 loading = false
             }
         }.start()
     }
 
     LaunchedEffect(baseUrl) { refresh() }
+
+    fun runDemo(route: Demo4Route, control: String) {
+        if (running) return
+        running = true
+        runStage = "Creating DB session…"
+        runLog = emptyList()
+        viewerId = ""
+        Thread {
+            val lines = mutableListOf<String>()
+            var touchedState = false
+            fun stage(value: String) { activity.runOnUiThread { runStage = value } }
+            fun confirmed(infected: Boolean): Boolean {
+                repeat(6) {
+                    val state = DemoClient.localThreatStatusBase(control)
+                    if (state.reachable && state.infected == infected) return true
+                    Thread.sleep(800)
+                }
+                return false
+            }
+            try {
+                val session = DemoRoutingClient.createSession(baseUrl)
+                check(session.sessionId.isNotBlank()) { session.error }
+                activity.runOnUiThread { viewerId = session.sessionId }
+                lines += "db_session=${session.sessionId}"
+                stage("Setting CLEAN…")
+                touchedState = true
+                DemoClient.setGatewayInfected(control, false)
+                check(confirmed(false)) { "Gateway did not confirm CLEAN locally" }
+                val cleanGateway = DemoRoutingClient.confirmGateway(
+                    control, session.sessionId, session.token, "clean")
+                check(cleanGateway.reachable) { cleanGateway.detail }
+                lines += "clean_gateway_confirmed=true"
+                stage("Website observing CLEAN request…")
+                val clean = DemoRoutingClient.recordObservation(session.sessionId, session.token, "clean")
+                lines += "clean_website_observation=${clean.detail}"
+                check(clean.reachable) { "CLEAN website request failed" }
+
+                stage("Setting INFECTED…")
+                DemoClient.setGatewayInfected(control, true)
+                check(confirmed(true)) { "Gateway did not confirm INFECTED locally" }
+                val infectedGateway = DemoRoutingClient.confirmGateway(
+                    control, session.sessionId, session.token, "infected")
+                check(infectedGateway.reachable) { infectedGateway.detail }
+                lines += "infected_gateway_confirmed=true"
+                stage("Waiting for gateway tag update…")
+                Thread.sleep(3000)
+                stage("Website observing a new tagged connection…")
+                val infected = DemoRoutingClient.recordObservation(
+                    session.sessionId, session.token, "infected")
+                lines += "infected_website_observation=${infected.detail}"
+                check(infected.reachable) { "INFECTED website request failed" }
+                lines += "phone_test=completed"
+            } catch (e: Exception) {
+                lines += "phone_test=incomplete"
+                lines += "reason=${e.message ?: "Unexpected test error"}"
+            } finally {
+                if (touchedState) {
+                    stage("Restoring CLEAN…")
+                    DemoClient.setGatewayInfected(control, false)
+                    lines += "restored_clean=${runCatching { confirmed(false) }.getOrDefault(false)}"
+                }
+                lines += "gateway_route_state_at_start=${route.applyState}"
+                lines += "route_proof=requires_relay_evidence"
+                activity.runOnUiThread {
+                    runLog = lines.toList()
+                    runStage = ""
+                    running = false
+                }
+            }
+        }.start()
+    }
+
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -135,6 +218,50 @@ fun DemoRoutingPanel(baseUrl: String) {
             }
         }
 
+        val chosenRoute = status?.routes?.firstOrNull { it.selected }
+            ?: status?.routes?.singleOrNull()
+        Text(
+            "Run the test in this app and share the website viewer link. The DB server coordinates the session, the gateway confirms the phone status, and TaraSec.org records each source IP it receives.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        val websiteRouteReady = websiteIps.size == 1 &&
+            chosenRoute?.destinationIp == websiteIps.first()
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !running && chosenRoute != null && websiteRouteReady &&
+                chosenRoute.netmask == "255.255.255.255" && gatewayControlBase != null,
+            onClick = {
+                val route = chosenRoute
+                val control = gatewayControlBase
+                if (route != null && control != null) runDemo(route, control)
+            }
+        ) { Text(if (running) "Running Demo 4…" else "Run Demo 4 and show IP on website") }
+        if (gatewayControlBase == null) {
+            Text("Connect to a TaraSec gateway to run the test.", color = MaterialTheme.colorScheme.error)
+        } else if (chosenRoute == null) {
+            Text("Select a Demo 4 route on the gateway first.", color = MaterialTheme.colorScheme.error)
+        } else if (chosenRoute.netmask != "255.255.255.255") {
+            Text("Demo 4 needs a single /32 destination.", color = MaterialTheme.colorScheme.error)
+        } else if (!websiteRouteReady) {
+            Text(
+                "The selected route targets ${chosenRoute.destinationIp}, but tarasec.org currently resolves to ${websiteIps.joinToString().ifEmpty { "unknown" }}. The website must have one stable IPv4 destination authorized by the gateway and relay before this test can run.",
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        if (viewerId.isNotBlank()) {
+            val viewerUrl = "https://tarasec.org/demo4/observe.php?id=$viewerId"
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Demo 4 live viewer", viewerUrl))
+                }
+            ) { Text("Copy live website viewer link") }
+            Text(viewerUrl, style = MaterialTheme.typography.bodySmall)
+        }
+        if (runStage.isNotBlank()) Text(runStage)
+        runLog.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+
         Button(
             modifier = Modifier.fillMaxWidth(),
             enabled = !loading,
@@ -148,7 +275,7 @@ fun DemoRoutingPanel(baseUrl: String) {
             onClick = {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(
-                    ClipData.newPlainText("TaraSec Demo 4 debug report", demo4DebugReport(baseUrl, status))
+                    ClipData.newPlainText("TaraSec Demo 4 debug report", demo4DebugReport(baseUrl, status, runLog))
                 )
             }
         ) {

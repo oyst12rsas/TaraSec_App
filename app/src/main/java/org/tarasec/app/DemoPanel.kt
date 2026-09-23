@@ -814,7 +814,7 @@ fun DemoPanel(
                 title = "Demo 4 · Tagged route to VPS partner",
                 subtitle = "Normal public path when clean; NetBird path when infected"
             ) {
-                DemoRoutingPanel(baseUrl = "http://100.68.126.0")
+                DemoRoutingPanel(baseUrl = "http://100.68.126.0", gatewayControlBase = activeControlBase())
             }
         }
 
