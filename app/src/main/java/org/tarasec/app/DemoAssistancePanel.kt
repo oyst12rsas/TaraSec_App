@@ -504,7 +504,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                         if (displayedReleaseSeconds > 0) {
                             "${displayedReleaseSeconds.coerceAtLeast(0)} seconds before suggested release"
                         } else {
-                            "Timer complete · waiting for explicit release"
+                            "Timer complete · waiting for DB release confirmation"
                         }
                     )
                 } else if (current.state == "releasing") {
@@ -912,12 +912,16 @@ private fun buildDemoAssistanceDebugReport(
         System.currentTimeMillis() - it <= 6_000L
     } == true
     val unexpectedPollingSuccess = expectedToBeBlocked && recentSuccessfulPoll
-    val automaticReleaseOverdue = session?.let {
+    val localReleaseTimerElapsed = session?.let {
         it.state == "contained" &&
             (it.assistanceRequestId ?: 0) > 0 &&
             (it.releaseRequestId ?: 0) == 0 &&
             displayedReleaseSeconds == 0
     } == true
+    // A blocked participant cannot learn whether the DB server released the
+    // session. Its last successful response may predate the release deadline.
+    val releaseStatusUnverified = localReleaseTimerElapsed && !recentSuccessfulPoll
+    val automaticReleaseOverdue = localReleaseTimerElapsed && recentSuccessfulPoll
     val releaseOverdueSecondsApprox = if (automaticReleaseOverdue) {
         lastHeartbeatSuccessEpochMs?.let {
             ((System.currentTimeMillis() - it) / 1000L - (session?.containmentSeconds ?: 0))
@@ -953,12 +957,15 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
     appendLine()
     appendLine("[diagnostic_flags]")
-    if (automaticReleaseOverdue) {
-        appendLine("ERROR: AUTOMATIC RELEASE IS OVERDUE")
-        appendLine("The configured containment period ended, but no release request was created.")
-        appendLine("Expected: the DB server creates the release request, clears the demo infection, and restores DB polling.")
-        appendLine("The app must remain blocked and must not release itself.")
-        appendLine("This is separate from the post-release observation window.")
+    if (releaseStatusUnverified) {
+        appendLine("RELEASE STATUS UNVERIFIED: the local timer ended while DB polling was blocked.")
+        appendLine("The cached session cannot show whether the DB server created a release request.")
+        appendLine("Check the DB server and gateway delivery before concluding release failed.")
+        appendLine("The app must keep polling and must not release itself.")
+    } else if (automaticReleaseOverdue) {
+        appendLine("ERROR: a recent DB response still reports no release after the local timer elapsed.")
+        appendLine("Check DB server release scheduling and gateway delivery.")
+        appendLine("The app must keep polling and must not release itself.")
     } else if (unexpectedPollingSuccess) {
         appendLine("BUG: INFECTED PARTICIPANT CAN STILL POLL SUCCESSFULLY")
         appendLine("Expected: polling attempts continue but fail while the assistance request contains this infected participant.")
@@ -987,6 +994,7 @@ private fun buildDemoAssistanceDebugReport(
         appendLine("request_seconds_remaining=" + displayedRequestSeconds)
         appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
         appendLine("release_overdue=" + automaticReleaseOverdue)
+        appendLine("release_status_unverified=" + releaseStatusUnverified)
         appendLine("release_overdue_seconds_approx=" + releaseOverdueSecondsApprox)
         appendLine("observation_seconds_remaining=" + session.observationSecondsRemaining)
         appendLine("observation_window_note=post-release verification only; it must not delay automatic release")
