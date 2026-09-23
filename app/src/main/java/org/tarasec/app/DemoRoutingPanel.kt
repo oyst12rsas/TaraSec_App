@@ -75,49 +75,73 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
     val activity = LocalContext.current as ComponentActivity
     val context = LocalContext.current
     var status by remember { mutableStateOf<Demo4RouteStatus?>(null) }
-    var loading by remember { mutableStateOf(false) }
     var websiteIps by remember { mutableStateOf<List<String>>(emptyList()) }
     var viewerId by remember(baseUrl, gatewayControlBase) { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
     var runStage by remember { mutableStateOf("") }
     var runLog by remember(baseUrl, gatewayControlBase) { mutableStateOf<List<String>>(emptyList()) }
 
-    fun refresh() {
-        if (loading) return
-        loading = true
+    LaunchedEffect(baseUrl) {
         Thread {
             val result = DemoRoutingClient.routes(baseUrl)
             val resolvedIps = DemoRoutingClient.websiteAddresses()
             activity.runOnUiThread {
                 status = result
                 websiteIps = resolvedIps
-                loading = false
             }
         }.start()
     }
 
-    LaunchedEffect(baseUrl) { refresh() }
-
     fun runDemo(route: Demo4Route, control: String) {
         if (running) return
         running = true
-        runStage = "Creating DB session…"
+        runStage = "Checking Demo 4 route…"
         runLog = emptyList()
         viewerId = ""
         Thread {
             val lines = mutableListOf<String>()
             var touchedState = false
-            var currentStep = "create_session"
+            var currentStep = "check_routes"
+            var effectiveControl = control
+            var currentRoute = route
             fun stage(value: String) { activity.runOnUiThread { runStage = value } }
             fun confirmed(infected: Boolean): Boolean {
                 repeat(6) {
-                    val state = DemoClient.localThreatStatusBase(control)
+                    val state = DemoClient.localThreatStatusBase(effectiveControl)
                     if (state.reachable && state.infected == infected) return true
                     Thread.sleep(800)
                 }
                 return false
             }
             try {
+                val latest = DemoRoutingClient.routes(baseUrl)
+                val latestWebsiteIps = DemoRoutingClient.websiteAddresses()
+                activity.runOnUiThread {
+                    status = latest
+                    websiteIps = latestWebsiteIps
+                }
+                check(latest.reachable) { "DB route check failed: ${latest.message}" }
+                currentRoute = latest.routes.firstOrNull { it.selected }
+                    ?: latest.routes.singleOrNull()
+                    ?: error("Select a Demo 4 route on the gateway first")
+                check(currentRoute.netmask == "255.255.255.255") {
+                    "Demo 4 needs a single /32 destination"
+                }
+                check(latestWebsiteIps.size == 1 &&
+                    currentRoute.destinationIp == latestWebsiteIps.first()) {
+                    "Selected route ${currentRoute.destinationIp} does not match the single tarasec.org IPv4 address"
+                }
+                val demoGateways = setOf("100.68.25.154", "100.68.153.251", "100.68.165.190")
+                val configuredHost = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
+                val detectedGateway = latest.sourceIp.takeIf { it in demoGateways }
+                effectiveControl = if (detectedGateway != null && configuredHost in demoGateways) {
+                    "http://$detectedGateway"
+                } else {
+                    gatewayControlBase ?: control
+                }
+                lines += "route_checked_before_run=true"
+                currentStep = "create_session"
+                stage("Creating DB session…")
                 val session = DemoRoutingClient.createSession(baseUrl)
                 check(session.sessionId.isNotBlank()) { session.error }
                 activity.runOnUiThread { viewerId = session.sessionId }
@@ -125,11 +149,11 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 currentStep = "set_clean"
                 stage("Setting CLEAN…")
                 touchedState = true
-                DemoClient.setGatewayInfected(control, false)
+                DemoClient.setGatewayInfected(effectiveControl, false)
                 check(confirmed(false)) { "Gateway did not confirm CLEAN locally" }
                 currentStep = "confirm_clean_gateway"
                 val cleanGateway = DemoRoutingClient.confirmGateway(
-                    control, session.sessionId, session.token, "clean")
+                    effectiveControl, session.sessionId, session.token, "clean")
                 check(cleanGateway.reachable) { cleanGateway.detail }
                 lines += "clean_gateway_confirmed=true"
                 stage("Website observing CLEAN request…")
@@ -140,11 +164,11 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
 
                 currentStep = "set_infected"
                 stage("Setting INFECTED…")
-                DemoClient.setGatewayInfected(control, true)
+                DemoClient.setGatewayInfected(effectiveControl, true)
                 check(confirmed(true)) { "Gateway did not confirm INFECTED locally" }
                 currentStep = "confirm_infected_gateway"
                 val infectedGateway = DemoRoutingClient.confirmGateway(
-                    control, session.sessionId, session.token, "infected")
+                    effectiveControl, session.sessionId, session.token, "infected")
                 check(infectedGateway.reachable) { infectedGateway.detail }
                 lines += "infected_gateway_confirmed=true"
                 stage("Waiting for gateway tag update…")
@@ -163,10 +187,10 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
             } finally {
                 if (touchedState) {
                     stage("Restoring CLEAN…")
-                    DemoClient.setGatewayInfected(control, false)
+                    DemoClient.setGatewayInfected(effectiveControl, false)
                     lines += "restored_clean=${runCatching { confirmed(false) }.getOrDefault(false)}"
                 }
-                lines += "gateway_route_state_at_start=${route.applyState}"
+                lines += "gateway_route_state_at_start=${currentRoute.applyState}"
                 lines += "route_proof=requires_relay_evidence"
                 activity.runOnUiThread {
                     runLog = lines.toList()
@@ -284,14 +308,6 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
         }
         if (runStage.isNotBlank()) Text(runStage)
         runLog.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            onClick = { refresh() }
-        ) {
-            Text(if (loading) "Checking…" else "Refresh Demo 4 partner routes")
-        }
 
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
