@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.URL
 
 private fun formatDemoDuration(totalSeconds: Int): String {
     val seconds = totalSeconds.coerceAtLeast(0)
@@ -54,7 +55,6 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     }
     var gatewayRouteMessage by remember { mutableStateOf("Identifying the current TaraSec gateway…") }
     val scope = rememberCoroutineScope()
-
     var available by remember { mutableStateOf<List<DemoAssistanceSession>>(emptyList()) }
     var session by remember { mutableStateOf<DemoAssistanceSession?>(null) }
     var participantToken by rememberSaveable(baseUrl) { mutableStateOf("") }
@@ -89,6 +89,22 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var firstContainmentFailureEpochMs by remember { mutableStateOf<Long?>(null) }
     var firstPostReleaseSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var appliedLocalSeverity by remember { mutableStateOf<Int?>(null) }
+
+    val demo3GatewayIps = setOf("100.68.25.154", "100.68.153.251", "100.68.165.190")
+
+    fun alignGatewayWithParticipant(joined: DemoAssistanceJoin) {
+        val observedIp = joined.session.participants
+            .firstOrNull { it.id == joined.participantId }?.observedIp.orEmpty()
+        if (observedIp !in demo3GatewayIps) return
+        val previousHost = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
+        gatewayControlBase = "http://$observedIp"
+        gatewayRouteMessage = if (previousHost != null && previousHost != observedIp) {
+            "DB observed $observedIp for this phone; changed Demo 3 control from $previousHost"
+        } else {
+            "DB observed gateway · $observedIp"
+        }
+    }
+
 
     fun resetLocalDemoState() {
         session = null
@@ -133,6 +149,8 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         val observed = withContext(Dispatchers.IO) {
             DemoSshClient.observedGateway(baseUrl)
         }
+        // A late discovery reply must not replace the DB-observed gateway of a joined participant.
+        if (session != null && participantToken.isNotBlank()) return@LaunchedEffect
         if (observed.recognized && observed.address.isNotBlank()) {
             gatewayControlBase = "http://${observed.address}"
             gatewayRouteMessage = "${observed.name} · ${observed.address}"
@@ -374,6 +392,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                                     created to joined
                                 }
                             }.onSuccess { (created, joined) ->
+                                alignGatewayWithParticipant(joined)
                                 session = joined.session
                                 controllerToken = created.controllerToken
                                 participantToken = joined.participantToken
@@ -392,6 +411,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         } else {
             val ownParticipant = current.participants.firstOrNull { it.id == participantId }
             val ownInfected = ownParticipant?.severity?.let { it > current.threshold } == true
+            val observedGatewayIp = ownParticipant?.observedIp?.takeIf { it in demo3GatewayIps }
+            val selectedGatewayIp = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
+            val gatewayMismatch = observedGatewayIp != null && selectedGatewayIp != observedGatewayIp
             val containmentExpected = participantToken.isNotBlank() &&
                 ownInfected &&
                 current.state == "active"
@@ -585,6 +607,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                                     }
                                 }
                                     .onSuccess {
+                                        alignGatewayWithParticipant(it)
                                         participantToken = it.participantToken
                                         participantId = it.participantId
                                         session = it.session
@@ -613,6 +636,10 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                         }
                     )
                     TaraStatusRow("Gateway", gatewayRouteMessage)
+                    if (gatewayMismatch) {
+                        Text("DB sees this phone through $observedGatewayIp, but Demo 3 controls $selectedGatewayIp. Reopen Demo 3 on the correct gateway before setting status.",
+                            color = MaterialTheme.colorScheme.error)
+                    }
                     Text(
                         "CLEAN or INFECTED records this unit's demo classification. It does not " +
                             "block polling by itself. When a Request for Assistance becomes active, " +
@@ -662,13 +689,13 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Button(
-                            enabled = current.state == "active" && !busy &&
+                            enabled = current.state == "active" && !busy && !gatewayMismatch &&
                                 gatewayControlBase != null,
                             modifier = Modifier.weight(1f),
                             onClick = { applyStatus(false) }
                         ) { Text("Set CLEAN") }
                         Button(
-                            enabled = current.state == "active" && !busy &&
+                            enabled = current.state == "active" && !busy && !gatewayMismatch &&
                                 gatewayControlBase != null,
                             modifier = Modifier.weight(1f),
                             onClick = { applyStatus(true) }
@@ -997,6 +1024,9 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
     appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
     val ownParticipant = session?.participants?.firstOrNull { it.id == participantId }
+    val gatewayHost = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
+    val gatewayMismatch = ownParticipant?.observedIp in setOf("100.68.25.154", "100.68.153.251", "100.68.165.190") &&
+        ownParticipant?.observedIp != gatewayHost
     val participantInfected = ownParticipant?.severity?.let { severity ->
         session?.let { severity > it.threshold }
     } == true
@@ -1025,6 +1055,7 @@ private fun buildDemoAssistanceDebugReport(
         } ?: 0L
     } else 0L
 
+    appendLine("gateway_matches_db_observed_path=" + !gatewayMismatch)
     appendLine("participant_infected=" + participantInfected)
     appendLine("assistance_request_active=" + assistanceRequestActive)
     appendLine("expected_to_be_blocked=" + expectedToBeBlocked)
@@ -1053,7 +1084,13 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
     appendLine()
     appendLine("[diagnostic_flags]")
-    if (releaseStatusUnverified) {
+    if (gatewayMismatch) {
+        appendLine("ERROR: app controls $gatewayHost but DB observed ${ownParticipant?.observedIp}; use the DB-observed gateway for Demo 3.")
+    } else if (participantInfected && (session?.releaseRequestId ?: 0) > 0 &&
+        containmentPollingAttempts > 0 && containmentPollingFailures == 0) {
+        appendLine("ERROR: NO CONTAINMENT OBSERVED; all polling attempts during containment succeeded.")
+        appendLine("Check that the DB-observed gateway tagged and blocked this phone.")
+    } else if (releaseStatusUnverified) {
         appendLine("RELEASE STATUS UNVERIFIED: the local timer ended while DB polling was blocked.")
         appendLine("The cached session cannot show whether the DB server created a release request.")
         appendLine("Check the DB server and gateway delivery before concluding release failed.")
