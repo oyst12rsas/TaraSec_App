@@ -68,6 +68,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var containmentSeconds by remember { mutableStateOf(120) }
     var busy by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
+    var copyingDebug by remember { mutableStateOf(false) }
     var containmentAlertVisible by remember { mutableStateOf(false) }
     var containmentWarnedSessionId by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf("Loading available Demo 3 sessions…") }
@@ -810,40 +811,74 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         }
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
+            enabled = !copyingDebug,
             onClick = {
-                val report = buildDemoAssistanceDebugReport(
-                    baseUrl = baseUrl,
-                    gatewayControlBase = gatewayControlBase,
-                    gatewayRouteMessage = gatewayRouteMessage,
-                    session = session,
-                    participantId = participantId,
-                    participantTokenPresent = participantToken.isNotBlank(),
-                    controllerTokenPresent = controllerToken.isNotBlank(),
-                    participantAgeTick = participantAgeTick,
-                    displayedRequestSeconds = displayedRequestSeconds,
-                    displayedReleaseSeconds = displayedReleaseSeconds,
-                    requestSentLocally = requestSentLocally,
-                    heartbeatAttempts = heartbeatAttempts,
-                    heartbeatSuccesses = heartbeatSuccesses,
-                    heartbeatFailures = heartbeatFailures,
-                    lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
-                    lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
-                    lastHeartbeatError = lastHeartbeatError,
-                    containmentPollingAttempts = containmentPollingAttempts,
-                    containmentPollingSuccesses = containmentPollingSuccesses,
-                    containmentPollingFailures = containmentPollingFailures,
-                    firstContainmentFailureEpochMs = firstContainmentFailureEpochMs,
-                    firstPostReleaseSuccessEpochMs = firstPostReleaseSuccessEpochMs,
-                    message = message
-                )
+                copyingDebug = true
+                message = "Checking the DB server and gateway for the debug report…"
                 scope.launch {
-                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Demo 3 debug report", report)))
+                    try {
+                        val id = session?.id
+                        val gateway = gatewayControlBase
+                        // These are read-only status requests. A contained phone
+                        // may fail to reach the DB, but its gateway can still reply.
+                        val dbResult = runCatching {
+                            require(id != null) { "No Demo 3 session selected" }
+                            withContext(Dispatchers.IO) {
+                                DemoAssistanceClient.status(baseUrl, id, groupCode)
+                            }
+                        }
+                        val gatewayResult = runCatching {
+                            require(gateway != null) { "No TaraSec gateway selected" }
+                            withContext(Dispatchers.IO) {
+                                DemoClient.localThreatStatusBase(gateway)
+                            }
+                        }
+                        val dbNow = dbResult.getOrNull()
+                        val gatewayNow = gatewayResult.getOrNull()
+                        val report = buildDemoAssistanceDebugReport(
+                            baseUrl = baseUrl,
+                            gatewayControlBase = gateway,
+                            gatewayRouteMessage = gatewayRouteMessage,
+                            session = dbNow ?: session,
+                            participantId = participantId,
+                            participantTokenPresent = participantToken.isNotBlank(),
+                            controllerTokenPresent = controllerToken.isNotBlank(),
+                            participantAgeTick = participantAgeTick,
+                            displayedRequestSeconds = displayedRequestSeconds,
+                            displayedReleaseSeconds = displayedReleaseSeconds,
+                            requestSentLocally = requestSentLocally,
+                            heartbeatAttempts = heartbeatAttempts,
+                            heartbeatSuccesses = heartbeatSuccesses,
+                            heartbeatFailures = heartbeatFailures,
+                            lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
+                            lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
+                            lastHeartbeatError = lastHeartbeatError,
+                            containmentPollingAttempts = containmentPollingAttempts,
+                            containmentPollingSuccesses = containmentPollingSuccesses,
+                            containmentPollingFailures = containmentPollingFailures,
+                            firstContainmentFailureEpochMs = firstContainmentFailureEpochMs,
+                            firstPostReleaseSuccessEpochMs = firstPostReleaseSuccessEpochMs,
+                            message = message,
+                            liveCheckedAtEpochMs = System.currentTimeMillis(),
+                            liveDbSession = dbNow,
+                            liveDbError = dbResult.exceptionOrNull()?.message,
+                            liveGatewayStatus = gatewayNow,
+                            liveGatewayError = gatewayResult.exceptionOrNull()?.message
+                        )
+                        clipboard.setClipEntry(
+                            ClipEntry(ClipData.newPlainText("Demo 3 debug report", report))
+                        )
+                        message = "Demo 3 debug report copied with fresh DB and gateway checks."
+                    } catch (e: Exception) {
+                        message = "Could not copy Demo 3 debug report: ${e.message}"
+                    } finally {
+                        copyingDebug = false
+                    }
                 }
-                message = "Demo 3 debug report copied."
             }
-        ) { Text("Copy debug info for AI") }
+        ) { Text(if (copyingDebug) "Checking DB and gateway…" else "Copy debug info for AI") }
         Text(
-            "Copies connection, gateway recognition and heartbeat state without participant tokens or group codes.",
+            "Checks both servers before copying. Unreachable responses are reported separately; tokens and group codes are omitted.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -875,7 +910,12 @@ private fun buildDemoAssistanceDebugReport(
     containmentPollingFailures: Int,
     firstContainmentFailureEpochMs: Long?,
     firstPostReleaseSuccessEpochMs: Long?,
-    message: String
+    message: String,
+    liveCheckedAtEpochMs: Long,
+    liveDbSession: DemoAssistanceSession?,
+    liveDbError: String?,
+    liveGatewayStatus: DemoThreatStatus?,
+    liveGatewayError: String?
 ): String = buildString {
     appendLine("TaraSec Demo 3 debug report")
     appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
@@ -889,6 +929,30 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("db_endpoint=" + baseUrl.ifBlank { "not selected" })
     appendLine("gateway_control_endpoint=" + gatewayControlBase.orEmpty().ifBlank { "unavailable" })
     appendLine("gateway=" + gatewayRouteMessage.ifBlank { "unknown" })
+    appendLine()
+    appendLine("[live_status]")
+    appendLine("checked_at_epoch_ms=" + liveCheckedAtEpochMs)
+    appendLine("db_reachable=" + (liveDbSession != null))
+    if (liveDbSession != null) {
+        appendLine("db_session_state=" + liveDbSession.state)
+        appendLine("db_assistance_request_id=" + (liveDbSession.assistanceRequestId ?: 0))
+        appendLine("db_release_request_id=" + (liveDbSession.releaseRequestId ?: 0))
+        appendLine("db_release_seconds_remaining=" + liveDbSession.releaseSecondsRemaining)
+    } else {
+        appendLine("db_error=" + (liveDbError ?: "No live DB response"))
+        appendLine("session_below=cached")
+    }
+    appendLine("gateway_reachable=" + (liveGatewayStatus?.reachable == true))
+    if (liveGatewayStatus?.reachable == true) {
+        appendLine("gateway_infected=" + liveGatewayStatus.infected)
+        appendLine("gateway_severity=" + liveGatewayStatus.severity)
+        appendLine("gateway_source=" + liveGatewayStatus.source)
+        appendLine("gateway_http_code=" + liveGatewayStatus.httpCode)
+        appendLine("gateway_note=local phone state; does not prove ASSIST release delivery")
+    } else {
+        appendLine("gateway_error=" +
+            (liveGatewayError ?: liveGatewayStatus?.message ?: "No live gateway response"))
+    }
     appendLine()
     appendLine("[polling]")
     appendLine("participant_id=" + participantId)
