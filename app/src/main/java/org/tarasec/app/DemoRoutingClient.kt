@@ -2,6 +2,8 @@ package org.tarasec.app
 
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.URL
 
 data class Demo4Route(
@@ -24,7 +26,45 @@ data class Demo4RouteStatus(
     val message: String
 )
 
+data class Demo4ProbeResult(val reachable: Boolean, val detail: String)
+
 object DemoRoutingClient {
+    fun websiteAddresses(): List<String> = runCatching {
+        InetAddress.getAllByName("tarasec.org")
+            .filterIsInstance<Inet4Address>()
+            .map { it.hostAddress }
+            .distinct()
+    }.getOrDefault(emptyList())
+
+    fun recordObservation(sessionId: String, writerKey: String, phase: String): Demo4ProbeResult {
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = URL("https://tarasec.org/demo4/observe.php?action=record")
+                .openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 7000
+            connection.useCaches = false
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            val form = "id=$sessionId&key=$writerKey&phase=$phase"
+            connection.outputStream.use { it.write(form.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val json = JSONObject(body)
+            if (code in 200..299 && json.optBoolean("ok", false)) {
+                Demo4ProbeResult(true, "TaraSec.org observed ${json.optString("observedIp", "unknown")}")
+            } else {
+                Demo4ProbeResult(false, json.optString("error", "HTTP $code"))
+            }
+        } catch (e: Exception) {
+            Demo4ProbeResult(false, e.message ?: "Website observation failed")
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
     fun routes(baseUrl: String): Demo4RouteStatus {
         var connection: HttpURLConnection? = null
         return try {
