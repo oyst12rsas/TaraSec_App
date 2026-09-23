@@ -74,6 +74,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var displayedRequestSeconds by remember { mutableStateOf(0) }
     var displayedReleaseSeconds by remember { mutableStateOf(0) }
     var requestSentLocally by remember { mutableStateOf(false) }
+    var automaticReleaseInProgress by remember { mutableStateOf(false) }
     var participantAgeTick by remember { mutableStateOf(0) }
     var heartbeatAttempts by remember { mutableStateOf(0) }
     var heartbeatSuccesses by remember { mutableStateOf(0) }
@@ -93,6 +94,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         displayedRequestSeconds = 0
         displayedReleaseSeconds = 0
         requestSentLocally = false
+        automaticReleaseInProgress = false
         participantAgeTick = 0
         heartbeatAttempts = 0
         heartbeatSuccesses = 0
@@ -174,7 +176,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         session?.id,
         session?.state,
         session?.secondsRemaining,
-        session?.releaseSecondsRemaining
+        session?.releaseSecondsRemaining,
+        controllerToken,
+        gatewayControlBase
     ) {
         val current = session ?: return@LaunchedEffect
         displayedRequestSeconds = current.secondsRemaining.coerceAtLeast(0)
@@ -196,6 +200,32 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 }
             } else {
                 displayedReleaseSeconds = (displayedReleaseSeconds - 1).coerceAtLeast(0)
+                if (
+                    displayedReleaseSeconds == 0 &&
+                    current.state == "contained" &&
+                    controllerToken.isNotBlank() &&
+                    gatewayControlBase != null &&
+                    !automaticReleaseInProgress
+                ) {
+                    automaticReleaseInProgress = true
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            // The infected unit cannot reach the DB while containment is
+                            // active. Clear only this demo's local gateway classification
+                            // when the configured containment period expires, then submit
+                            // the authenticated release to the DB.
+                            DemoAssistanceClient.setLocalSeverity(gatewayControlBase!!, 0)
+                            DemoAssistanceClient.release(baseUrl, current.id, controllerToken)
+                        }
+                    }.onSuccess { released ->
+                        appliedLocalSeverity = 0
+                        session = released
+                        message = "Automatic release sent. Confirming restored connectivity."
+                    }.onFailure {
+                        message = "Automatic release is overdue; retrying: ${it.message}"
+                    }
+                    automaticReleaseInProgress = false
+                }
             }
         }
     }
@@ -866,6 +896,18 @@ private fun buildDemoAssistanceDebugReport(
         System.currentTimeMillis() - it <= 6_000L
     } == true
     val unexpectedPollingSuccess = expectedToBeBlocked && recentSuccessfulPoll
+    val automaticReleaseOverdue = session?.let {
+        it.state == "contained" &&
+            (it.assistanceRequestId ?: 0) > 0 &&
+            (it.releaseRequestId ?: 0) == 0 &&
+            displayedReleaseSeconds == 0
+    } == true
+    val releaseOverdueSecondsApprox = if (automaticReleaseOverdue) {
+        lastHeartbeatSuccessEpochMs?.let {
+            ((System.currentTimeMillis() - it) / 1000L - (session?.containmentSeconds ?: 0))
+                .coerceAtLeast(0L)
+        } ?: 0L
+    } else 0L
 
     appendLine("participant_infected=" + participantInfected)
     appendLine("assistance_request_active=" + assistanceRequestActive)
@@ -879,7 +921,12 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
     appendLine()
     appendLine("[diagnostic_flags]")
-    if (unexpectedPollingSuccess) {
+    if (automaticReleaseOverdue) {
+        appendLine("ERROR: AUTOMATIC RELEASE IS OVERDUE")
+        appendLine("The configured containment period ended, but no release request was created.")
+        appendLine("Expected: create the release request, clear the demo infection, and restore DB polling.")
+        appendLine("This is separate from the post-release observation window.")
+    } else if (unexpectedPollingSuccess) {
         appendLine("BUG: INFECTED PARTICIPANT CAN STILL POLL SUCCESSFULLY")
         appendLine("Expected: polling attempts continue but fail while the assistance request contains this infected participant.")
         appendLine("Observed: a recent poll succeeded although the participant is INFECTED and should be blocked.")
@@ -902,10 +949,14 @@ private fun buildDemoAssistanceDebugReport(
         appendLine("visibility=" + session.visibility)
         appendLine("group_label=" + session.groupLabel.ifBlank { "none" })
         appendLine("threshold=" + session.threshold)
+        appendLine("containment_seconds=" + session.containmentSeconds)
         appendLine("request_sent_locally=" + requestSentLocally)
         appendLine("request_seconds_remaining=" + displayedRequestSeconds)
         appendLine("release_seconds_remaining=" + displayedReleaseSeconds)
+        appendLine("release_overdue=" + automaticReleaseOverdue)
+        appendLine("release_overdue_seconds_approx=" + releaseOverdueSecondsApprox)
         appendLine("observation_seconds_remaining=" + session.observationSecondsRemaining)
+        appendLine("observation_window_note=post-release verification only; it must not delay automatic release")
         appendLine("assistance_request_id=" + (session.assistanceRequestId ?: 0))
         appendLine("release_request_id=" + (session.releaseRequestId ?: 0))
         appendLine()
