@@ -113,18 +113,10 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     }
 
     LaunchedEffect(baseUrl) {
-        // A previous Demo 3 may have left this unit tagged locally. Clear that
-        // tag before the first DB request, otherwise even listing or creating a
-        // new demo can be blocked by an old assistance request.
-        gatewayControlBase?.let { gateway ->
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    DemoAssistanceClient.setLocalSeverity(gateway, 0)
-                }
-            }.onSuccess {
-                appliedLocalSeverity = 0
-            }
-        }
+        // Do not clear local infection state to regain DB access here.  The DB
+        // endpoint is intentionally unreachable while an active Request for
+        // Assistance contains this unit.  Automatic cleanup would bypass the
+        // containment that Demo 3 is meant to demonstrate.
         refreshAvailable()
         val observed = withContext(Dispatchers.IO) {
             DemoSshClient.observedGateway(baseUrl)
@@ -133,9 +125,12 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             gatewayControlBase = "http://${observed.address}"
             gatewayRouteMessage = "${observed.name} · ${observed.address}"
         } else {
-            gatewayControlBase = null
-            gatewayRouteMessage = observed.message.ifBlank {
-                "Connect through a recognized TaraSec gateway."
+            val selectedGateway = gatewayControlBase
+            gatewayRouteMessage = if (selectedGateway != null) {
+                "Selected gateway · ${selectedGateway.removePrefix("http://").removePrefix("https://")}; " +
+                    "DB discovery unavailable while traffic may be contained"
+            } else {
+                observed.message.ifBlank { "Connect through a recognized TaraSec gateway." }
             }
         }
     }
@@ -313,9 +308,8 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                         scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
-                                    val gateway = gatewayControlBase
+                                    gatewayControlBase
                                         ?: error("Connect through a recognized TaraSec gateway first")
-                                    DemoAssistanceClient.setLocalSeverity(gateway, 0)
                                     val created = DemoAssistanceClient.create(
                                         baseUrl,
                                         newDemoName.trim().ifBlank {
@@ -526,9 +520,8 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                             scope.launch {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        val gateway = gatewayControlBase
+                                        gatewayControlBase
                                             ?: error("Connect through a recognized TaraSec gateway first")
-                                        DemoAssistanceClient.setLocalSeverity(gateway, 0)
                                         DemoAssistanceClient.join(
                                             baseUrl,
                                             current.id,
