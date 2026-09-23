@@ -140,6 +140,8 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                     control, session.sessionId, session.token, "infected")
                 check(infectedGateway.reachable) { infectedGateway.detail }
                 lines += "infected_gateway_confirmed=true"
+                stage("Waiting for gateway tag update…")
+                Thread.sleep(3000)
                 stage("Website observing a new tagged connection…")
                 val infected = DemoRoutingClient.recordObservation(
                     session.sessionId, session.token, "infected")
