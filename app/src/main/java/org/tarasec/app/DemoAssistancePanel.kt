@@ -69,6 +69,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var busy by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
     var copyingDebug by remember { mutableStateOf(false) }
+    var startFailure by remember { mutableStateOf<String?>(null) }
     var containmentAlertVisible by remember { mutableStateOf(false) }
     var containmentWarnedSessionId by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf("Loading available Demo 3 sessions…") }
@@ -245,6 +246,18 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        startFailure?.let { failure ->
+            AlertDialog(
+                onDismissRequest = { startFailure = null },
+                title = { Text("Demo 3 could not start") },
+                text = {
+                    Text("$failure\n\nThis error will remain in Copy debug info for AI.")
+                },
+                confirmButton = {
+                    Button(onClick = { startFailure = null }) { Text("Close") }
+                }
+            )
+        }
         Text("Anyone may join. Choose a demo with more than 15 seconds remaining, or start a new exercise lasting up to 5 minutes.")
         Text(
             "At zero the demo server issues a real TaraSec Request for Assistance. Units marked INFECTED should lose connectivity to the demo server, so their polling stops.",
@@ -366,7 +379,11 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                                 participantToken = joined.participantToken
                                 participantId = joined.participantId
                                 message = "${created.session.name} started and this unit joined demo #${created.session.id}. Choose whether this unit is CLEAN or INFECTED."
-                            }.onFailure { message = "Could not start and join Demo 3: ${it.message}" }
+                            }.onFailure {
+                                val failure = it.message ?: it.javaClass.simpleName
+                                message = "Could not start and join Demo 3: $failure"
+                                startFailure = failure
+                            }
                             busy = false
                         }
                     }
@@ -814,6 +831,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             enabled = !copyingDebug,
             onClick = {
                 copyingDebug = true
+                val messageBeforeDebugCheck = message
                 message = "Checking the DB server and gateway for the debug report…"
                 scope.launch {
                     try {
@@ -822,9 +840,16 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                         // These are read-only status requests. A contained phone
                         // may fail to reach the DB, but its gateway can still reply.
                         val dbResult = runCatching {
-                            require(id != null) { "No Demo 3 session selected" }
                             withContext(Dispatchers.IO) {
-                                DemoAssistanceClient.status(baseUrl, id, groupCode)
+                                if (id != null) {
+                                    DemoAssistanceClient.status(baseUrl, id, groupCode)
+                                } else {
+                                    // Before a demo has been selected, status cannot be
+                                    // queried. Probe the discovery endpoint instead so a
+                                    // normal pre-start state is not reported as DB failure.
+                                    DemoAssistanceClient.list(baseUrl, groupCode)
+                                    null
+                                }
                             }
                         }
                         val gatewayResult = runCatching {
@@ -860,10 +885,12 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                             firstPostReleaseSuccessEpochMs = firstPostReleaseSuccessEpochMs,
                             message = message,
                             liveCheckedAtEpochMs = System.currentTimeMillis(),
+                            liveDbReachable = dbResult.isSuccess,
                             liveDbSession = dbNow,
                             liveDbError = dbResult.exceptionOrNull()?.message,
                             liveGatewayStatus = gatewayNow,
-                            liveGatewayError = gatewayResult.exceptionOrNull()?.message
+                            liveGatewayError = gatewayResult.exceptionOrNull()?.message,
+                            clientMessageBeforeDebugCheck = messageBeforeDebugCheck
                         )
                         clipboard.setClipEntry(
                             ClipEntry(ClipData.newPlainText("Demo 3 debug report", report))
@@ -912,10 +939,12 @@ private fun buildDemoAssistanceDebugReport(
     firstPostReleaseSuccessEpochMs: Long?,
     message: String,
     liveCheckedAtEpochMs: Long,
+    liveDbReachable: Boolean,
     liveDbSession: DemoAssistanceSession?,
     liveDbError: String?,
     liveGatewayStatus: DemoThreatStatus?,
-    liveGatewayError: String?
+    liveGatewayError: String?,
+    clientMessageBeforeDebugCheck: String
 ): String = buildString {
     appendLine("TaraSec Demo 3 debug report")
     appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
@@ -932,15 +961,18 @@ private fun buildDemoAssistanceDebugReport(
     appendLine()
     appendLine("[live_status]")
     appendLine("checked_at_epoch_ms=" + liveCheckedAtEpochMs)
-    appendLine("db_reachable=" + (liveDbSession != null))
+    appendLine("db_reachable=" + liveDbReachable)
     if (liveDbSession != null) {
         appendLine("db_session_state=" + liveDbSession.state)
         appendLine("db_assistance_request_id=" + (liveDbSession.assistanceRequestId ?: 0))
         appendLine("db_release_request_id=" + (liveDbSession.releaseRequestId ?: 0))
         appendLine("db_release_seconds_remaining=" + liveDbSession.releaseSecondsRemaining)
-    } else {
+    } else if (!liveDbReachable) {
         appendLine("db_error=" + (liveDbError ?: "No live DB response"))
         appendLine("session_below=cached")
+    } else {
+        appendLine("db_session_state=none_selected")
+        appendLine("db_note=Demo 3 discovery succeeded; no session has been started or joined")
     }
     appendLine("gateway_reachable=" + (liveGatewayStatus?.reachable == true))
     if (liveGatewayStatus?.reachable == true) {
@@ -1079,5 +1111,7 @@ private fun buildDemoAssistanceDebugReport(
         }
     }
     appendLine()
-    appendLine("client_message=" + message.ifBlank { "none" })
+    appendLine("client_message=" + clientMessageBeforeDebugCheck.ifBlank {
+        message.ifBlank { "none" }
+    })
 }
