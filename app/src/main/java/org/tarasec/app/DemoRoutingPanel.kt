@@ -264,7 +264,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
             enabled = !loading,
             onClick = { refresh() }
         ) {
-            Text(if (loading) "Checking…" else "Refresh Demo 4 partner routes")
+            Text(if (loading) "Checking…" else "Check routes again")
         }
 
         if (demo4Control == null) {
