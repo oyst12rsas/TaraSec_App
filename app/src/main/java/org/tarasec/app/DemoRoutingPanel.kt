@@ -106,6 +106,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
         Thread {
             val lines = mutableListOf<String>()
             var touchedState = false
+            var currentStep = "create_session"
             fun stage(value: String) { activity.runOnUiThread { runStage = value } }
             fun confirmed(infected: Boolean): Boolean {
                 repeat(6) {
@@ -119,23 +120,28 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 val session = DemoRoutingClient.createSession(baseUrl)
                 check(session.sessionId.isNotBlank()) { session.error }
                 activity.runOnUiThread { viewerId = session.sessionId }
-                lines += "db_session=${session.sessionId}"
+                lines += "db_session_created=true"
+                currentStep = "set_clean"
                 stage("Setting CLEAN…")
                 touchedState = true
                 DemoClient.setGatewayInfected(control, false)
                 check(confirmed(false)) { "Gateway did not confirm CLEAN locally" }
+                currentStep = "confirm_clean_gateway"
                 val cleanGateway = DemoRoutingClient.confirmGateway(
                     control, session.sessionId, session.token, "clean")
                 check(cleanGateway.reachable) { cleanGateway.detail }
                 lines += "clean_gateway_confirmed=true"
                 stage("Website observing CLEAN request…")
+                currentStep = "observe_clean_website"
                 val clean = DemoRoutingClient.recordObservation(session.sessionId, session.token, "clean")
                 lines += "clean_website_observation=${clean.detail}"
                 check(clean.reachable) { "CLEAN website request failed" }
 
+                currentStep = "set_infected"
                 stage("Setting INFECTED…")
                 DemoClient.setGatewayInfected(control, true)
                 check(confirmed(true)) { "Gateway did not confirm INFECTED locally" }
+                currentStep = "confirm_infected_gateway"
                 val infectedGateway = DemoRoutingClient.confirmGateway(
                     control, session.sessionId, session.token, "infected")
                 check(infectedGateway.reachable) { infectedGateway.detail }
@@ -143,6 +149,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 stage("Waiting for gateway tag update…")
                 Thread.sleep(3000)
                 stage("Website observing a new tagged connection…")
+                currentStep = "observe_infected_website"
                 val infected = DemoRoutingClient.recordObservation(
                     session.sessionId, session.token, "infected")
                 lines += "infected_website_observation=${infected.detail}"
@@ -150,6 +157,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 lines += "phone_test=completed"
             } catch (e: Exception) {
                 lines += "phone_test=incomplete"
+                lines += "failed_step=$currentStep"
                 lines += "reason=${e.message ?: "Unexpected test error"}"
             } finally {
                 if (touchedState) {
