@@ -185,6 +185,20 @@ fun DemoPanel(
         else -> null
     }
 
+    // Demo 3 must be able to clear a stale demo-only infection before it can
+    // reach the DB server again.  A failed reachability poll must therefore
+    // not discard an explicitly selected, built-in TaraSec gateway: doing so
+    // creates a deadlock where DB-based gateway discovery is itself blocked.
+    // Keep arbitrary addresses behind the normal verified/reachable gate.
+    fun demo3ControlBase(): String? = when {
+        directHotspotActive() -> localGatewayBase
+        selectedServiceBase != null && demoGateways.any { (_, ip) ->
+            selectedServiceBase.equals("http://$ip", ignoreCase = true) ||
+                selectedServiceBase.equals("https://$ip", ignoreCase = true)
+        } -> selectedServiceBase
+        else -> activeControlBase()
+    }
+
     fun activeGatewayLabel(): String = when {
         directHotspotActive() ->
             hotspotIdentity?.nodeName?.takeIf { hotspotIdentity?.reachable == true && it.isNotBlank() }
@@ -780,7 +794,7 @@ fun DemoPanel(
             ) {
                 DemoAssistancePanel(
                     baseUrl = "http://100.68.126.0",
-                    initialGatewayControlBase = activeControlBase()
+                    initialGatewayControlBase = demo3ControlBase()
                 )
             }
         }
