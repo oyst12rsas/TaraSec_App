@@ -81,6 +81,11 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var lastHeartbeatAttemptEpochMs by remember { mutableStateOf<Long?>(null) }
     var lastHeartbeatSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var lastHeartbeatError by remember { mutableStateOf("") }
+    var containmentPollingAttempts by remember { mutableStateOf(0) }
+    var containmentPollingSuccesses by remember { mutableStateOf(0) }
+    var containmentPollingFailures by remember { mutableStateOf(0) }
+    var firstContainmentFailureEpochMs by remember { mutableStateOf<Long?>(null) }
+    var firstPostReleaseSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var appliedLocalSeverity by remember { mutableStateOf<Int?>(null) }
 
     fun resetLocalDemoState() {
@@ -100,6 +105,11 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         lastHeartbeatAttemptEpochMs = null
         lastHeartbeatSuccessEpochMs = null
         lastHeartbeatError = ""
+        containmentPollingAttempts = 0
+        containmentPollingSuccesses = 0
+        containmentPollingFailures = 0
+        firstContainmentFailureEpochMs = null
+        firstPostReleaseSuccessEpochMs = null
         appliedLocalSeverity = null
     }
 
@@ -141,7 +151,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             delay(2000)
             if (leaving) continue
             val token = participantToken
+            val stateAtAttempt = session?.state
             heartbeatAttempts += 1
+            if (stateAtAttempt == "contained") containmentPollingAttempts += 1
             lastHeartbeatAttemptEpochMs = System.currentTimeMillis()
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -149,6 +161,17 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                     else DemoAssistanceClient.status(baseUrl, id, groupCode)
                 }
             }.onSuccess {
+                val successEpochMs = System.currentTimeMillis()
+                if (stateAtAttempt == "contained" && it.state == "contained") {
+                    containmentPollingSuccesses += 1
+                }
+                if (
+                    firstPostReleaseSuccessEpochMs == null &&
+                    (it.releaseRequestId ?: 0) > 0 &&
+                    (it.state == "releasing" || it.state == "closed")
+                ) {
+                    firstPostReleaseSuccessEpochMs = successEpochMs
+                }
                 session = it
                 // The server response contains a fresh secondsSinceSeen snapshot for
                 // every participant. Restart the local age ticker from that snapshot;
@@ -156,10 +179,17 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 // succeeds and makes "last successful contact" appear stale.
                 participantAgeTick = 0
                 heartbeatSuccesses += 1
-                lastHeartbeatSuccessEpochMs = System.currentTimeMillis()
+                lastHeartbeatSuccessEpochMs = successEpochMs
                 lastHeartbeatError = ""
             }.onFailure {
+                val failureEpochMs = System.currentTimeMillis()
                 heartbeatFailures += 1
+                if (stateAtAttempt == "contained") {
+                    containmentPollingFailures += 1
+                    if (firstContainmentFailureEpochMs == null) {
+                        firstContainmentFailureEpochMs = failureEpochMs
+                    }
+                }
                 lastHeartbeatError = it.message ?: it.javaClass.simpleName
             }
             // A failed heartbeat after containment is expected for a contained
@@ -388,8 +418,14 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                     }
                 }.onSuccess {
                     appliedLocalSeverity = desiredLocalSeverity
-                    if (desiredLocalSeverity > 0) {
-                        message = "Request for Assistance is active. This INFECTED unit is now contained."
+                    message = when {
+                        desiredLocalSeverity > 0 ->
+                            "Request for Assistance is active. This INFECTED unit is now contained."
+                        ownInfected && current.state == "releasing" ->
+                            "Release sent by the DB server. Polling should resume; post-release observation is in progress."
+                        ownInfected && current.state == "closed" ->
+                            "Demo complete. The DB server sent the release and polling should be restored."
+                        else -> message
                     }
                 }.onFailure {
                     message = "Could not synchronize local demo status: ${it.message}"
@@ -793,6 +829,11 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                     lastHeartbeatAttemptEpochMs = lastHeartbeatAttemptEpochMs,
                     lastHeartbeatSuccessEpochMs = lastHeartbeatSuccessEpochMs,
                     lastHeartbeatError = lastHeartbeatError,
+                    containmentPollingAttempts = containmentPollingAttempts,
+                    containmentPollingSuccesses = containmentPollingSuccesses,
+                    containmentPollingFailures = containmentPollingFailures,
+                    firstContainmentFailureEpochMs = firstContainmentFailureEpochMs,
+                    firstPostReleaseSuccessEpochMs = firstPostReleaseSuccessEpochMs,
                     message = message
                 )
                 scope.launch {
@@ -829,6 +870,11 @@ private fun buildDemoAssistanceDebugReport(
     lastHeartbeatAttemptEpochMs: Long?,
     lastHeartbeatSuccessEpochMs: Long?,
     lastHeartbeatError: String,
+    containmentPollingAttempts: Int,
+    containmentPollingSuccesses: Int,
+    containmentPollingFailures: Int,
+    firstContainmentFailureEpochMs: Long?,
+    firstPostReleaseSuccessEpochMs: Long?,
     message: String
 ): String = buildString {
     appendLine("TaraSec Demo 3 debug report")
@@ -883,6 +929,21 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("assistance_request_active=" + assistanceRequestActive)
     appendLine("expected_to_be_blocked=" + expectedToBeBlocked)
     appendLine("unexpected_success_while_infected=" + unexpectedPollingSuccess)
+    appendLine()
+    appendLine("[containment_evidence]")
+    appendLine("polling_attempts_during_containment=" + containmentPollingAttempts)
+    appendLine("polling_successes_during_containment=" + containmentPollingSuccesses)
+    appendLine("polling_failures_during_containment=" + containmentPollingFailures)
+    appendLine("first_containment_failure_epoch_ms=" + (firstContainmentFailureEpochMs ?: 0))
+    appendLine("first_post_release_success_epoch_ms=" + (firstPostReleaseSuccessEpochMs ?: 0))
+    appendLine(
+        "containment_observed=" +
+            (containmentPollingFailures > 0 && firstContainmentFailureEpochMs != null)
+    )
+    appendLine(
+        "recovery_observed=" +
+            (firstPostReleaseSuccessEpochMs != null)
+    )
     appendLine()
     appendLine("[expected_behavior]")
     appendLine("After Request for Assistance marks this participant INFECTED, the app MUST keep attempting normal polling.")
