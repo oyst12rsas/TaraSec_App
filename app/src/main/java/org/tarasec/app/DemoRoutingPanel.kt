@@ -75,22 +75,28 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
     val activity = LocalContext.current as ComponentActivity
     val context = LocalContext.current
     var status by remember { mutableStateOf<Demo4RouteStatus?>(null) }
+    var loading by remember { mutableStateOf(false) }
     var websiteIps by remember { mutableStateOf<List<String>>(emptyList()) }
     var viewerId by remember(baseUrl, gatewayControlBase) { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
     var runStage by remember { mutableStateOf("") }
     var runLog by remember(baseUrl, gatewayControlBase) { mutableStateOf<List<String>>(emptyList()) }
 
-    LaunchedEffect(baseUrl) {
+    fun refresh() {
+        if (loading) return
+        loading = true
         Thread {
             val result = DemoRoutingClient.routes(baseUrl)
             val resolvedIps = DemoRoutingClient.websiteAddresses()
             activity.runOnUiThread {
                 status = result
                 websiteIps = resolvedIps
+                loading = false
             }
         }.start()
     }
+
+    LaunchedEffect(baseUrl) { refresh() }
 
     fun runDemo(route: Demo4Route, control: String) {
         if (running) return
@@ -253,6 +259,14 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
                 if (route != null && control != null) runDemo(route, control)
             }
         ) { Text(if (running) "Running Demo 4…" else "Run Demo 4 and show IP on website") }
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !loading,
+            onClick = { refresh() }
+        ) {
+            Text(if (loading) "Checking…" else "Refresh Demo 4 partner routes")
+        }
+
         if (demo4Control == null) {
             Text("Connect to a TaraSec gateway to run the test.", color = MaterialTheme.colorScheme.error)
         } else if (chosenRoute == null) {
