@@ -31,21 +31,45 @@ data class Demo4SessionStart(val sessionId: String, val token: String, val error
 
 object DemoRoutingClient {
     private fun post(url: String, form: String): JSONObject {
-        val connection = URL(url).openConnection() as HttpURLConnection
+        val target = URL(url)
+        val connection = target.openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 5000
             connection.readTimeout = 8000
             connection.useCaches = false
+            connection.instanceFollowRedirects = false
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            connection.setRequestProperty("Accept", "application/json")
             connection.outputStream.use { it.write(form.toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
+            val contentType = connection.contentType?.substringBefore(';')?.take(80) ?: "unknown type"
             val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val json = JSONObject(body)
+            val json = runCatching { JSONObject(body) }.getOrNull()
+            val endpoint = "${target.protocol}://${target.host}${target.path}"
+            if (json == null) {
+                val kind = when {
+                    body.trimStart().startsWith("<!DOCTYPE", ignoreCase = true) -> "HTML doctype"
+                    body.trimStart().startsWith("<html", ignoreCase = true) -> "HTML page"
+                    body.isBlank() -> "empty body"
+                    else -> "non-JSON body"
+                }
+                val redirect = connection.getHeaderField("Location")?.let { location ->
+                    runCatching {
+                        URL(target, location).let { "${it.protocol}://${it.host}${it.path}" }
+                    }.getOrNull()
+                }
+                throw IllegalStateException(
+                    "POST $endpoint returned HTTP $code $contentType ($kind)" +
+                        (redirect?.let { "; redirect to $it" } ?: "")
+                )
+            }
             if (code !in 200..299 || !json.optBoolean("ok", false))
-                throw IllegalStateException(json.optString("error", "HTTP $code"))
+                throw IllegalStateException(
+                    "POST $endpoint returned HTTP $code: ${json.optString("error", "request_failed")}"
+                )
             return json
         } finally { connection.disconnect() }
     }
@@ -73,34 +97,14 @@ object DemoRoutingClient {
             .distinct()
     }.getOrDefault(emptyList())
 
-    fun recordObservation(sessionId: String, token: String, phase: String): Demo4ProbeResult {
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = URL("https://tarasec.org/demo4/observe.php?action=record")
-                .openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 7000
-            connection.useCaches = false
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            val form = "id=$sessionId&token=$token&phase=$phase"
-            connection.outputStream.use { it.write(form.toByteArray(Charsets.UTF_8)) }
-            val code = connection.responseCode
-            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val json = JSONObject(body)
-            if (code in 200..299 && json.optBoolean("ok", false)) {
-                Demo4ProbeResult(true, "TaraSec.org observed ${json.optString("observedIp", "unknown")}")
-            } else {
-                Demo4ProbeResult(false, json.optString("error", "HTTP $code"))
-            }
+    fun recordObservation(sessionId: String, token: String, phase: String): Demo4ProbeResult =
+        try {
+            val json = post("https://tarasec.org/demo4/observe.php?action=record",
+                "id=$sessionId&token=$token&phase=$phase")
+            Demo4ProbeResult(true, "TaraSec.org observed ${json.optString("observedIp", "unknown")}")
         } catch (e: Exception) {
             Demo4ProbeResult(false, e.message ?: "Website observation failed")
-        } finally {
-            connection?.disconnect()
         }
-    }
 
     fun routes(baseUrl: String): Demo4RouteStatus {
         var connection: HttpURLConnection? = null
