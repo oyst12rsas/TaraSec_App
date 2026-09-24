@@ -235,10 +235,23 @@ fun DemoPanel(
         val localIdentity = localGatewayBase?.let { DemoClient.probeBase(it, "TaraSec hotspot") }
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val selectedBaseAtStart = selectedServiceBase
-        val selectedConfig = selectedServiceBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val basicTargetAtStart = basicTarget
         val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
         val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
+        val observedIp = basicReceiver?.takeIf { it.reachable }?.publicIp.orEmpty()
+        val expectedIp = basicTargetAtStart?.let { expectedGatewayFor(it.ip) }
+        val routeIp = observedIp.takeIf { validIpv4(it) && (expectedIp == null || expectedIp == it) }
+        val routeBase = routeIp?.let { ip ->
+            selectedBaseAtStart?.takeIf { base -> runCatching { java.net.URL(base).host }.getOrNull() == ip }
+                ?: "http://$ip"
+        }
+        val selectedConfig = selectedBaseAtStart?.takeIf { routeBase == null || routeBase == it }
+            ?.let { DemoClient.gatewayConfigurationBase(it) }
+        val routeConfig = when {
+            routeBase == null -> null
+            routeBase == selectedBaseAtStart -> selectedConfig
+            else -> DemoClient.gatewayConfigurationBase(routeBase)
+        }
         val identity = if (basicTarget != null && t.ip == basicTarget.ip) {
             basicIdentity ?: DemoClient.probe(t)
         } else {
@@ -250,10 +263,10 @@ fun DemoPanel(
             DemoClient.threatStatus(t)
         }
         val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
-        val vpnGateway = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
+        val vpnGateway = (routeBase ?: selectedBaseAtStart)?.let { DemoClient.threatStatusBase(it) }
         // Phone status belongs to the selected gateway and must not be gated on
         // appInfection.php, which describes a different status query.
-        val vpnPhone = selectedServiceBase?.let {
+        val vpnPhone = (routeBase ?: selectedBaseAtStart)?.let {
             DemoClient.localThreatStatusBase(it)
         }
 
@@ -266,24 +279,23 @@ fun DemoPanel(
             if (!directHotspotDetected && basicTargetAtStart != null &&
                 basicTargetAtStart.ip == basicTarget?.ip &&
                 basicReceiver?.reachable == true) {
-                val observed = basicReceiver.publicIp
-                val expected = expectedGatewayFor(basicTargetAtStart.ip)
-                if (validIpv4(observed) && (expected == null || expected == observed)) {
-                    if (observed != configuredServiceIp) {
-                        configuredServiceIp = observed
-                        selectedGatewayConfig = null
-                        selectedGatewayFailureCount = 0
-                        vpnPhoneState = null
-                        vpnGatewayState = null
+                if (routeIp != null) {
+                    configuredServiceIp = routeIp
+                    selectedGatewayConfig = routeConfig
+                    selectedGatewayFailureCount = if (routeConfig?.reachable == true) 0 else 1
+                    if (routeConfig?.reachable == true) {
+                        verifiedDemo1GatewayIp = routeIp
+                        selectedGatewayName = demoGateways.firstOrNull { it.second == routeIp }?.first
+                            ?: routeConfig.gatewayName.ifBlank { "Gateway $routeIp" }
+                        demo1RouteMessage = "${basicTargetAtStart.name} sees $routeIp as its gateway."
+                    } else {
+                        verifiedDemo1GatewayIp = ""
+                        demo1RouteMessage = "${basicTargetAtStart.name} sees $routeIp, but its gateway is unavailable: ${routeConfig?.message.orEmpty()}"
                     }
-                    // Do not trust an arbitrary endpoint's claimed source IP as a
-                    // control address until its TaraSec gateway API responds.
-                    verifiedDemo1GatewayIp = ""
-                    demo1RouteMessage = "Endpoint sees $observed. Verifying gateway…"
                 } else {
                     verifiedDemo1GatewayIp = ""
-                    demo1RouteMessage = if (expected != null) {
-                        "${basicTargetAtStart.name} sees $observed; expected $expected. Check routing/NAT."
+                    demo1RouteMessage = if (expectedIp != null) {
+                        "${basicTargetAtStart.name} sees $observedIp; expected $expectedIp. Check routing/NAT."
                     } else "Endpoint did not report a valid gateway IP."
                 }
             } else if (!directHotspotDetected && basicTargetAtStart?.ip == basicTarget?.ip &&
@@ -303,19 +315,6 @@ fun DemoPanel(
                 if (selectedGatewayConfig?.reachable != true) {
                     selectedGatewayConfig = selectedConfig
                 }
-            }
-            if (selectedBaseAtStart == selectedServiceBase && basicTargetAtStart != null &&
-                basicTargetAtStart.ip == basicTarget?.ip &&
-                basicReceiver?.reachable == true &&
-                basicReceiver.publicIp == configuredServiceIp &&
-                selectedConfig?.reachable == true &&
-                (directHotspotDetected || expectedGatewayFor(basicTargetAtStart.ip)?.let {
-                    it == configuredServiceIp
-                } != false)) {
-                verifiedDemo1GatewayIp = configuredServiceIp
-                selectedGatewayName = demoGateways.firstOrNull { it.second == configuredServiceIp }?.first
-                    ?: selectedConfig.gatewayName.ifBlank { "Gateway $configuredServiceIp" }
-                demo1RouteMessage = "${basicTargetAtStart.name} sees $configuredServiceIp as its gateway."
             }
             if (basicTargetAtStart?.ip != basicTarget?.ip) return@runOnUiThread
             if (basicIdentity?.reachable == true && basicReceiver?.reachable == true) {
@@ -348,6 +347,12 @@ fun DemoPanel(
 
     fun refresh(after: String = "Status updated") {
         Thread { pollAll(after) }.start()
+    }
+
+    // Selecting an endpoint must resolve its route even when automatic checks
+    // were paused after a previous demo result.
+    LaunchedEffect(basicTarget?.ip) {
+        if (basicTarget != null) refresh("${basicTarget.name} route checked")
     }
 
     fun setPhoneState(infected: Boolean) {
@@ -661,7 +666,6 @@ fun DemoPanel(
                                             basicReceiverProbe = null
                                             basicReceiverState = null
                                             message = "Using ${identity.nodeName} · $requestedIp."
-                                            refresh()
                                         }
                                     }
                                 }.start()
