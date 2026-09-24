@@ -564,7 +564,7 @@ internal fun WireGuardQrHelp() {
         style = MaterialTheme.typography.bodySmall
     )
     Text(
-        "Install the WireGuard app. Display your assigned QR code on another screen, then use WireGuard on this phone to scan it and enable the tunnel. Return to TaraSec, choose a demo gateway and refresh its status.",
+        "Install the WireGuard app. Display your assigned QR code on another screen, then use WireGuard on this phone to scan it and enable the tunnel. Return to TaraSec, choose a demo endpoint and refresh its status.",
         style = MaterialTheme.typography.bodySmall
     )
     OutlinedButton(
