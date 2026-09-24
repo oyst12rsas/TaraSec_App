@@ -540,30 +540,6 @@ fun DemoPanel(
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    TaraStatusRow(
-                        "Selected gateway",
-                        if (directHotspotDetected) activeGatewayLabel() else
-                            if (verifiedDemo1GatewayIp.isNotBlank()) "$selectedGatewayName · $verifiedDemo1GatewayIp" else "Waiting for endpoint"
-                    )
-                    TaraStatusRow(
-                        "Active demo path",
-                        when {
-                            directHotspotActive() -> "Direct TaraSec hotspot"
-                            verifiedDemo1GatewayIp.isNotBlank() -> "$selectedGatewayName · connected through VPN"
-                            else -> demo1RouteMessage
-                        }
-                    )
-                    TaraStatusRow("Available endpoints", configuredTargets.size.toString())
-                    if (
-                        !directHotspotDetected && basicTarget != null &&
-                        selectedGatewayConfig != null &&
-                        selectedGatewayConfig?.reachable != true
-                    ) {
-                        Text(
-                            "The endpoint's gateway cannot be reached. Connect the TaraSec VPN or a TaraSec hotspot, then refresh.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
                     if (directHotspotDetected && activeGatewayConfig != null && configuredTargets.isEmpty()) {
                         Text(
                             "This TaraSec hotspot has no demo endpoints configured.",
@@ -616,13 +592,6 @@ fun DemoPanel(
                             )
                         }
                     }
-                    if (directHotspotDetected && activeGatewayConfig == null) {
-                        val detail = selectedGatewayConfig?.message
-                            ?.takeIf { it.isNotBlank() }
-                            ?: hotspotGatewayConfig?.message?.takeIf { it.isNotBlank() }
-                            ?: "No TaraSec gateway configuration endpoint responded."
-                        Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
-                    }
                     if (!directHotspotDetected) {
                         Text(
                             "You can also run the demo against your own TaraSec server or hotspot by entering its endpoint IP.",
@@ -673,6 +642,37 @@ fun DemoPanel(
                         ) {
                             Text("Use this endpoint")
                         }
+                    }
+                    TaraStatusRow("Available endpoints", configuredTargets.size.toString())
+                    TaraStatusRow(
+                        "Selected gateway",
+                        if (directHotspotDetected) activeGatewayLabel() else
+                            if (verifiedDemo1GatewayIp.isNotBlank()) "$selectedGatewayName · $verifiedDemo1GatewayIp" else "Waiting for endpoint"
+                    )
+                    TaraStatusRow(
+                        "Active demo path",
+                        when {
+                            directHotspotActive() -> "Direct TaraSec hotspot"
+                            verifiedDemo1GatewayIp.isNotBlank() -> "$selectedGatewayName · connected through VPN"
+                            else -> demo1RouteMessage
+                        }
+                    )
+                    if (
+                        !directHotspotDetected && basicTarget != null &&
+                        selectedGatewayConfig != null &&
+                        selectedGatewayConfig?.reachable != true
+                    ) {
+                        Text(
+                            "The endpoint's gateway cannot be reached. Connect the TaraSec VPN or a TaraSec hotspot, then refresh.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (directHotspotDetected && activeGatewayConfig == null) {
+                        val detail = selectedGatewayConfig?.message
+                            ?.takeIf { it.isNotBlank() }
+                            ?: hotspotGatewayConfig?.message?.takeIf { it.isNotBlank() }
+                            ?: "No TaraSec gateway configuration endpoint responded."
+                        Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
                     }
                 }
 
