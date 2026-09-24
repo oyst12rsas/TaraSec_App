@@ -80,6 +80,8 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
     var running by remember { mutableStateOf(false) }
     var runStage by remember { mutableStateOf("") }
     var runLog by remember(baseUrl, gatewayControlBase) { mutableStateOf<List<String>>(emptyList()) }
+    val demoComplete = runLog.any { it == "phone_test=completed" } &&
+        runLog.any { it == "restored_clean=true" }
 
     LaunchedEffect(baseUrl) {
         Thread {
@@ -273,7 +275,7 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
             Text("Demo 4 selected the gateway used by this phone's DB connection.",
                 style = MaterialTheme.typography.bodySmall)
         }
-        Button(
+        if (!demoComplete) Button(
             modifier = Modifier.fillMaxWidth(),
             enabled = !running && chosenRoute != null && websiteRouteReady &&
                 chosenRoute.netmask == "255.255.255.255" && demo4Control != null,
@@ -308,6 +310,21 @@ fun DemoRoutingPanel(baseUrl: String, gatewayControlBase: String?) {
         }
         if (runStage.isNotBlank()) Text(runStage)
         runLog.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+        if (demoComplete) {
+            TaraSectionCard(
+                title = "Why this matters",
+                subtitle = "Security routing can work even behind carrier NAT"
+            ) {
+                Text(
+                    "A hotspot may not have a stable public address that a partner ISP can recognize. Selective routing gives tagged security traffic a known TaraSec egress identity while ordinary clean traffic keeps its normal route. That makes inter-ISP cooperation practical without tunnelling or slowing all user traffic."
+                )
+                Text(
+                    "This phone test confirms the clean and infected states were exercised and restored. The live viewer or relay evidence is still needed to prove that the two packet paths used different public addresses.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
 
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
