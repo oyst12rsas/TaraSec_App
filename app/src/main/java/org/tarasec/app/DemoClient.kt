@@ -45,6 +45,7 @@ data class DemoThreatStatus(
 object DemoClient {
     val presets = listOf(
         DemoTarget("Tomato", "100.68.22.33"),
+        DemoTarget("Porsche", "100.68.187.10"),
         DemoTarget("Roquefort", "100.68.176.110"),
         DemoTarget("Camembert", "100.68.149.164"),
         DemoTarget("Gouda", "100.68.51.247")

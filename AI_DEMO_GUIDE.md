@@ -45,16 +45,26 @@ Do not ask the tester to reason about these addresses unless troubleshooting. Th
 
 Open the TaraSec app and enter **Security Demo**.
 
+For Demo 1, select the endpoint first: Tomato, Porsche, Roquefort, Camembert,
+Gouda, or a custom IPv4 endpoint running the TaraSec APIs. The endpoint's
+`appInfection.php` response includes `client_ip`, the source address it sees
+after routing and NAT. This identifies the gateway used for that endpoint:
+Tomato → Squash, Porsche → Audi, and Roquefort/Camembert/Gouda → Standard.
+The app checks these known routes and verifies the reported gateway's
+`appDemoConfiguration.php` before enabling the Clean/Infected controls. A
+custom endpoint may report a different gateway address, which must also
+answer that TaraSec gateway API. A directly connected TaraSec hotspot remains
+the gateway in hotspot mode.
+
 The page should show:
 
 - Local Wi-Fi hotspot / first hop.
-- Selected TaraSec gateway (normally Squash in the reference demo).
-- VPN/gateway-path status.
-- Receiving node selection (normally Tomato).
+- Endpoint selection and its observed gateway IP.
+- VPN/gateway-path status for that gateway.
 - **This phone** with Clean / Infected controls.
-- Tomato's independently observed state.
+- The selected endpoint's independently observed state.
 
-If the selected TaraSec gateway is reachable through its service/data-plane address, the app should treat it as the active security gateway. Clean/Infected should then read and change the phone's state there.
+The gateway reported by the endpoint must answer its TaraSec configuration API before Demo 1 enables Clean/Infected. The app then reads and changes the phone's state on that gateway.
 
 If the selected gateway is unreachable, the app should indicate that the VPN probably needs to be turned on. If no remote security gateway is active, the app can fall back to the local hotspot gateway.
 
@@ -65,8 +75,8 @@ A known-good demo sequence is:
 1. Connect the phone to the Cigar TaraSec hotspot.
 2. Turn on the WireGuard/TaraSec VPN path used by the reference demo.
 3. Open **Security Demo**.
-4. Confirm Squash is shown as the active/reachable TaraSec gateway.
-5. Confirm Tomato is reachable.
+4. Select Tomato as the endpoint and confirm it reports Squash as the gateway.
+5. Confirm Tomato and Squash are reachable.
 6. Observe the current state under **This phone**.
 7. Tap **Clean** or **Infected**.
 8. The app should update the phone's state on Squash using the identity Squash actually sees for the phone.
@@ -156,7 +166,7 @@ Expected messages:
 - Selected gateway normally used but unreachable: `VPN appears to be off — turn on your VPN`
 - No service IP configured: state that the VPN service IP is not configured rather than hiding the gateway.
 
-Squash should remain visible as the selected/reference TaraSec gateway even if its VPN service address is temporarily unavailable.
+The selected endpoint and its last observed route should remain visible when a later check times out; Demo 1 controls wait for a verified route.
 
 ## NetBird is separate from the demo data path
 
@@ -315,4 +325,3 @@ port remains independent.
 The app should display the SSH host, port, username, password, a copyable SSH command,
 and the live event sequence. If no embedded SSH implementation is present, it should
 let the user copy the command and use a laptop or installed SSH client.
-
