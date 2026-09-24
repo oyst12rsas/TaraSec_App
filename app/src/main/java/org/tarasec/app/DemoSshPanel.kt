@@ -290,6 +290,7 @@ fun DemoSshPanel(
             }
         } else {
             val current = session!!
+            val demoComplete = current.state == "cleared"
             TaraSectionCard(title = "Live DB session", subtitle = "Session #${current.sessionId}") {
                 TaraStatusRow("State", stateLabel(current.state))
                 TaraStatusRow("Node A report", nodeAStatus(current))
@@ -305,7 +306,7 @@ fun DemoSshPanel(
                 )
             }
 
-            TaraSectionCard(title = "1 · Connect to Node A", subtitle = "Create ordinary rejection evidence") {
+            if (!current.nodeAObserved) TaraSectionCard(title = "1 · Connect to Node A", subtitle = "Create ordinary rejection evidence") {
                 Text(
                     "Run this first. Node A rejects the connection; that evidence causes TaraSec to mark and tag this unit.",
                     style = MaterialTheme.typography.bodySmall
@@ -317,7 +318,7 @@ fun DemoSshPanel(
                 ) { Text("Copy Node A SSH command") }
             }
 
-            TaraSectionCard(title = "2 · Connect to Node B", subtitle = "Prove the tagged connection is legitimate") {
+            if (!demoComplete) TaraSectionCard(title = "2 · Connect to Node B", subtitle = "Prove the tagged connection is legitimate") {
                 Text(
                     "After the unit becomes infected, use the temporary credential below. Node B simulates SSH but exposes no files, accounts or shell.",
                     style = MaterialTheme.typography.bodySmall
@@ -347,7 +348,17 @@ fun DemoSshPanel(
             }
 
             Text(resultExplanation(current.state), style = MaterialTheme.typography.bodySmall)
-            Button(
+            if (demoComplete) {
+                TaraSectionCard(
+                    title = "Why this matters",
+                    subtitle = "The gateway remained authoritative while evidence was corrected"
+                ) {
+                    Text(
+                        "Node A reported a rejected SSH connection, so later traffic from the same unit arrived with a warning. Node B then supplied legitimate session evidence, and the DB cleared only this demonstration's reversible classification. A sender cannot simply declare itself clean; independent receiver reports and the authoritative gateway decide what other networks see."
+                    )
+                }
+            }
+            if (!current.terminal()) Button(
                 enabled = !busy && !baseUrl.isNullOrBlank(),
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
