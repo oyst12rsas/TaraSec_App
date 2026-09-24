@@ -521,6 +521,14 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                             "observed participant contact history below or copy the debug report."
                     )
                 }
+                TaraSectionCard(
+                    title = "Why this matters",
+                    subtitle = "Networks can cooperate without disconnecting everyone"
+                ) {
+                    Text(
+                        "The assistance request gave the gateway a narrow, temporary reason to contain traffic classified as infected while clean participants stayed connected. The DB then sent an explicit release and the app checked for restored contact. This is the basis for coordinated incident response with less collateral disruption than blocking an entire hotspot or public address."
+                    )
+                }
             } else {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
