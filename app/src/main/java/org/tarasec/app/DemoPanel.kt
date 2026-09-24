@@ -219,7 +219,8 @@ fun DemoPanel(
             hotspotIdentity?.nodeName?.takeIf { hotspotIdentity?.reachable == true && it.isNotBlank() }
                 ?: hotspotGatewayConfig?.gatewayName?.takeIf { it.isNotBlank() }
                 ?: "TaraSec hotspot"
-        selectedServiceBase != null -> selectedGatewayName
+        selectedServiceBase != null && verifiedDemo1GatewayIp.isNotBlank() -> selectedGatewayName
+        !directHotspotActive() -> "Gateway not determined"
         else -> "No active gateway"
     }
 
@@ -448,7 +449,7 @@ fun DemoPanel(
     val gatewayReachable = when {
         directHotspotActive() -> hotspotIdentity?.reachable == true ||
             hotspotGatewayConfig?.reachable == true
-        else -> selectedGatewayConfig?.reachable == true
+        else -> verifiedDemo1GatewayIp.isNotBlank() && selectedGatewayConfig?.reachable == true
     }
     val phase = when {
         phoneState == null || !phoneState.reachable -> "CHECKING"
