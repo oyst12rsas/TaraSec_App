@@ -45,6 +45,17 @@ Do not ask the tester to reason about these addresses unless troubleshooting. Th
 
 Open the TaraSec app and enter **Security Demo**.
 
+For Demo 1, select the endpoint first: Tomato, Porsche, Roquefort, Camembert,
+Gouda, or a custom IPv4 endpoint running the TaraSec APIs. The endpoint's
+`appInfection.php` response includes `client_ip`, the source address it sees
+after routing and NAT. This identifies the gateway used for that endpoint:
+Tomato → Squash, Porsche → Audi, and Roquefort/Camembert/Gouda → Standard.
+The app checks these known routes and verifies the reported gateway's
+`appDemoConfiguration.php` before enabling the Clean/Infected controls. A
+custom endpoint may report a different gateway address, which must also
+answer that TaraSec gateway API. A directly connected TaraSec hotspot remains
+the gateway in hotspot mode.
+
 The page should show:
 
 - Local Wi-Fi hotspot / first hop.
@@ -315,4 +326,3 @@ port remains independent.
 The app should display the SSH host, port, username, password, a copyable SSH command,
 and the live event sequence. If no embedded SSH implementation is present, it should
 let the user copy the command and use a laptop or installed SSH client.
-
