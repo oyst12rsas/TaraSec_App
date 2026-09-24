@@ -44,6 +44,8 @@ fun DemoSshPanel(
     var busy by remember { mutableStateOf(false) }
     var eligibility by remember(baseUrl) { mutableStateOf<DemoEligibility?>(null) }
     var observedGateway by remember(baseUrl) { mutableStateOf<DemoGateway?>(null) }
+    var nodeAVerdict by rememberSaveable(baseUrl, session?.sessionId) { mutableStateOf<String?>(null) }
+    var nodeAVerdictDetails by rememberSaveable(baseUrl, session?.sessionId) { mutableStateOf("") }
     var remediationVisible by rememberSaveable(baseUrl) { mutableStateOf(false) }
     var message by rememberSaveable(baseUrl) {
         mutableStateOf(if (baseUrl.isNullOrBlank()) "Select a reachable TaraSec gateway first." else "Loading SSH demo setups…")
@@ -346,6 +348,45 @@ fun DemoSshPanel(
                 )
             }
 
+            TaraSectionCard(title = "3 · Ask Node A", subtitle = "Verify the gateway is authoritative") {
+                Text(
+                    "After Node B clears the unit, ask Node A again. This is a new ordinary request: Node A reports the classification carried by the gateway, not its earlier SSH rejection.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TaraStatusRow(
+                    "Node A now sees this unit as",
+                    nodeAVerdict ?: if (current.state == "cleared") "Not checked" else "Waiting for the gateway to clear the unit"
+                )
+                if (nodeAVerdictDetails.isNotBlank()) {
+                    Text(nodeAVerdictDetails, style = MaterialTheme.typography.bodySmall)
+                }
+                Button(
+                    enabled = !busy && current.state == "cleared",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        busy = true
+                        nodeAVerdict = "Checking…"
+                        nodeAVerdictDetails = ""
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                DemoClient.threatStatus(DemoTarget("Node A", current.nodeA))
+                            }
+                            if (!result.reachable) {
+                                nodeAVerdict = "⚪ Could not verify"
+                                nodeAVerdictDetails = result.message.ifBlank { "Node A did not return a classification." }
+                            } else if (result.infected) {
+                                nodeAVerdict = "🔴 INFECTED"
+                                nodeAVerdictDetails = "Node A still received tagged traffic (severity ${result.severity}); the gateway clean state has not yet reached this request."
+                            } else {
+                                nodeAVerdict = "🟢 CLEAN"
+                                nodeAVerdictDetails = "Node A received this request as clean. The gateway's current verdict overruled the earlier Node A rejection."
+                            }
+                            busy = false
+                        }
+                    }
+                ) { Text(if (busy && nodeAVerdict == "Checking…") "Asking Node A…" else "Ask Node A if I am clean") }
+            }
+
             Text(resultExplanation(current.state), style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = !busy && !baseUrl.isNullOrBlank(),
@@ -418,6 +459,8 @@ fun DemoSshPanel(
                     setups.firstOrNull { it.id == selectedId },
                     session,
                     displayedSecondsRemaining,
+                    nodeAVerdict,
+                    nodeAVerdictDetails,
                     message
                 )
                 copy(report, "Debug report")
@@ -439,6 +482,8 @@ private fun buildDemoSshDebugReport(
     setup: DemoSshSetup?,
     session: DemoSshSession?,
     displayedSecondsRemaining: Int,
+    nodeAVerdict: String?,
+    nodeAVerdictDetails: String,
     message: String
 ): String = buildString {
     appendLine("TaraSec Demo 2 debug report")
@@ -481,6 +526,8 @@ private fun buildDemoSshDebugReport(
     appendLine("node_a_status=" + (session?.let(::nodeAStatus) ?: "no session"))
     appendLine("gateway_db_status=" + (session?.let(::gatewayStatus) ?: "no session"))
     appendLine("node_b_status=" + (session?.let(::nodeBStatus) ?: "no session"))
+    appendLine("node_a_final_verdict=" + nodeAVerdict.orEmpty().ifBlank { "not checked" })
+    appendLine("node_a_final_verdict_details=" + nodeAVerdictDetails.ifBlank { "none" })
     appendLine("progress_message=" + session?.progressMessage.orEmpty().ifBlank { "none" })
     appendLine("client_message=" + message.ifBlank { "none" })
 }
