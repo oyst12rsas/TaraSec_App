@@ -104,12 +104,27 @@ fun DemoPanel(
     }
     // The selected gateway is authoritative: appDemoConfiguration.php exposes
     // DEMO_NODES and DEMO_NODE_NAMES from that gateway's tarasecfw.conf.
-    val gatewayTargets = activeGatewayConfig?.nodes.orEmpty()
+    val gatewayTargets = activeGatewayConfig?.nodes.orEmpty().filter { node ->
+        if (directHotspotDetected) true else when (selectedGatewayName) {
+            "Squash" -> node.ip == "100.68.22.33"
+            "Audi" -> node.name.equals("Porsche", ignoreCase = true)
+            "Standard gateway" -> node.ip != "100.68.22.33" &&
+                !node.name.equals("Tomato", ignoreCase = true) &&
+                !node.name.equals("Porsche", ignoreCase = true)
+            else -> true
+        }
+    }
+    val exclusiveEndpointIps = activeGatewayConfig?.nodes.orEmpty()
+        .filter { it.name.equals("Porsche", ignoreCase = true) || it.name.equals("Tomato", ignoreCase = true) }
+        .map { it.ip }.toSet() + "100.68.22.33"
     var endpointIpDraft by remember { mutableStateOf("") }
     var customEndpointIp by remember { mutableStateOf("") }
     val configuredTargets = gatewayTargets + listOfNotNull(
         customEndpointIp
-            .takeIf { selectedGatewayName == "Standard gateway" && it.isNotBlank() }
+            .takeIf {
+                selectedGatewayName == "Standard gateway" && it.isNotBlank() &&
+                    it !in exclusiveEndpointIps
+            }
             ?.let { DemoTarget("Custom endpoint", it) }
     )
     var basicTargetIp by remember { mutableStateOf("") }
@@ -444,7 +459,7 @@ fun DemoPanel(
             modifier = Modifier.fillMaxWidth(),
             onClick = { showDemo1 = !showDemo1 }
         ) {
-            Text((if (showDemo1) "▼ " else "▶ ") + "Demo 1 · Basic Phone → Gateway → Tomato")
+            Text((if (showDemo1) "▼ " else "▶ ") + "Demo 1 · Basic Phone → Gateway → Endpoint")
         }
 
         if (showDemo1) {
@@ -482,6 +497,8 @@ fun DemoPanel(
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = {
                                     selectedGatewayName = name
+                                    customEndpointIp = ""
+                                    endpointIpDraft = ""
                                     serviceIpDraft = address
                                     configuredServiceIp = address
                                     selectedGatewayConfig = null
@@ -600,16 +617,35 @@ fun DemoPanel(
                             singleLine = true
                         )
                         Button(
-                            enabled = validIpv4(endpointIpDraft),
+                            enabled = !busy && validIpv4(endpointIpDraft) &&
+                                endpointIpDraft.trim() !in exclusiveEndpointIps,
                             onClick = {
-                                customEndpointIp = endpointIpDraft.trim()
-                                basicTargetIp = customEndpointIp
-                                target = DemoTarget("Custom endpoint", customEndpointIp)
-                                targetIp = customEndpointIp
-                                discoveredName = "Custom endpoint"
-                                basicReceiverProbe = null
-                                basicReceiverState = null
-                                message = "Using custom endpoint $customEndpointIp."
+                                val requestedIp = endpointIpDraft.trim()
+                                val gatewayAtRequest = configuredServiceIp
+                                busy = true
+                                message = "Checking endpoint $requestedIp…"
+                                Thread {
+                                    val identity = DemoClient.probe(DemoTarget("Custom endpoint", requestedIp))
+                                    activity.runOnUiThread {
+                                        busy = false
+                                        if (gatewayAtRequest != configuredServiceIp ||
+                                            selectedGatewayName != "Standard gateway") return@runOnUiThread
+                                        if (!identity.reachable || identity.message != "TaraSec node reachable" ||
+                                            identity.nodeName.equals("Tomato", ignoreCase = true) ||
+                                            identity.nodeName.equals("Porsche", ignoreCase = true)) {
+                                            message = "This endpoint cannot be verified for the Standard gateway. Choose a configured endpoint or a different IP."
+                                        } else {
+                                            customEndpointIp = requestedIp
+                                            basicTargetIp = requestedIp
+                                            target = DemoTarget(identity.nodeName, requestedIp)
+                                            targetIp = requestedIp
+                                            discoveredName = identity.nodeName
+                                            basicReceiverProbe = null
+                                            basicReceiverState = null
+                                            message = "Using ${identity.nodeName} · $requestedIp."
+                                        }
+                                    }
+                                }.start()
                             }
                         ) {
                             Text("Use this endpoint")
