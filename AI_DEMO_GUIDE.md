@@ -316,3 +316,8 @@ The app should display the SSH host, port, username, password, a copyable SSH co
 and the live event sequence. If no embedded SSH implementation is present, it should
 let the user copy the command and use a laptop or installed SSH client.
 
+After Node B's legitimate report clears the demo classification, the app provides a
+third step that calls Node A's ordinary `appInfection.php` endpoint. Node A must show
+what it observes on that new request. A clean result demonstrates that the gateway's
+current classification is authoritative: Node A's earlier rejection remains evidence,
+but Node A does not retain authority to keep the unit marked infected.
