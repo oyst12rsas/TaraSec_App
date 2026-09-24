@@ -134,6 +134,7 @@ fun DemoPanel(
     var secondsUntilRefresh by remember { mutableStateOf(0) }
     var automaticChecksEnabled by remember { mutableStateOf(true) }
     var intendedPhoneState by remember { mutableStateOf<Boolean?>(null) }
+    var completedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var auditApproved by remember { mutableStateOf(false) }
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
@@ -298,6 +299,7 @@ fun DemoPanel(
         }
         val gatewayLabel = activeGatewayLabel()
         intendedPhoneState = infected
+        completedPhoneState = null
         automaticChecksEnabled = true
         busy = true
         actionInProgress.set(true)
@@ -412,6 +414,7 @@ fun DemoPanel(
 
         if (phoneReached && gatewayReachable && receiverReached) {
             intendedPhoneState = null
+            completedPhoneState = intended
             automaticChecksEnabled = false
             secondsUntilRefresh = 0
             message = "Requested " + (if (intended) "INFECTED" else "CLEAN") +
@@ -728,19 +731,38 @@ fun DemoPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        enabled = activeControlBase() != null && !busy,
-                        onClick = { setPhoneState(false) }
-                    ) {
-                        Text("Set CLEAN")
+                    if (completedPhoneState != false) {
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            enabled = activeControlBase() != null && !busy,
+                            onClick = { setPhoneState(false) }
+                        ) {
+                            Text("Set CLEAN")
+                        }
                     }
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        enabled = activeControlBase() != null && !busy,
-                        onClick = { setPhoneState(true) }
+                    if (completedPhoneState != true) {
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            enabled = activeControlBase() != null && !busy,
+                            onClick = { setPhoneState(true) }
+                        ) {
+                            Text("Set INFECTED")
+                        }
+                    }
+                }
+
+                if (completedPhoneState != null) {
+                    TaraSectionCard(
+                        title = "Why this matters",
+                        subtitle = "The receiver acted on shared security evidence"
                     ) {
-                        Text("Set INFECTED")
+                        Text(
+                            if (completedPhoneState == true) {
+                                "A receiving network learned that this unit was marked infected without inspecting the phone itself. In a real deployment, that warning lets receivers reject or limit suspicious traffic earlier, reducing the value of compromised devices to attackers."
+                            } else {
+                                "The clean update reached the same path, showing that TaraSec warnings can be withdrawn when the evidence changes. This avoids turning a temporary security decision into permanent collateral blocking."
+                            }
+                        )
                     }
                 }
 
