@@ -403,7 +403,7 @@ private fun TaraSecApp(initialDestination: String?) {
             Text("Threat watch: no active warning from ${installations.size} registered installation(s).", style = MaterialTheme.typography.bodySmall)
         }
 
-        if (installations.isNotEmpty()) {
+        if (installations.isNotEmpty() && page != AppPage.DEMO) {
             Text("Current installation", style = MaterialTheme.typography.titleMedium)
             installations.forEach { installation ->
                 Button(
@@ -416,7 +416,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     Text((if (installation.id == selectedInstallationId) "✓ " else "") + installation.name)
                 }
             }
-            Text("The checked installation is the context for Status, Units, AI, Assistance and Demo. Threat warnings still watch every registered installation.", style = MaterialTheme.typography.bodySmall)
+            Text("The checked installation is the context for Status, Units, AI and Assistance. Demo 1 discovers its gateway from the chosen endpoint. Threat warnings still watch every registered installation.", style = MaterialTheme.typography.bodySmall)
         }
 
         HorizontalDivider()
