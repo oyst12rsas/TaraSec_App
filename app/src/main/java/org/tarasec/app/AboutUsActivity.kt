@@ -4,8 +4,13 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,12 +22,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import java.util.UUID
 
 data class MentalHealthChatMessage(val fromUser: Boolean, val text: String)
 
@@ -117,24 +125,59 @@ private fun AboutUsScreen() {
     }
 }
 
-class MentalHealthChatActivity : ComponentActivity() {
+class MentalHealthChatActivity : FragmentActivity() {
+    private var unlocked = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme {
-                Surface(Modifier.fillMaxSize()) { MentalHealthChatScreen() }
-            }
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        if (BiometricManager.from(this).canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+            setContentView(android.widget.TextView(this).apply {
+                text = "Set up a device PIN/password/pattern or strong biometric to use Coach."
+                setPadding(48, 96, 48, 48)
+            })
+            return
         }
+        BiometricPrompt(this, ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    unlocked = true
+                    setContent {
+                        MaterialTheme {
+                            Surface(Modifier.fillMaxSize()) { MentalHealthChatScreen() }
+                        }
+                    }
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    finish()
+                }
+            }
+        ).authenticate(BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock Taransvar Coach")
+            .setSubtitle("Use biometrics or your device PIN/password")
+            .setAllowedAuthenticators(authenticators)
+            .build())
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (unlocked) finish() // Returning from background always requires another unlock.
     }
 }
 
 @androidx.compose.runtime.Composable
 private fun MentalHealthChatScreen() {
     val activity = LocalContext.current as Activity
+    val conversationStore = remember { CoachConversationStore(activity) }
+    val savedChatId = remember { conversationStore.load() }
     var input by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
-    var chatId by remember { mutableStateOf<String?>(null) }
+    var chatId by remember { mutableStateOf(savedChatId) }
+    var confirmNewConversation by remember { mutableStateOf(false) }
     var messages by remember {
         mutableStateOf(listOf(MentalHealthChatMessage(false, "Welcome. You can write what is on your mind, and we can talk about it here.")))
     }
@@ -145,18 +188,29 @@ private fun MentalHealthChatScreen() {
         if (sending || input.isBlank()) return
 
         val text = input.trim()
+        val sessionId = chatId ?: UUID.randomUUID().toString()
+        if (chatId == null) {
+            try {
+                conversationStore.save(sessionId)
+            } catch (e: Exception) {
+                status = "Could not securely save this conversation. Please try again."
+                return
+            }
+            chatId = sessionId
+        }
         input = ""
         messages = messages + MentalHealthChatMessage(true, text)
         sending = true
         status = "Thinking…"
         Thread {
             try {
-                val reply = MentalHealthFlowiseClient.send(text, chatId)
+                val reply = MentalHealthFlowiseClient.send(text, sessionId)
                 activity.runOnUiThread {
                     chatId = reply.chatId
                     messages = messages + MentalHealthChatMessage(false, reply.text)
+                    val saved = runCatching { reply.chatId?.let(conversationStore::save) }.isSuccess
                     sending = false
-                    status = "Ready"
+                    status = if (saved) "Ready" else "Conversation ID could not be saved on this device"
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
@@ -236,14 +290,29 @@ private fun MentalHealthChatScreen() {
             ) { Text(if (sending) "Sending…" else "Send") }
 
             Button(
-                enabled = !sending && messages.size > 1,
-                onClick = {
-                    messages = listOf(MentalHealthChatMessage(false, "New conversation started. What would you like to talk about?"))
-                    chatId = null
-                    status = "New conversation"
-                }
+                enabled = !sending && chatId != null,
+                onClick = { confirmNewConversation = true }
             ) { Text("New conversation") }
         }
         Text(status, style = MaterialTheme.typography.bodySmall)
+    }
+    if (confirmNewConversation) {
+        AlertDialog(
+            onDismissRequest = { confirmNewConversation = false },
+            title = { Text("Start a new conversation?") },
+            text = { Text("Your current conversation cannot be reopened in Coach after you start a new one. Continue?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    conversationStore.clear()
+                    messages = listOf(MentalHealthChatMessage(false, "New conversation started. What would you like to talk about?"))
+                    chatId = null
+                    status = "New conversation"
+                    confirmNewConversation = false
+                }) { Text("Start new") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmNewConversation = false }) { Text("Keep conversation") }
+            }
+        )
     }
 }
