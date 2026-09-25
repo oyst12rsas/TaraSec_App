@@ -398,16 +398,17 @@ fun DemoPanel(
                     if (!actionInProgress.get()) {
                         pollAll()
                     }
-                    activity.runOnUiThread { secondsUntilRefresh = 3 }
-                    for (remaining in 2 downTo 0) {
-                        try {
-                            Thread.sleep(1000L)
-                        } catch (_: InterruptedException) {
-                            return@Thread
-                        }
-                        if (!running.get()) return@Thread
-                        activity.runOnUiThread { secondsUntilRefresh = remaining }
+                    // Each full check already waits for the receiver's fresh
+                    // traffic evidence. Keep the gap between checks short so
+                    // a late Gouda report is seen on the next pass.
+                    activity.runOnUiThread { secondsUntilRefresh = 1 }
+                    try {
+                        Thread.sleep(1000L)
+                    } catch (_: InterruptedException) {
+                        return@Thread
                     }
+                    if (!running.get()) return@Thread
+                    activity.runOnUiThread { secondsUntilRefresh = 0 }
                 }
             }.also { it.start() }
             onDispose {
