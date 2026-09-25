@@ -224,6 +224,24 @@ fun DemoPanel(
         else -> "No active gateway"
     }
 
+    fun selectGatewayForDemo1Endpoint(endpoint: DemoTarget) {
+        if (directHotspotActive()) return
+
+        val gateway = when {
+            endpoint.ip == "100.68.22.33" ||
+                endpoint.name.equals("Tomato", ignoreCase = true) ->
+                "Squash" to "100.68.25.154"
+            endpoint.name.equals("Porsche", ignoreCase = true) ->
+                "Audi" to "100.68.153.251"
+            else ->
+                "Standard gateway" to "100.68.165.190"
+        }
+
+        selectedGatewayName = gateway.first
+        configuredServiceIp = gateway.second
+        serviceIpDraft = gateway.second
+    }
+
     fun pollAll(after: String? = null) {
         val generation = pollGeneration.get()
         val t = currentTarget()
@@ -574,6 +592,7 @@ fun DemoPanel(
                             OutlinedButton(
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = {
+                                    selectGatewayForDemo1Endpoint(endpoint)
                                     basicTargetIp = endpoint.ip
                                     target = endpoint
                                     targetIp = endpoint.ip
