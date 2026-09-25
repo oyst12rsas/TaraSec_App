@@ -39,7 +39,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import java.util.UUID
+
+private enum class CoachInfoPage { Privacy, Professional, About }
 
 data class MentalHealthChatMessage(val fromUser: Boolean, val text: String)
 
@@ -171,23 +186,31 @@ class MentalHealthChatActivity : FragmentActivity() {
 @androidx.compose.runtime.Composable
 private fun MentalHealthChatScreen() {
     val activity = LocalContext.current as Activity
+    val keyboard = LocalSoftwareKeyboardController.current
+    val settings = remember { activity.getSharedPreferences("coach_settings", android.content.Context.MODE_PRIVATE) }
+    var sendWithEnter by remember { mutableStateOf(settings.getBoolean("send_with_enter", false)) }
     val conversationStore = remember { CoachConversationStore(activity) }
     val savedChatId = remember { conversationStore.load() }
     var input by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Ready") }
+    var status by remember { mutableStateOf(if (savedChatId == null) "New conversation" else "Conversation resumed") }
     var chatId by remember { mutableStateOf(savedChatId) }
     var confirmNewConversation by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var infoPage by remember { mutableStateOf<CoachInfoPage?>(null) }
     var messages by remember {
-        mutableStateOf(listOf(MentalHealthChatMessage(false, "Welcome. You can write what is on your mind, and we can talk about it here.")))
+        mutableStateOf(
+            listOf(
+                MentalHealthChatMessage(false, "Welcome. You can write what is on your mind, and we can talk about it here.")
+            )
+        )
     }
-    val focusManager = LocalFocusManager.current
     val scroll = rememberScrollState()
+    LaunchedEffect(messages.size) { scroll.animateScrollTo(scroll.maxValue) }
 
     fun sendMessage() {
-        if (sending || input.isBlank()) return
-
         val text = input.trim()
+        if (sending || text.isEmpty()) return
         val sessionId = chatId ?: UUID.randomUUID().toString()
         if (chatId == null) {
             try {
@@ -198,6 +221,7 @@ private fun MentalHealthChatScreen() {
             }
             chatId = sessionId
         }
+        keyboard?.hide()
         input = ""
         messages = messages + MentalHealthChatMessage(true, text)
         sending = true
@@ -226,43 +250,62 @@ private fun MentalHealthChatScreen() {
     }
 
     Column(
-        Modifier.fillMaxSize().padding(20.dp).verticalScroll(scroll),
+        Modifier.fillMaxSize().imePadding().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
-            TaraHamburgerMenu { destination ->
-                activity.finish()
-                when (destination) {
-                    TaraMenuDestination.MY_ACCESS,
-                    TaraMenuDestination.FIND_INTERNET -> activity.startActivity(
-                        Intent(activity, SubscriberHomeActivity::class.java)
-                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+            Text("Taransvar Coach", style = MaterialTheme.typography.headlineMedium)
+            androidx.compose.foundation.layout.Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Text("☰", style = MaterialTheme.typography.headlineMedium)
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Send with Enter") },
+                        trailingIcon = { Switch(checked = sendWithEnter, onCheckedChange = null) },
+                        onClick = {
+                            sendWithEnter = !sendWithEnter
+                            settings.edit().putBoolean("send_with_enter", sendWithEnter).apply()
+                            menuExpanded = false
+                        }
                     )
-                    else -> activity.startActivity(
-                        Intent(activity, MainActivity::class.java)
-                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                    CoachInfoPage.entries.forEach { page ->
+                        DropdownMenuItem(
+                            text = { Text(page.name) },
+                            onClick = { menuExpanded = false; infoPage = page }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Back to TaraSec") },
+                        onClick = { menuExpanded = false; activity.finish() }
                     )
                 }
             }
         }
 
-        Text("Mental Health Sanctuary", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "A private space to talk and reflect. The conversation is supported by AI and is not a diagnosis or a replacement for professional care.",
-            style = MaterialTheme.typography.bodyMedium
-        )
-
-        messages.forEach { message ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (message.fromUser) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(if (message.fromUser) "You" else "Sanctuary", style = MaterialTheme.typography.labelMedium)
-                    Text(message.text)
+        Column(
+            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "A private space to talk and reflect. The conversation is supported by AI and is not a diagnosis or a replacement for professional care.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(4.dp))
+            messages.forEach { message ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (message.fromUser)
+                            MaterialTheme.colorScheme.secondaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(if (message.fromUser) "You" else "Sanctuary", style = MaterialTheme.typography.labelMedium)
+                        Text(message.text)
+                    }
                 }
             }
         }
@@ -270,23 +313,24 @@ private fun MentalHealthChatScreen() {
         OutlinedTextField(
             value = input,
             onValueChange = { input = it },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 3,
+            modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
+                if (sendWithEnter && event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                    sendMessage()
+                    true
+                } else false
+            },
+            minLines = 2,
+            maxLines = 4,
             label = { Text("What's on your mind?") },
             enabled = !sending,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(
-                onSend = {
-                    focusManager.clearFocus()
-                    sendMessage()
-                }
-            )
+            keyboardOptions = KeyboardOptions(imeAction = if (sendWithEnter) ImeAction.Send else ImeAction.Default),
+            keyboardActions = KeyboardActions(onSend = { if (sendWithEnter) sendMessage() })
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 enabled = !sending && input.isNotBlank(),
-                onClick = ::sendMessage
+                onClick = { sendMessage() }
             ) { Text(if (sending) "Sending…" else "Send") }
 
             Button(
@@ -295,6 +339,25 @@ private fun MentalHealthChatScreen() {
             ) { Text("New conversation") }
         }
         Text(status, style = MaterialTheme.typography.bodySmall)
+    }
+
+    if (infoPage != null) {
+        val page = infoPage!!
+        AlertDialog(
+            onDismissRequest = { infoPage = null },
+            title = { Text(page.name) },
+            text = {
+                Text(when (page) {
+                    CoachInfoPage.Privacy ->
+                        "Messages are sent through TaraSec's conversation service and may be stored there. Coach keeps an encrypted conversation ID on this device so replies can use that history. Past messages are not displayed after closing the app. New conversation removes the local ID; it does not delete server records."
+                    CoachInfoPage.Professional ->
+                        "Multiple accounts and additional professional features are planned. They are not available in this version."
+                    CoachInfoPage.About ->
+                        "Taransvar Coach is an AI-supported place to talk and reflect. It does not diagnose or replace professional or emergency care."
+                })
+            },
+            confirmButton = { TextButton(onClick = { infoPage = null }) { Text("Close") } }
+        )
     }
     if (confirmNewConversation) {
         AlertDialog(
