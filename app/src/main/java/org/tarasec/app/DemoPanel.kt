@@ -1,5 +1,9 @@
 package org.tarasec.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -84,9 +88,6 @@ fun DemoPanel(
     var configuredServiceIp by remember(selectedInstallation?.id, gatewayBaseUrl) {
         mutableStateOf(automaticGatewayIp)
     }
-    var serviceIpDraft by remember(selectedInstallation?.id, gatewayBaseUrl) {
-        mutableStateOf(automaticGatewayIp)
-    }
     val selectedServiceBase = configuredServiceIp.takeIf { it.isNotBlank() }?.let {
         if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "http://$it"
     }
@@ -102,34 +103,22 @@ fun DemoPanel(
         !directHotspotDetected && selectedGatewayConfig?.reachable == true -> selectedGatewayConfig
         else -> null
     }
-    // The selected gateway is authoritative: appDemoConfiguration.php exposes
-    // DEMO_NODES and DEMO_NODE_NAMES from that gateway's tarasecfw.conf.
-    val gatewayTargets = activeGatewayConfig?.nodes.orEmpty().filter { node ->
-        if (directHotspotDetected) true else when (selectedGatewayName) {
-            "Squash" -> node.ip == "100.68.22.33"
-            "Audi" -> node.name.equals("Porsche", ignoreCase = true)
-            "Standard gateway" -> node.ip != "100.68.22.33" &&
-                !node.name.equals("Tomato", ignoreCase = true) &&
-                !node.name.equals("Porsche", ignoreCase = true)
-            else -> true
-        }
+    val gatewayTargets = if (directHotspotDetected) {
+        activeGatewayConfig?.nodes.orEmpty()
+    } else {
+        DemoClient.presets
     }
-    val exclusiveEndpointIps = activeGatewayConfig?.nodes.orEmpty()
-        .filter { it.name.equals("Porsche", ignoreCase = true) || it.name.equals("Tomato", ignoreCase = true) }
-        .map { it.ip }.toSet() + "100.68.22.33"
     var endpointIpDraft by remember { mutableStateOf("") }
     var customEndpointIp by remember { mutableStateOf("") }
     val configuredTargets = gatewayTargets + listOfNotNull(
-        customEndpointIp
-            .takeIf {
-                selectedGatewayName == "Standard gateway" && it.isNotBlank() &&
-                    it !in exclusiveEndpointIps
-            }
+        customEndpointIp.takeIf { !directHotspotDetected && it.isNotBlank() }
             ?.let { DemoTarget("Custom endpoint", it) }
     )
     var basicTargetIp by remember { mutableStateOf("") }
     val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
-        ?: configuredTargets.firstOrNull()
+        ?: configuredTargets.singleOrNull().takeIf { directHotspotDetected }
+    var verifiedDemo1GatewayIp by remember { mutableStateOf("") }
+    var demo1RouteMessage by remember { mutableStateOf("Select an endpoint to discover its gateway.") }
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var basicReceiverFailureCount by remember { mutableStateOf(0) }
@@ -160,7 +149,8 @@ fun DemoPanel(
     LaunchedEffect(configuredTargets) {
         val available = configuredTargets.map { it.ip }
         if (basicTargetIp !in available) {
-            basicTargetIp = configuredTargets.firstOrNull()?.ip.orEmpty()
+            basicTargetIp = if (directHotspotDetected) configuredTargets.singleOrNull()?.ip.orEmpty() else ""
+            verifiedDemo1GatewayIp = ""
             basicReceiverProbe = null
             basicReceiverState = null
         }
@@ -179,6 +169,13 @@ fun DemoPanel(
         false
     }
 
+    fun expectedGatewayFor(endpointIp: String): String? = when (endpointIp) {
+        "100.68.22.33" -> "100.68.25.154" // Tomato -> Squash
+        "100.68.187.10" -> "100.68.153.251" // Porsche -> Audi
+        "100.68.176.110", "100.68.149.164", "100.68.51.247" -> "100.68.165.190"
+        else -> null // Custom endpoints report their own routed source address.
+    }
+
     fun currentTarget() = DemoTarget(
         DemoClient.presets.firstOrNull { it.ip == targetIp.trim() }?.name ?: "Custom node",
         targetIp.trim()
@@ -191,13 +188,19 @@ fun DemoPanel(
 
     fun activePhoneState(): DemoThreatStatus? = when {
         directHotspotActive() -> localPhoneState
-        selectedServiceBase != null -> vpnPhoneState
+        verifiedDemo1GatewayIp == configuredServiceIp && selectedServiceBase != null -> vpnPhoneState
         else -> null
     }
 
     fun activeControlBase(): String? = when {
         directHotspotActive() -> localGatewayBase
         selectedServiceBase != null && selectedVpnActive() -> selectedServiceBase
+        else -> null
+    }
+
+    fun demo1ControlBase(): String? = when {
+        directHotspotActive() -> localGatewayBase
+        basicTarget != null && verifiedDemo1GatewayIp == configuredServiceIp -> activeControlBase()
         else -> null
     }
 
@@ -220,26 +223,9 @@ fun DemoPanel(
             hotspotIdentity?.nodeName?.takeIf { hotspotIdentity?.reachable == true && it.isNotBlank() }
                 ?: hotspotGatewayConfig?.gatewayName?.takeIf { it.isNotBlank() }
                 ?: "TaraSec hotspot"
-        selectedServiceBase != null -> selectedGatewayName
+        selectedServiceBase != null && verifiedDemo1GatewayIp.isNotBlank() -> selectedGatewayName
+        !directHotspotActive() -> "Gateway not determined"
         else -> "No active gateway"
-    }
-
-    fun selectGatewayForDemo1Endpoint(endpoint: DemoTarget) {
-        if (directHotspotActive()) return
-
-        val gateway = when {
-            endpoint.ip == "100.68.22.33" ||
-                endpoint.name.equals("Tomato", ignoreCase = true) ->
-                "Squash" to "100.68.25.154"
-            endpoint.name.equals("Porsche", ignoreCase = true) ->
-                "Audi" to "100.68.153.251"
-            else ->
-                "Standard gateway" to "100.68.165.190"
-        }
-
-        selectedGatewayName = gateway.first
-        configuredServiceIp = gateway.second
-        serviceIpDraft = gateway.second
     }
 
     fun pollAll(after: String? = null) {
@@ -252,9 +238,24 @@ fun DemoPanel(
 
         val localIdentity = localGatewayBase?.let { DemoClient.probeBase(it, "TaraSec hotspot") }
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
-        val selectedConfig = selectedServiceBase?.let { DemoClient.gatewayConfigurationBase(it) }
-        val basicIdentity = basicTarget?.let { DemoClient.probe(it) }
-        val basicReceiver = basicTarget?.let { DemoClient.threatStatus(it) }
+        val selectedBaseAtStart = selectedServiceBase
+        val basicTargetAtStart = basicTarget
+        val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
+        val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
+        val observedIp = basicReceiver?.takeIf { it.reachable }?.publicIp.orEmpty()
+        val expectedIp = basicTargetAtStart?.let { expectedGatewayFor(it.ip) }
+        val routeIp = observedIp.takeIf { validIpv4(it) && (expectedIp == null || expectedIp == it) }
+        val routeBase = routeIp?.let { ip ->
+            selectedBaseAtStart?.takeIf { base -> runCatching { java.net.URL(base).host }.getOrNull() == ip }
+                ?: "http://$ip"
+        }
+        val selectedConfig = selectedBaseAtStart?.takeIf { routeBase == null || routeBase == it }
+            ?.let { DemoClient.gatewayConfigurationBase(it) }
+        val routeConfig = when {
+            routeBase == null -> null
+            routeBase == selectedBaseAtStart -> selectedConfig
+            else -> DemoClient.gatewayConfigurationBase(routeBase)
+        }
         val identity = if (basicTarget != null && t.ip == basicTarget.ip) {
             basicIdentity ?: DemoClient.probe(t)
         } else {
@@ -266,10 +267,10 @@ fun DemoPanel(
             DemoClient.threatStatus(t)
         }
         val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
-        val vpnGateway = selectedServiceBase?.let { DemoClient.threatStatusBase(it) }
+        val vpnGateway = (routeBase ?: selectedBaseAtStart)?.let { DemoClient.threatStatusBase(it) }
         // Phone status belongs to the selected gateway and must not be gated on
         // appInfection.php, which describes a different status query.
-        val vpnPhone = selectedServiceBase?.let {
+        val vpnPhone = (routeBase ?: selectedBaseAtStart)?.let {
             DemoClient.localThreatStatusBase(it)
         }
 
@@ -279,12 +280,39 @@ fun DemoPanel(
             if (generation != pollGeneration.get() || actionInProgress.get()) {
                 return@runOnUiThread
             }
+            if (!directHotspotDetected && basicTargetAtStart != null &&
+                basicTargetAtStart.ip == basicTarget?.ip &&
+                basicReceiver?.reachable == true) {
+                if (routeIp != null) {
+                    configuredServiceIp = routeIp
+                    selectedGatewayConfig = routeConfig
+                    selectedGatewayFailureCount = if (routeConfig?.reachable == true) 0 else 1
+                    if (routeConfig?.reachable == true) {
+                        verifiedDemo1GatewayIp = routeIp
+                        selectedGatewayName = demoGateways.firstOrNull { it.second == routeIp }?.first
+                            ?: routeConfig.gatewayName.ifBlank { "Gateway $routeIp" }
+                        demo1RouteMessage = "${basicTargetAtStart.name} sees $routeIp as its gateway."
+                    } else {
+                        verifiedDemo1GatewayIp = ""
+                        demo1RouteMessage = "${basicTargetAtStart.name} sees $routeIp, but its gateway is unavailable: ${routeConfig?.message.orEmpty()}"
+                    }
+                } else {
+                    verifiedDemo1GatewayIp = ""
+                    demo1RouteMessage = if (expectedIp != null) {
+                        "${basicTargetAtStart.name} sees $observedIp; expected $expectedIp. Check routing/NAT."
+                    } else "Endpoint did not report a valid gateway IP."
+                }
+            } else if (!directHotspotDetected && basicTargetAtStart?.ip == basicTarget?.ip &&
+                basicTargetAtStart != null) {
+                verifiedDemo1GatewayIp = ""
+                demo1RouteMessage = "Could not read the gateway IP from ${basicTargetAtStart.name}."
+            }
             hotspotIdentity = localIdentity
             hotspotGatewayConfig = localConfig
-            if (selectedConfig?.reachable == true) {
+            if (selectedBaseAtStart == selectedServiceBase && selectedConfig?.reachable == true) {
                 selectedGatewayConfig = selectedConfig
                 selectedGatewayFailureCount = 0
-            } else {
+            } else if (selectedBaseAtStart == selectedServiceBase) {
                 selectedGatewayFailureCount += 1
                 // A failed check is not a new gateway state. Preserve the last
                 // confirmed configuration and report the failure separately.
@@ -292,6 +320,7 @@ fun DemoPanel(
                     selectedGatewayConfig = selectedConfig
                 }
             }
+            if (basicTargetAtStart?.ip != basicTarget?.ip) return@runOnUiThread
             if (basicIdentity?.reachable == true && basicReceiver?.reachable == true) {
                 basicReceiverProbe = basicIdentity
                 basicReceiverState = basicReceiver
@@ -324,9 +353,15 @@ fun DemoPanel(
         Thread { pollAll(after) }.start()
     }
 
+    // Selecting an endpoint must resolve its route even when automatic checks
+    // were paused after a previous demo result.
+    LaunchedEffect(basicTarget?.ip) {
+        if (basicTarget != null) refresh("${basicTarget.name} route checked")
+    }
+
     fun setPhoneState(infected: Boolean) {
         if (busy) return
-        val base = activeControlBase() ?: run {
+        val base = demo1ControlBase() ?: run {
             message = "No TaraSec gateway is currently available for this phone."
             return
         }
@@ -398,16 +433,17 @@ fun DemoPanel(
                     if (!actionInProgress.get()) {
                         pollAll()
                     }
-                    activity.runOnUiThread { secondsUntilRefresh = 3 }
-                    for (remaining in 2 downTo 0) {
-                        try {
-                            Thread.sleep(1000L)
-                        } catch (_: InterruptedException) {
-                            return@Thread
-                        }
-                        if (!running.get()) return@Thread
-                        activity.runOnUiThread { secondsUntilRefresh = remaining }
+                    // Each full check already waits for the receiver's fresh
+                    // traffic evidence. Keep the gap between checks short so
+                    // a late Gouda report is seen on the next pass.
+                    activity.runOnUiThread { secondsUntilRefresh = 1 }
+                    try {
+                        Thread.sleep(1000L)
+                    } catch (_: InterruptedException) {
+                        return@Thread
                     }
+                    if (!running.get()) return@Thread
+                    activity.runOnUiThread { secondsUntilRefresh = 0 }
                 }
             }.also { it.start() }
             onDispose {
@@ -423,7 +459,7 @@ fun DemoPanel(
     val gatewayReachable = when {
         directHotspotActive() -> hotspotIdentity?.reachable == true ||
             hotspotGatewayConfig?.reachable == true
-        else -> selectedGatewayConfig?.reachable == true
+        else -> verifiedDemo1GatewayIp.isNotBlank() && selectedGatewayConfig?.reachable == true
     }
     val phase = when {
         phoneState == null || !phoneState.reachable -> "CHECKING"
@@ -490,7 +526,7 @@ fun DemoPanel(
                     subtitle = "One security status, shared across the protected path"
                 ) {
                     Text(
-                        "Mark this phone as infected and TaraSec records the warning at the selected gateway. The receiving node then sees the same warning, showing how security information follows traffic between networks.",
+                        "Choose an endpoint. Its observed source IP identifies the gateway. Mark this phone as infected and the receiving node sees the warning across the protected path.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
@@ -501,70 +537,12 @@ fun DemoPanel(
 
                 TaraSectionCard(
                     title = "Demo configuration",
-                    subtitle = "Select the gateway used between the VPN networks"
+                    subtitle = "Choose a destination; the endpoint identifies the gateway"
                 ) {
                     if (directHotspotDetected) {
                         Text(
                             "Connected directly to a TaraSec hotspot. This hotspot is automatically the demo gateway.",
                             style = MaterialTheme.typography.bodyMedium
-                        )
-                    } else {
-                        Text("Choose WireGuard gateway", style = MaterialTheme.typography.titleMedium)
-                        demoGateways.forEach { (name, address) ->
-                            OutlinedButton(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    selectedGatewayName = name
-                                    customEndpointIp = ""
-                                    endpointIpDraft = ""
-                                    serviceIpDraft = address
-                                    configuredServiceIp = address
-                                    selectedGatewayConfig = null
-                                    selectedGatewayFailureCount = 0
-                                    vpnGatewayState = null
-                                    vpnPhoneState = null
-                                    basicReceiverProbe = null
-                                    basicReceiverState = null
-                                    basicReceiverFailureCount = 0
-                                    message = "Loading demo endpoints from $name…"
-                                }
-                            ) {
-                                Text(
-                                    (if (configuredServiceIp == address) "✓ " else "") +
-                                        "$name · $address"
-                                )
-                            }
-                        }
-                    }
-                    TaraStatusRow(
-                        "Selected gateway",
-                        if (directHotspotDetected) activeGatewayLabel() else selectedGatewayName
-                    )
-                    TaraStatusRow(
-                        "Active demo path",
-                        when {
-                            directHotspotActive() -> "Direct TaraSec hotspot"
-                            selectedVpnActive() -> "$selectedGatewayName · connected through VPN"
-                            selectedGatewayConfig == null -> "$selectedGatewayName · checking connection…"
-                            else -> "$selectedGatewayName · selected but unavailable"
-                        }
-                    )
-                    TaraStatusRow(
-                        "Configured receivers",
-                        when {
-                            activeGatewayConfig != null -> configuredTargets.size.toString()
-                            selectedGatewayConfig == null -> "Checking gateway configuration…"
-                            else -> "Unavailable while $selectedGatewayName is disconnected"
-                        }
-                    )
-                    if (
-                        !directHotspotDetected &&
-                        selectedGatewayConfig != null &&
-                        selectedGatewayConfig?.reachable != true
-                    ) {
-                        Text(
-                            "$selectedGatewayName is selected, but the app cannot reach it. Connect the TaraSec VPN or a TaraSec hotspot, then refresh.",
-                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                     if (directHotspotDetected && activeGatewayConfig != null && configuredTargets.isEmpty()) {
@@ -591,9 +569,14 @@ fun DemoPanel(
                         configuredTargets.forEach { endpoint ->
                             OutlinedButton(
                                 modifier = Modifier.fillMaxWidth(),
+                                enabled = !busy,
                                 onClick = {
-                                    selectGatewayForDemo1Endpoint(endpoint)
+                                    pollGeneration.incrementAndGet()
                                     basicTargetIp = endpoint.ip
+                                    verifiedDemo1GatewayIp = ""
+                                    intendedPhoneState = null
+                                    completedPhoneState = null
+                                    demo1RouteMessage = "Checking ${endpoint.name} for its observed gateway IP…"
                                     target = endpoint
                                     targetIp = endpoint.ip
                                     discoveredName = endpoint.name
@@ -607,23 +590,16 @@ fun DemoPanel(
                                 )
                             }
                         }
-                        if (configuredTargets.size == 1) {
+                        if (directHotspotDetected && configuredTargets.size == 1) {
                             Text(
                                 "This gateway handles one demo endpoint, so it was selected automatically.",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
-                    if (activeGatewayConfig == null) {
-                        val detail = selectedGatewayConfig?.message
-                            ?.takeIf { it.isNotBlank() }
-                            ?: hotspotGatewayConfig?.message?.takeIf { it.isNotBlank() }
-                            ?: "No TaraSec gateway configuration endpoint responded."
-                        Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (!directHotspotDetected && selectedGatewayName == "Standard gateway") {
+                    if (!directHotspotDetected) {
                         Text(
-                            "The standard gateway offers its configured endpoints above. You may also test another endpoint.",
+                            "You can also run the demo against your own TaraSec server or hotspot by entering its endpoint IP.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         OutlinedTextField(
@@ -636,26 +612,28 @@ fun DemoPanel(
                             singleLine = true
                         )
                         Button(
-                            enabled = !busy && validIpv4(endpointIpDraft) &&
-                                endpointIpDraft.trim() !in exclusiveEndpointIps,
+                            enabled = !busy && validIpv4(endpointIpDraft),
                             onClick = {
                                 val requestedIp = endpointIpDraft.trim()
-                                val gatewayAtRequest = configuredServiceIp
                                 busy = true
                                 message = "Checking endpoint $requestedIp…"
                                 Thread {
                                     val identity = DemoClient.probe(DemoTarget("Custom endpoint", requestedIp))
+                                    val status = DemoClient.threatStatus(DemoTarget("Custom endpoint", requestedIp))
                                     activity.runOnUiThread {
                                         busy = false
-                                        if (gatewayAtRequest != configuredServiceIp ||
-                                            selectedGatewayName != "Standard gateway") return@runOnUiThread
+                                        if (endpointIpDraft.trim() != requestedIp) return@runOnUiThread
                                         if (!identity.reachable || identity.message != "TaraSec node reachable" ||
-                                            identity.nodeName.equals("Tomato", ignoreCase = true) ||
-                                            identity.nodeName.equals("Porsche", ignoreCase = true)) {
-                                            message = "This endpoint cannot be verified for the Standard gateway. Choose a configured endpoint or a different IP."
+                                            !status.reachable || !validIpv4(status.publicIp)) {
+                                            message = "This endpoint must expose TaraSec identity and infection status APIs with an observed client IP."
                                         } else {
+                                            pollGeneration.incrementAndGet()
                                             customEndpointIp = requestedIp
                                             basicTargetIp = requestedIp
+                                            verifiedDemo1GatewayIp = ""
+                                            intendedPhoneState = null
+                                            completedPhoneState = null
+                                            demo1RouteMessage = "${identity.nodeName} sees ${status.publicIp}; verifying its gateway…"
                                             target = DemoTarget(identity.nodeName, requestedIp)
                                             targetIp = requestedIp
                                             discoveredName = identity.nodeName
@@ -669,6 +647,37 @@ fun DemoPanel(
                         ) {
                             Text("Use this endpoint")
                         }
+                    }
+                    TaraStatusRow("Available endpoints", configuredTargets.size.toString())
+                    TaraStatusRow(
+                        "Selected gateway",
+                        if (directHotspotDetected) activeGatewayLabel() else
+                            if (verifiedDemo1GatewayIp.isNotBlank()) "$selectedGatewayName · $verifiedDemo1GatewayIp" else "Waiting for endpoint"
+                    )
+                    TaraStatusRow(
+                        "Active demo path",
+                        when {
+                            directHotspotActive() -> "Direct TaraSec hotspot"
+                            verifiedDemo1GatewayIp.isNotBlank() -> "$selectedGatewayName · connected through VPN"
+                            else -> demo1RouteMessage
+                        }
+                    )
+                    if (
+                        !directHotspotDetected && basicTarget != null &&
+                        selectedGatewayConfig != null &&
+                        selectedGatewayConfig?.reachable != true
+                    ) {
+                        Text(
+                            "The endpoint's gateway cannot be reached. Connect the TaraSec VPN or a TaraSec hotspot, then refresh.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (directHotspotDetected && activeGatewayConfig == null) {
+                        val detail = selectedGatewayConfig?.message
+                            ?.takeIf { it.isNotBlank() }
+                            ?: hotspotGatewayConfig?.message?.takeIf { it.isNotBlank() }
+                            ?: "No TaraSec gateway configuration endpoint responded."
+                        Text("Gateway detection: $detail", style = MaterialTheme.typography.bodySmall)
                     }
                 }
 
@@ -789,7 +798,7 @@ fun DemoPanel(
                     if (completedPhoneState != false) {
                         Button(
                             modifier = Modifier.weight(1f),
-                            enabled = activeControlBase() != null && !busy,
+                            enabled = demo1ControlBase() != null && !busy,
                             onClick = { setPhoneState(false) }
                         ) {
                             Text("Set CLEAN")
@@ -798,7 +807,7 @@ fun DemoPanel(
                     if (completedPhoneState != true) {
                         Button(
                             modifier = Modifier.weight(1f),
-                            enabled = activeControlBase() != null && !busy,
+                            enabled = demo1ControlBase() != null && !busy,
                             onClick = { setPhoneState(true) }
                         ) {
                             Text("Set INFECTED")
@@ -821,7 +830,71 @@ fun DemoPanel(
                     }
                 }
 
-                TaraStatusRow("Gateway control", activeControlBase() ?: "No TaraSec gateway detected")
+                TaraStatusRow("Gateway control", demo1ControlBase() ?: "Waiting for endpoint route verification")
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        val report = buildString {
+                            fun status(label: String, value: DemoThreatStatus?) {
+                                appendLine("[$label]")
+                                appendLine("endpoint=" + (value?.endpoint ?: "not checked"))
+                                appendLine("checked_at=" + (value?.polledAt ?: "never"))
+                                appendLine("reachable=" + (value?.reachable?.toString() ?: "unknown"))
+                                appendLine("http_code=" + (value?.httpCode ?: 0))
+                                appendLine("infected=" + (value?.infected?.toString() ?: "unknown"))
+                                appendLine("severity=" + (value?.severity?.toString() ?: "unknown"))
+                                appendLine("source=" + (value?.source ?: "unknown"))
+                                appendLine("observed_ip=" + (value?.publicIp?.ifBlank { "unknown" } ?: "unknown"))
+                                appendLine("observed_port=" + (value?.publicPort ?: 0))
+                                appendLine("error=" + (value?.message?.ifBlank { "none" } ?: "not checked"))
+                                appendLine()
+                            }
+
+                            appendLine("TaraSec Demo 1 debug report")
+                            appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
+                            appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
+                            appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
+                            appendLine("app_version=" + BuildConfig.VERSION_NAME)
+                            appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
+                            appendLine("secrets=omitted (no credentials or tokens included)")
+                            appendLine()
+                            appendLine("[demo_path]")
+                            appendLine("mode=" + if (directHotspotActive()) "hotspot" else "vpn")
+                            appendLine("derived_gateway=" + (if (verifiedDemo1GatewayIp.isNotBlank()) selectedGatewayName else "unverified"))
+                            appendLine("gateway_address=" + configuredServiceIp)
+                            appendLine("verified_gateway_address=" + verifiedDemo1GatewayIp.ifBlank { "unverified" })
+                            appendLine("gateway_control=" + (demo1ControlBase() ?: "unavailable"))
+                            appendLine("gateway_reachable=" + gatewayReachable)
+                            appendLine("gateway_configuration=" + (activeGatewayConfig?.message?.ifBlank { "ok" } ?: selectedGatewayConfig?.message?.ifBlank { "unavailable" } ?: "not checked"))
+                            appendLine("gateway_check_failures=" + selectedGatewayFailureCount)
+                            appendLine("receiver=" + (basicTarget?.name ?: "none"))
+                            appendLine("receiver_address=" + (basicTarget?.ip ?: "none"))
+                            appendLine("receiver_probe=" + (basicReceiverProbe?.message ?: "not checked"))
+                            appendLine("receiver_check_failures=" + basicReceiverFailureCount)
+                            appendLine("route_message=" + demo1RouteMessage)
+                            appendLine()
+                            appendLine("[progress]")
+                            appendLine("phase=" + phase)
+                            appendLine("requested_state=" + (intendedPhoneState?.let { if (it) "INFECTED" else "CLEAN" } ?: "none"))
+                            appendLine("confirmed_state=" + (completedPhoneState?.let { if (it) "INFECTED" else "CLEAN" } ?: "none"))
+                            appendLine("automatic_checks=" + if (automaticChecksEnabled) "enabled" else "paused")
+                            appendLine("app_in_foreground=" + appInForeground)
+                            appendLine("action_in_progress=" + busy)
+                            appendLine("client_message=" + message)
+                            appendLine()
+                            status("phone", phoneState)
+                            status("gateway", gatewayState)
+                            status("receiver", basicReceiverState)
+                        }
+                        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("TaraSec Demo 1 debug report", report))
+                        message = "Demo 1 debug report copied."
+                    }
+                ) { Text("Copy debug report for AI") }
+                Text(
+                    "Paste the report into an AI assistant such as ChatGPT. It includes the latest checks and omits credentials and tokens.",
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Text(
                     "Gatekeeper/internalInfections can be open at the same time to show the gateway database state changing independently of the app.",
                     style = MaterialTheme.typography.bodySmall
