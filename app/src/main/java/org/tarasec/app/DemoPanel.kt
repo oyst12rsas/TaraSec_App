@@ -122,6 +122,10 @@ fun DemoPanel(
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var basicReceiverFailureCount by remember { mutableStateOf(0) }
+    var nodeStatuses by remember { mutableStateOf<Map<String, DemoThreatStatus>>(emptyMap()) }
+    var nodeIssues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var gatewayExplanationExpanded by remember { mutableStateOf(false) }
+    var lastNodeCheckAt by remember { mutableStateOf(0L) }
 
     var target by remember { mutableStateOf(DemoClient.presets.first()) }
     var targetIp by remember { mutableStateOf(target.ip) }
@@ -240,6 +244,10 @@ fun DemoPanel(
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val selectedBaseAtStart = selectedServiceBase
         val basicTargetAtStart = basicTarget
+        val checkNodes = configuredTargets.isNotEmpty() && System.currentTimeMillis() - lastNodeCheckAt >= 15000L
+        val nodeResults = if (checkNodes) configuredTargets.distinctBy { it.ip }.map { endpoint ->
+            endpoint.ip to DemoClient.threatStatus(endpoint)
+        } else emptyList()
         val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
         val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
         val observedIp = basicReceiver?.takeIf { it.reachable }?.publicIp.orEmpty()
@@ -306,6 +314,12 @@ fun DemoPanel(
                 basicTargetAtStart != null) {
                 verifiedDemo1GatewayIp = ""
                 demo1RouteMessage = "Could not read the gateway IP from ${basicTargetAtStart.name}."
+            }
+            if (checkNodes) {
+                lastNodeCheckAt = System.currentTimeMillis()
+                nodeStatuses = nodeResults.filter { it.second.reachable }.toMap()
+                nodeIssues = nodeResults.filterNot { it.second.reachable }
+                    .associate { it.first to it.second.message.ifBlank { "Status unavailable" } }
             }
             hotspotIdentity = localIdentity
             hotspotGatewayConfig = localConfig
@@ -406,6 +420,10 @@ fun DemoPanel(
                 if (receiverTarget != null) {
                     basicReceiverProbe = updatedReceiverProbe
                     basicReceiverState = updatedReceiver
+                    if (updatedReceiver?.reachable == true) {
+                        nodeStatuses = nodeStatuses + (receiverTarget.ip to updatedReceiver)
+                        nodeIssues = nodeIssues - receiverTarget.ip
+                    }
                 }
                 if (!infected) auditApproved = false
                 message = result
@@ -584,11 +602,40 @@ fun DemoPanel(
                                     basicReceiverState = null
                                 }
                             ) {
-                                Text(
-                                    (if (endpoint.ip == basicTarget?.ip) "✓ " else "") +
-                                        "${endpoint.name} · ${endpoint.ip}"
-                                )
+                                val status = nodeStatuses[endpoint.ip]
+                                val dot = when {
+                                    nodeIssues.containsKey(endpoint.ip) -> "🟡"
+                                    status?.infected == true -> "🔴"
+                                    status?.reachable == true -> "🟢"
+                                    else -> "🟡"
+                                }
+                                Text("$dot " + (if (endpoint.ip == basicTarget?.ip) "✓ " else "") +
+                                    "${endpoint.name} · ${endpoint.ip}")
                             }
+                        }
+                        Text("Green = clean · Red = infected · Yellow = checking or status issue",
+                            style = MaterialTheme.typography.bodySmall)
+                        val sharedGateway = basicTarget?.let { selected ->
+                            nodeStatuses[selected.ip]?.publicIp?.takeIf { validIpv4(it) }
+                        }
+                        val sameGatewayNodes = configuredTargets.filter { endpoint ->
+                            sharedGateway != null && nodeStatuses[endpoint.ip]?.publicIp == sharedGateway
+                        }
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { gatewayExplanationExpanded = !gatewayExplanationExpanded }
+                        ) {
+                            Text((if (gatewayExplanationExpanded) "▼ " else "▶ ") +
+                                "Why nodes on the same gateway share status")
+                        }
+                        if (gatewayExplanationExpanded) {
+                            Text(
+                                if (sharedGateway == null) "Select a node and refresh to identify its gateway. Nodes with unavailable status cannot yet be grouped." else
+                                    "Nodes reporting gateway $sharedGateway: " +
+                                        sameGatewayNodes.joinToString { it.name } +
+                                        ". The gateway simulates an ISP and is authoritative for this phone’s infection status. Changing the status through one end node changes what every node connected through that gateway sees. Nodes on other gateways can show a different status.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                         if (directHotspotDetected && configuredTargets.size == 1) {
                             Text(
