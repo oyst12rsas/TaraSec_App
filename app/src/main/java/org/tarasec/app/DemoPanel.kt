@@ -920,6 +920,36 @@ fun DemoPanel(
                             appendLine("receiver_check_failures=" + basicReceiverFailureCount)
                             appendLine("route_message=" + demo1RouteMessage)
                             appendLine()
+                            appendLine("[gateway_sharing]")
+                            appendLine("basis=Each node's last appInfection.php reply for this phone; observed client IP identifies the gateway.")
+                            val selectedObservedGateway = basicTarget?.let { nodeStatuses[it.ip]?.publicIp }
+                                ?.takeIf { validIpv4(it) }
+                            appendLine("selected_node_gateway=" + (selectedObservedGateway ?: "unknown"))
+                            appendLine("node_checks_started_at_epoch_ms=" + lastNodeCheckAt)
+                            configuredTargets.distinctBy { it.ip }.forEachIndexed { index, endpoint ->
+                                val nodeStatus = nodeStatuses[endpoint.ip]
+                                val issue = nodeIssues[endpoint.ip]
+                                appendLine("node_${index + 1}=" + endpoint.name + " · " + endpoint.ip +
+                                    "; state=" + when {
+                                        issue != null -> "ISSUE"
+                                        nodeStatus?.infected == true -> "INFECTED"
+                                        nodeStatus?.reachable == true -> "CLEAN"
+                                        else -> "UNKNOWN"
+                                    } +
+                                    "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
+                                    "; checked_at=" + (nodeStatus?.polledAt ?: "unknown") +
+                                    "; issue=" + (issue ?: "none"))
+                            }
+                            val sharingNodes = configuredTargets.filter {
+                                selectedObservedGateway != null &&
+                                    nodeStatuses[it.ip]?.publicIp == selectedObservedGateway
+                            }
+                            appendLine("nodes_sharing_selected_gateway=" +
+                                if (selectedObservedGateway == null) "unknown" else
+                                    sharingNodes.joinToString { it.name + " (" + it.ip + ")" })
+                            appendLine("significance=The gateway simulates the ISP and is authoritative for this phone's infection status. Changing that status through one endpoint changes what all nodes reached through the same gateway see. A different gateway can show a different status.")
+                            appendLine("interpretation=Group only nodes with a matching observed gateway IP. An unknown or failed check does not prove a node shares the gateway; report inconsistent node replies or stale checks as issues.")
+                            appendLine()
                             appendLine("[progress]")
                             appendLine("phase=" + phase)
                             appendLine("requested_state=" + (intendedPhoneState?.let { if (it) "INFECTED" else "CLEAN" } ?: "none"))
