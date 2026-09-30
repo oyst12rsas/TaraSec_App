@@ -20,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,9 @@ fun DemoPanel(
 ) {
     val activity = LocalContext.current as ComponentActivity
     val lifecycle = activity.lifecycle
+    // Collapsing a demo removes its content from composition. Keep its saved
+    // session ID/token so reopening resumes the DB session and can close it.
+    val demoSessionState = rememberSaveableStateHolder()
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
     var appInForeground by remember {
         mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
@@ -991,6 +995,7 @@ fun DemoPanel(
         }
 
         if (showDemo2) {
+            demoSessionState.SaveableStateProvider("demo2") {
             TaraSectionCard(
                 title = "Demo 2 · SSH attribution and self-correction",
                 subtitle = "DB-authoritative, session-bound demonstration"
@@ -1006,6 +1011,8 @@ fun DemoPanel(
                     onSignIn = onRemediationSignIn
                 )
             }
+        }
+
         }
 
         OutlinedButton(
