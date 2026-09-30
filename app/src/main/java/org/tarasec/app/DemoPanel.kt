@@ -180,16 +180,6 @@ fun DemoPanel(
         else -> null // Custom endpoints report their own routed source address.
     }
 
-    // Live gateway state is authoritative only for nodes whose replies prove
-    // they use that same gateway. Keep reachability/issues and other routes intact.
-    fun endpointInfected(status: DemoThreatStatus?): Boolean? {
-        if (status?.reachable != true) return null
-        val live = activePhoneState()
-        return if (verifiedDemo1GatewayIp.isNotBlank() &&
-            status.publicIp == verifiedDemo1GatewayIp && live?.reachable == true
-        ) live.infected else status.infected
-    }
-
     fun currentTarget() = DemoTarget(
         DemoClient.presets.firstOrNull { it.ip == targetIp.trim() }?.name ?: "Custom node",
         targetIp.trim()
@@ -204,6 +194,16 @@ fun DemoPanel(
         directHotspotActive() -> localPhoneState
         verifiedDemo1GatewayIp == configuredServiceIp && selectedServiceBase != null -> vpnPhoneState
         else -> null
+    }
+
+    // Live gateway state is authoritative only for nodes whose replies prove
+    // they use that same gateway. Keep reachability/issues and other routes intact.
+    fun endpointInfected(status: DemoThreatStatus?): Boolean? {
+        if (status?.reachable != true) return null
+        val live = activePhoneState()
+        return if (verifiedDemo1GatewayIp.isNotBlank() &&
+            status.publicIp == verifiedDemo1GatewayIp && live?.reachable == true
+        ) live.infected else status.infected
     }
 
     fun activeControlBase(): String? = when {
