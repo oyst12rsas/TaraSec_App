@@ -313,7 +313,10 @@ fun DemoPanel(
             } else if (!directHotspotDetected && basicTargetAtStart?.ip == basicTarget?.ip &&
                 basicTargetAtStart != null) {
                 verifiedDemo1GatewayIp = ""
-                demo1RouteMessage = "Could not read the gateway IP from ${basicTargetAtStart.name}."
+                demo1RouteMessage = "Could not discover the gateway for ${basicTargetAtStart.ip}: " +
+                    (basicReceiver?.message?.ifBlank { "Infection status API unavailable" }
+                        ?: "Infection status API unavailable") +
+                    ". An older TaraSec node may need its demo APIs updated."
             }
             if (checkNodes) {
                 lastNodeCheckAt = System.currentTimeMillis()
@@ -339,7 +342,7 @@ fun DemoPanel(
                 basicReceiverProbe = basicIdentity
                 basicReceiverState = basicReceiver
                 basicReceiverFailureCount = 0
-            } else {
+            } else if (basicTargetAtStart != null) {
                 basicReceiverFailureCount += 1
                 // Do not replace a confirmed CLEAN/INFECTED state with
                 // "checking" or a timeout from one later request.
@@ -358,7 +361,16 @@ fun DemoPanel(
             vpnPhoneState = vpnPhone
             receiverState = receiver
             if (after != null) {
-                message = if (identity.reachable) after else "Receiving node unavailable: ${identity.message}"
+                message = when {
+                    basicTargetAtStart != null && basicIdentity?.message != "TaraSec node reachable" ->
+                        "Endpoint ${basicTargetAtStart.ip}: identity API unavailable (${basicIdentity?.message.orEmpty()}). An older TaraSec node may need its demo APIs updated."
+                    basicTargetAtStart != null && basicReceiver?.reachable != true ->
+                        "Endpoint ${basicTargetAtStart.ip}: infection status API unavailable (${basicReceiver?.message.orEmpty()}). An older TaraSec node may need its demo APIs updated."
+                    basicTargetAtStart != null && routeIp == null ->
+                        demo1RouteMessage
+                    identity.reachable -> after
+                    else -> "Receiving node unavailable: ${identity.message}"
+                }
             }
         }
     }
@@ -662,34 +674,24 @@ fun DemoPanel(
                             enabled = !busy && validIpv4(endpointIpDraft),
                             onClick = {
                                 val requestedIp = endpointIpDraft.trim()
-                                busy = true
-                                message = "Checking endpoint $requestedIp…"
-                                Thread {
-                                    val identity = DemoClient.probe(DemoTarget("Custom endpoint", requestedIp))
-                                    val status = DemoClient.threatStatus(DemoTarget("Custom endpoint", requestedIp))
-                                    activity.runOnUiThread {
-                                        busy = false
-                                        if (endpointIpDraft.trim() != requestedIp) return@runOnUiThread
-                                        if (!identity.reachable || identity.message != "TaraSec node reachable" ||
-                                            !status.reachable || !validIpv4(status.publicIp)) {
-                                            message = "This endpoint must expose TaraSec identity and infection status APIs with an observed client IP."
-                                        } else {
-                                            pollGeneration.incrementAndGet()
-                                            customEndpointIp = requestedIp
-                                            basicTargetIp = requestedIp
-                                            verifiedDemo1GatewayIp = ""
-                                            intendedPhoneState = null
-                                            completedPhoneState = null
-                                            demo1RouteMessage = "${identity.nodeName} sees ${status.publicIp}; verifying its gateway…"
-                                            target = DemoTarget(identity.nodeName, requestedIp)
-                                            targetIp = requestedIp
-                                            discoveredName = identity.nodeName
-                                            basicReceiverProbe = null
-                                            basicReceiverState = null
-                                            message = "Using ${identity.nodeName} · $requestedIp."
-                                        }
-                                    }
-                                }.start()
+                                // Select first, then discover capabilities. Older TaraSec nodes
+                                // may not expose the demo APIs yet; keep them visible with
+                                // their actual probe results instead of rejecting selection.
+                                pollGeneration.incrementAndGet()
+                                customEndpointIp = requestedIp
+                                basicTargetIp = requestedIp
+                                verifiedDemo1GatewayIp = ""
+                                intendedPhoneState = null
+                                completedPhoneState = null
+                                basicReceiverProbe = null
+                                basicReceiverState = null
+                                basicReceiverFailureCount = 0
+                                target = DemoTarget("Custom endpoint", requestedIp)
+                                targetIp = requestedIp
+                                discoveredName = target.name
+                                secondsUntilRefresh = 0
+                                demo1RouteMessage = "Discovering endpoint $requestedIp and its gateway…"
+                                message = "Checking endpoint $requestedIp for TaraSec demo APIs…"
                             }
                         ) {
                             Text("Use this endpoint")
@@ -802,9 +804,9 @@ fun DemoPanel(
                     )
                 }
                 if (basicTarget == null) {
-                    TaraStatusRow("Receiver", "No demo receivers configured")
+                    TaraStatusRow("Receiver", if (directHotspotActive()) "No demo receivers configured" else "Select an endpoint")
                     Text(
-                        "This TaraSec hotspot is valid, but its gateway has not configured any nodes for Demo 1.",
+                        if (directHotspotActive()) "This TaraSec hotspot is valid, but its gateway has not configured any nodes for Demo 1." else "Select a listed node or enter an endpoint IP to discover its demo capabilities.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
@@ -916,6 +918,8 @@ fun DemoPanel(
                             appendLine("gateway_check_failures=" + selectedGatewayFailureCount)
                             appendLine("receiver=" + (basicTarget?.name ?: "none"))
                             appendLine("receiver_address=" + (basicTarget?.ip ?: "none"))
+                            appendLine("entered_endpoint_ip=" + endpointIpDraft.ifBlank { "none" })
+                            appendLine("receiver_identity=" + (basicReceiverProbe?.message ?: "not checked"))
                             appendLine("receiver_probe=" + (basicReceiverProbe?.message ?: "not checked"))
                             appendLine("receiver_check_failures=" + basicReceiverFailureCount)
                             appendLine("route_message=" + demo1RouteMessage)
