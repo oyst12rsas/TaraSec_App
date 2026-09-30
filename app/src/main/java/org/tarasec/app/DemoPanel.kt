@@ -950,7 +950,10 @@ fun DemoPanel(
                                         nodeStatus?.reachable == true -> "CLEAN"
                                         else -> "UNKNOWN"
                                     } +
-                                    "; state_source=" + (if (nodeStatus?.reachable == true && activePhoneState()?.reachable == true &&\n                                        verifiedDemo1GatewayIp.isNotBlank() && nodeStatus.publicIp == verifiedDemo1GatewayIp)\n                                        "live_gateway" else "node_reply") +\n                                    "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
+                                    "; state_source=" + (if (nodeStatus?.reachable == true && activePhoneState()?.reachable == true &&
+                                        verifiedDemo1GatewayIp.isNotBlank() && nodeStatus.publicIp == verifiedDemo1GatewayIp)
+                                        "live_gateway" else "node_reply") +
+                                    "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
                                     "; checked_at=" + (nodeStatus?.polledAt ?: "unknown") +
                                     "; issue=" + (issue ?: "none"))
                             }
