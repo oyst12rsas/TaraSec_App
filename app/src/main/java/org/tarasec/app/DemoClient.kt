@@ -16,7 +16,9 @@ data class DemoProbeResult(
     val target: DemoTarget,
     val reachable: Boolean,
     val nodeName: String = target.name,
-    val message: String = ""
+    val message: String = "",
+    val tarasecIdentified: Boolean = false,
+    val httpResponded: Boolean = false
 )
 
 data class DemoGatewayConfiguration(
@@ -52,31 +54,59 @@ object DemoClient {
     )
 
     fun probe(target: DemoTarget): DemoProbeResult {
-        var c: HttpURLConnection? = null
-        try {
-            c = URL("http://${target.ip}/script/appNode.php").openConnection() as HttpURLConnection
-            c.connectTimeout = 2500
-            c.readTimeout = 3500
-            c.useCaches = false
-            val code = c.responseCode
-            val body = (if (code in 200..299) c.inputStream else c.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code in 200..299) {
-                val json = runCatching { JSONObject(body) }.getOrNull()
-                val discovered = json?.optString("name", "")?.takeIf { it.isNotBlank() } ?: target.name
-                return DemoProbeResult(target, true, discovered, "TaraSec node reachable")
+        var responded = false
+        var lastError = "No HTTP response"
+        // The identity API is preferred. Older installations may expose only
+        // Gatekeeper; an arbitrary HTTP 200/404 is not TaraSec identity.
+        for (path in listOf("script/appNode.php", "gatekeeper/index.php")) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = URL("http://${target.ip}/$path").openConnection() as HttpURLConnection
+                connection.connectTimeout = 2500
+                connection.readTimeout = 3500
+                connection.useCaches = false
+                connection.instanceFollowRedirects = false
+                val code = connection.responseCode
+                responded = true
+                val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                    ?.bufferedReader()?.use { it.readText().take(131072) }.orEmpty()
+                lastError = "HTTP $code"
+                if (path == "script/appNode.php") {
+                    val json = runCatching { JSONObject(body) }.getOrNull()
+                    if (code in 200..299 && json?.optBoolean("ok", false) == true &&
+                        json.optString("role") == "tarasec-node") {
+                        return DemoProbeResult(target, true,
+                            json.optString("name").ifBlank { target.name },
+                            "TaraSec node reachable", true, true)
+                    }
+                } else if (code in 200..299 &&
+                    (body.contains("Taransvar Gatekeeper", ignoreCase = true) ||
+                        (body.contains("bGatekeeperAdmin") && body.contains("gatekeeper.js")))) {
+                    return DemoProbeResult(target, true, target.name,
+                        "TaraSec Gatekeeper detected; checking demo API", true, true)
+                }
+            } catch (error: Exception) {
+                lastError = error.message ?: "Connection failed"
+            } finally {
+                connection?.disconnect()
             }
-            return DemoProbeResult(target, false, message = "HTTP $code")
-        } catch (e: Exception) {
-            return try {
-                Socket().use { socket -> socket.connect(InetSocketAddress(target.ip, 80), 1500) }
-                DemoProbeResult(target, true, message = "Host reachable; TaraSec identity unavailable")
-            } catch (_: Exception) {
-                DemoProbeResult(target, false, message = e.message ?: "Unreachable")
-            }
-        } finally {
-            c?.disconnect()
         }
+        return DemoProbeResult(target, responded, message = if (responded)
+            "HTTP service responds, but TaraSec identity was not verified"
+        else "Endpoint HTTP service unreachable: $lastError",
+            tarasecIdentified = false, httpResponded = responded)
+    }
+
+    fun endpointProblem(identity: DemoProbeResult?, status: DemoThreatStatus?): String = when {
+        identity?.httpResponded != true && (status?.httpCode ?: 0) == 0 ->
+            "Endpoint unreachable: no HTTP response. Check the IP, power, VPN, routing or firewall."
+        identity?.tarasecIdentified != true && status?.reachable != true ->
+            "Host responds, but TaraSec was not identified. Check the address and TaraSec installation."
+        status?.httpCode == 404 || status?.httpCode == 410 ->
+            "TaraSec detected, but the Demo 1 infection API is missing. Deploy or update the demo APIs on this node."
+        status?.reachable != true ->
+            "TaraSec detected, but its Demo 1 API is unavailable: ${status?.message.orEmpty()}. Check the service and configuration."
+        else -> ""
     }
 
     fun gatewayConfigurationBase(baseUrl: String): DemoGatewayConfiguration {
