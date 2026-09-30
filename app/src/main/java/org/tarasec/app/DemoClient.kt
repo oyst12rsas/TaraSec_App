@@ -16,7 +16,8 @@ data class DemoProbeResult(
     val target: DemoTarget,
     val reachable: Boolean,
     val nodeName: String = target.name,
-    val message: String = ""
+    val message: String = "",
+    val httpCode: Int = 0
 )
 
 data class DemoGatewayConfiguration(
@@ -64,9 +65,13 @@ object DemoClient {
             if (code in 200..299) {
                 val json = runCatching { JSONObject(body) }.getOrNull()
                 val discovered = json?.optString("name", "")?.takeIf { it.isNotBlank() } ?: target.name
-                return DemoProbeResult(target, true, discovered, "TaraSec node reachable")
+                return if (json != null) {
+                    DemoProbeResult(target, true, discovered, "TaraSec node reachable", code)
+                } else {
+                    DemoProbeResult(target, true, message = "Host responds; TaraSec identity unavailable", httpCode = code)
+                }
             }
-            return DemoProbeResult(target, false, message = "HTTP $code")
+            return DemoProbeResult(target, false, message = "HTTP $code", httpCode = code)
         } catch (e: Exception) {
             return try {
                 Socket().use { socket -> socket.connect(InetSocketAddress(target.ip, 80), 1500) }
@@ -76,6 +81,22 @@ object DemoClient {
             }
         } finally {
             c?.disconnect()
+        }
+    }
+
+    fun endpointFailureMessage(identity: DemoProbeResult?, status: DemoThreatStatus?): String {
+        val detail = status?.message?.takeIf { it.isNotBlank() }
+            ?: identity?.message?.takeIf { it.isNotBlank() }
+            ?: "No response"
+        return when {
+            identity?.reachable != true && (identity?.httpCode ?: 0) == 0 && (status?.httpCode ?: 0) == 0 ->
+                "Endpoint unreachable ($detail). It may be switched off, disconnected, or blocked; check the IP address and VPN connection."
+            identity?.message == "TaraSec node reachable" && status?.httpCode in listOf(404, 410) ->
+                "TaraSec node responds, but its infection status API is missing (HTTP ${status?.httpCode}). Its demo APIs may need updating."
+            identity?.message != "TaraSec node reachable" ->
+                "Endpoint responds, but TaraSec identity could not be verified (${identity?.message.orEmpty()})."
+            else ->
+                "TaraSec node identified, but infection status is unavailable ($detail)."
         }
     }
 

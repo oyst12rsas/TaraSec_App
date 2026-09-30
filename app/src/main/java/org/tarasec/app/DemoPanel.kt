@@ -314,9 +314,7 @@ fun DemoPanel(
                 basicTargetAtStart != null) {
                 verifiedDemo1GatewayIp = ""
                 demo1RouteMessage = "Could not discover the gateway for ${basicTargetAtStart.ip}: " +
-                    (basicReceiver?.message?.ifBlank { "Infection status API unavailable" }
-                        ?: "Infection status API unavailable") +
-                    ". An older TaraSec node may need its demo APIs updated."
+                    DemoClient.endpointFailureMessage(basicIdentity, basicReceiver)
             }
             if (checkNodes) {
                 lastNodeCheckAt = System.currentTimeMillis()
@@ -362,10 +360,9 @@ fun DemoPanel(
             receiverState = receiver
             if (after != null) {
                 message = when {
-                    basicTargetAtStart != null && basicIdentity?.message != "TaraSec node reachable" ->
-                        "Endpoint ${basicTargetAtStart.ip}: identity API unavailable (${basicIdentity?.message.orEmpty()}). An older TaraSec node may need its demo APIs updated."
-                    basicTargetAtStart != null && basicReceiver?.reachable != true ->
-                        "Endpoint ${basicTargetAtStart.ip}: infection status API unavailable (${basicReceiver?.message.orEmpty()}). An older TaraSec node may need its demo APIs updated."
+                    basicTargetAtStart != null &&
+                        (basicIdentity?.message != "TaraSec node reachable" || basicReceiver?.reachable != true) ->
+                        "Endpoint ${basicTargetAtStart.ip}: ${DemoClient.endpointFailureMessage(basicIdentity, basicReceiver)}"
                     basicTargetAtStart != null && routeIp == null ->
                         demo1RouteMessage
                     identity.reachable -> after
