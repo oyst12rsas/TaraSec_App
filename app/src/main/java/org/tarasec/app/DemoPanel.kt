@@ -180,6 +180,16 @@ fun DemoPanel(
         else -> null // Custom endpoints report their own routed source address.
     }
 
+    // Live gateway state is authoritative only for nodes whose replies prove
+    // they use that same gateway. Keep reachability/issues and other routes intact.
+    fun endpointInfected(status: DemoThreatStatus?): Boolean? {
+        if (status?.reachable != true) return null
+        val live = activePhoneState()
+        return if (verifiedDemo1GatewayIp.isNotBlank() &&
+            status.publicIp == verifiedDemo1GatewayIp && live?.reachable == true
+        ) live.infected else status.infected
+    }
+
     fun currentTarget() = DemoTarget(
         DemoClient.presets.firstOrNull { it.ip == targetIp.trim() }?.name ?: "Custom node",
         targetIp.trim()
@@ -617,7 +627,7 @@ fun DemoPanel(
                                 val status = nodeStatuses[endpoint.ip]
                                 val dot = when {
                                     nodeIssues.containsKey(endpoint.ip) -> "🟡"
-                                    status?.infected == true -> "🔴"
+                                    endpointInfected(status) == true -> "🔴"
                                     status?.reachable == true -> "🟢"
                                     else -> "🟡"
                                 }
@@ -936,11 +946,11 @@ fun DemoPanel(
                                 appendLine("node_${index + 1}=" + endpoint.name + " · " + endpoint.ip +
                                     "; state=" + when {
                                         issue != null -> "ISSUE"
-                                        nodeStatus?.infected == true -> "INFECTED"
+                                        endpointInfected(nodeStatus) == true -> "INFECTED"
                                         nodeStatus?.reachable == true -> "CLEAN"
                                         else -> "UNKNOWN"
                                     } +
-                                    "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
+                                    "; state_source=" + (if (nodeStatus?.reachable == true && activePhoneState()?.reachable == true &&\n                                        verifiedDemo1GatewayIp.isNotBlank() && nodeStatus.publicIp == verifiedDemo1GatewayIp)\n                                        "live_gateway" else "node_reply") +\n                                    "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
                                     "; checked_at=" + (nodeStatus?.polledAt ?: "unknown") +
                                     "; issue=" + (issue ?: "none"))
                             }
