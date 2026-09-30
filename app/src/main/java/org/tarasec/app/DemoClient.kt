@@ -80,7 +80,11 @@ object DemoClient {
                             "TaraSec node reachable", true, true)
                     }
                 } else if (code in 200..299 &&
-                    (body.contains("Taransvar Gatekeeper", ignoreCase = true) ||
+                    (body.contains("<meta name=\"tarasec-product\" content=\"gatekeeper\">", ignoreCase = true) ||
+                        (body.contains("This script is made for version", ignoreCase = true) &&
+                            body.contains("Your database is version", ignoreCase = true) &&
+                            body.contains("\$nRequiredDbVersion")) ||
+                        body.contains("Taransvar Gatekeeper", ignoreCase = true) ||
                         (body.contains("bGatekeeperAdmin") && body.contains("gatekeeper.js")))) {
                     return DemoProbeResult(target, true, target.name,
                         "TaraSec Gatekeeper detected; checking demo API", true, true)
