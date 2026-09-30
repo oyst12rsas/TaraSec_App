@@ -996,23 +996,23 @@ fun DemoPanel(
 
         if (showDemo2) {
             demoSessionState.SaveableStateProvider("demo2") {
-            TaraSectionCard(
-                title = "Demo 2 · SSH attribution and self-correction",
-                subtitle = "DB-authoritative, session-bound demonstration"
-            ) {
-                DemoSshPanel(
-                    // Demo 2 intentionally reaches dbserver1 directly. The
-                    // server reports the source address it observes; that
-                    // address, once recognized as a TaraSec gateway, is used
-                    // for display, eligibility gating and demo cleanup.
-                    baseUrl = "http://100.68.126.0",
-                    managerAuthenticated = managerAuthenticated,
-                    subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
-                    onSignIn = onRemediationSignIn
-                )
+                TaraSectionCard(
+                    title = "Demo 2 · SSH attribution and self-correction",
+                    subtitle = "DB-authoritative, session-bound demonstration"
+                ) {
+                    DemoSshPanel(
+                        // Demo 2 intentionally reaches dbserver1 directly. The
+                        // server reports the source address it observes; that
+                        // address, once recognized as a TaraSec gateway, is used
+                        // for display, eligibility gating and demo cleanup.
+                        baseUrl = "http://100.68.126.0",
+                        managerAuthenticated = managerAuthenticated,
+                        subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
+                        onSignIn = onRemediationSignIn
+                    )
+                }
             }
-        }
-
+    
         }
 
         OutlinedButton(
