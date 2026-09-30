@@ -20,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,9 @@ fun DemoPanel(
 ) {
     val activity = LocalContext.current as ComponentActivity
     val lifecycle = activity.lifecycle
+    // Collapsing a demo removes its content from composition. Keep its saved
+    // session ID/token so reopening resumes the DB session and can close it.
+    val demoSessionState = rememberSaveableStateHolder()
     val localGatewayBase = remember { LocalGateway.baseUrl(activity) }
     var appInForeground by remember {
         mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
@@ -991,21 +995,24 @@ fun DemoPanel(
         }
 
         if (showDemo2) {
-            TaraSectionCard(
-                title = "Demo 2 · SSH attribution and self-correction",
-                subtitle = "DB-authoritative, session-bound demonstration"
-            ) {
-                DemoSshPanel(
-                    // Demo 2 intentionally reaches dbserver1 directly. The
-                    // server reports the source address it observes; that
-                    // address, once recognized as a TaraSec gateway, is used
-                    // for display, eligibility gating and demo cleanup.
-                    baseUrl = "http://100.68.126.0",
-                    managerAuthenticated = managerAuthenticated,
-                    subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
-                    onSignIn = onRemediationSignIn
-                )
+            demoSessionState.SaveableStateProvider("demo2") {
+                TaraSectionCard(
+                    title = "Demo 2 · SSH attribution and self-correction",
+                    subtitle = "DB-authoritative, session-bound demonstration"
+                ) {
+                    DemoSshPanel(
+                        // Demo 2 intentionally reaches dbserver1 directly. The
+                        // server reports the source address it observes; that
+                        // address, once recognized as a TaraSec gateway, is used
+                        // for display, eligibility gating and demo cleanup.
+                        baseUrl = "http://100.68.126.0",
+                        managerAuthenticated = managerAuthenticated,
+                        subscriberSignedIn = SubscriberAccountClient.storedToken(activity) != null,
+                        onSignIn = onRemediationSignIn
+                    )
+                }
             }
+    
         }
 
         OutlinedButton(
