@@ -114,10 +114,13 @@ fun DemoPanel(
     }
     var endpointIpDraft by remember { mutableStateOf("") }
     var customEndpointIp by remember { mutableStateOf("") }
-    val configuredTargets = gatewayTargets + listOfNotNull(
+    var endpointNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val configuredTargets = (gatewayTargets + listOfNotNull(
         customEndpointIp.takeIf { !directHotspotDetected && it.isNotBlank() }
             ?.let { DemoTarget("Custom endpoint", it) }
-    )
+    )).map { endpoint ->
+        endpointNames[endpoint.ip]?.let { endpoint.copy(name = it) } ?: endpoint
+    }
     var basicTargetIp by remember { mutableStateOf("") }
     val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
         ?: configuredTargets.singleOrNull().takeIf { directHotspotDetected }
@@ -154,7 +157,7 @@ fun DemoPanel(
     var showDemo4 by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Demo 1 is ready. Expand Demo 2 when you want to run the SSH self-healing scenario.") }
 
-    LaunchedEffect(configuredTargets) {
+    LaunchedEffect(configuredTargets.map { it.ip }) {
         val available = configuredTargets.map { it.ip }
         if (basicTargetIp !in available) {
             basicTargetIp = if (directHotspotDetected) configuredTargets.singleOrNull()?.ip.orEmpty() else ""
@@ -264,6 +267,9 @@ fun DemoPanel(
         } else emptyList()
         val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
         val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
+        val basicEndpointName = basicIdentity?.nodeName
+            ?.takeIf { basicIdentity.reachable && it.isNotBlank() }
+            ?: basicTargetAtStart?.name.orEmpty()
         val observedIp = basicReceiver?.takeIf { it.reachable }?.publicIp.orEmpty()
         val expectedIp = basicTargetAtStart?.let { expectedGatewayFor(it.ip) }
         val routeIp = observedIp.takeIf { validIpv4(it) && (expectedIp == null || expectedIp == it) }
@@ -302,6 +308,10 @@ fun DemoPanel(
             if (generation != pollGeneration.get() || actionInProgress.get()) {
                 return@runOnUiThread
             }
+            // Keep names by address so another endpoint or a later failed probe
+            // cannot overwrite a previously discovered node name.
+            listOfNotNull(basicIdentity, identity).filter { it.reachable && it.nodeName.isNotBlank() }
+                .forEach { endpointNames = endpointNames + (it.target.ip to it.nodeName) }
             if (!directHotspotDetected && basicTargetAtStart != null &&
                 basicTargetAtStart.ip == basicTarget?.ip &&
                 basicReceiver?.reachable == true) {
@@ -313,15 +323,15 @@ fun DemoPanel(
                         verifiedDemo1GatewayIp = routeIp
                         selectedGatewayName = demoGateways.firstOrNull { it.second == routeIp }?.first
                             ?: routeConfig.gatewayName.ifBlank { "Gateway $routeIp" }
-                        demo1RouteMessage = "${basicTargetAtStart.name} sees $routeIp as its gateway."
+                        demo1RouteMessage = "${basicEndpointName} sees $routeIp as its gateway."
                     } else {
                         verifiedDemo1GatewayIp = ""
-                        demo1RouteMessage = "${basicTargetAtStart.name} sees $routeIp, but its gateway is unavailable: ${routeConfig?.message.orEmpty()}"
+                        demo1RouteMessage = "${basicEndpointName} sees $routeIp, but its gateway is unavailable: ${routeConfig?.message.orEmpty()}"
                     }
                 } else {
                     verifiedDemo1GatewayIp = ""
                     demo1RouteMessage = if (expectedIp != null) {
-                        "${basicTargetAtStart.name} sees $observedIp; expected $expectedIp. Check routing/NAT."
+                        "${basicEndpointName} sees $observedIp; expected $expectedIp. Check routing/NAT."
                     } else "Endpoint did not report a valid gateway IP."
                 }
             } else if (!directHotspotDetected && basicTargetAtStart?.ip == basicTarget?.ip &&
