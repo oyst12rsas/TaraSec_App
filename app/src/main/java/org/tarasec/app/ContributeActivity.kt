@@ -54,6 +54,7 @@ private fun ContributeScreen() {
             Text("Contribute", style = MaterialTheme.typography.headlineLarge)
             TaraHamburgerMenu { destination ->
                 when (destination) {
+                    TaraMenuDestination.MY_UNITS -> context.startActivity(android.content.Intent(context, MyUnitsActivity::class.java))
                     TaraMenuDestination.CONTRIBUTE -> Unit
                     TaraMenuDestination.MY_ACCESS,
                     TaraMenuDestination.FIND_INTERNET -> context.startActivity(

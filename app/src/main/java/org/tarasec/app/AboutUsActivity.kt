@@ -83,6 +83,7 @@ private fun AboutUsScreen() {
             TaraHamburgerMenu { destination ->
                 activity.finish()
                 when (destination) {
+                    TaraMenuDestination.MY_UNITS -> activity.startActivity(android.content.Intent(activity, MyUnitsActivity::class.java))
                     TaraMenuDestination.MY_ACCESS,
                     TaraMenuDestination.FIND_INTERNET -> activity.startActivity(
                         Intent(activity, SubscriberHomeActivity::class.java)

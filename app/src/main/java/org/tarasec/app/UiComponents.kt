@@ -74,6 +74,7 @@ fun TaraSectionHeading(title: String, explanation: String? = null) {
 
 enum class TaraMenuDestination {
     MY_ACCESS,
+    MY_UNITS,
     FIND_INTERNET,
     STATUS_UNITS,
     SECURITY_DEMO,
@@ -87,6 +88,7 @@ const val CONSOLE_DESTINATION_EXTRA = "org.tarasec.app.CONSOLE_DESTINATION"
 
 private val taraMenuItems = listOf(
     TaraMenuDestination.MY_ACCESS to "My access",
+    TaraMenuDestination.MY_UNITS to "My units",
     TaraMenuDestination.FIND_INTERNET to "Find Internet access",
     TaraMenuDestination.STATUS_UNITS to "Status / Units",
     TaraMenuDestination.SECURITY_DEMO to "Security Demo",

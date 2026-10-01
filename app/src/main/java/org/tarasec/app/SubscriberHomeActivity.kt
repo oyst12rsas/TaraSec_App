@@ -405,6 +405,7 @@ private fun SubscriberHome(
             Text("TaraSec", style = MaterialTheme.typography.headlineLarge)
             TaraHamburgerMenu { destination ->
                 when (destination) {
+                    TaraMenuDestination.MY_UNITS -> activity.startActivity(android.content.Intent(activity, MyUnitsActivity::class.java))
                     TaraMenuDestination.MY_ACCESS -> {
                         coroutineScope.launch { scrollState.animateScrollTo(accountOffset) }
                     }
