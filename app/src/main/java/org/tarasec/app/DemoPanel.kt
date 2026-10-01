@@ -267,8 +267,8 @@ fun DemoPanel(
         } else emptyList()
         val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
         val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
-        val basicEndpointName = basicIdentity?.nodeName
-            ?.takeIf { basicIdentity.reachable && it.isNotBlank() }
+        val basicEndpointName = basicIdentity?.takeIf { it.reachable }?.nodeName
+            ?.takeIf { it.isNotBlank() }
             ?: basicTargetAtStart?.name.orEmpty()
         val observedIp = basicReceiver?.takeIf { it.reachable }?.publicIp.orEmpty()
         val expectedIp = basicTargetAtStart?.let { expectedGatewayFor(it.ip) }
