@@ -27,6 +27,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -242,6 +246,41 @@ private fun TaraSecApp(initialDestination: String?) {
                 connection?.disconnect()
             }
         }.start()
+    }
+
+    // Refresh pending approval on return from the browser/email app, and keep
+    // checking only while this activity is visible. Latest callbacks avoid
+    // retaining an old installation or request in the polling coroutine.
+    var foreground by remember {
+        mutableStateOf((activity as ComponentActivity).lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(activity) {
+        val lifecycle = (activity as ComponentActivity).lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) foreground = true
+            if (event == Lifecycle.Event.ON_PAUSE) foreground = false
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val refreshApproval by rememberUpdatedState(newValue = {
+        if (!busy && !managerAuthenticated && !managerRejected &&
+            managerRequestId != null && managerRequestToken.isNotBlank()) {
+            managerRequest("status")
+        }
+    })
+    LaunchedEffect(foreground, managerRequestId, managerRequestToken,
+        managerAuthenticated, managerRejected, managerEmailVerified,
+        managerGatewayApproved, managerCredentialReady) {
+        if (foreground && managerRequestId != null &&
+            managerRequestToken.isNotBlank() && !managerAuthenticated &&
+            !managerRejected &&
+            !(managerEmailVerified && managerGatewayApproved && managerCredentialReady)) {
+            while (true) {
+                refreshApproval()
+                delay(5_000L)
+            }
+        }
     }
 
     fun assistanceRequest(action: String) {
