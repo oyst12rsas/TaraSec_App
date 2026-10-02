@@ -77,22 +77,29 @@ private fun TaraSecApp(initialDestination: String?) {
         )
     }
 
+    val pendingKey = "pending-manager-registration"
+    val pending = remember {
+        runCatching { SecureCredentialStore.get(activity, pendingKey)?.let { JSONObject(it) } }.getOrNull()
+    }
+
     var installations by remember { mutableStateOf(InstallationStore.load(activity)) }
     var selectedInstallationId by remember {
         mutableStateOf(
-            InstallationStore.selectedId(activity)
-                ?: InstallationStore.load(activity).firstOrNull()?.id
+            if (pending != null) null else InstallationStore.load(activity).let { items ->
+                items.firstOrNull { it.id == InstallationStore.selectedId(activity) }?.id
+                    ?: items.firstOrNull()?.id
+            }
         )
     }
     val selectedInstallation = installations.firstOrNull { it.id == selectedInstallationId }
 
-    var registrationName by remember { mutableStateOf("") }
-    var registrationBaseUrl by remember { mutableStateOf("") }
-    var registrationServiceIp by remember { mutableStateOf("") }
+    var registrationName by remember { mutableStateOf(pending?.optString("name", "").orEmpty()) }
+    var registrationBaseUrl by remember { mutableStateOf(pending?.optString("base", "").orEmpty()) }
+    var registrationServiceIp by remember { mutableStateOf(pending?.optString("serviceIp", "").orEmpty()) }
 
-    var managerEmail by remember { mutableStateOf("") }
-    var managerRequestId by remember { mutableStateOf<Int?>(null) }
-    var managerRequestToken by remember { mutableStateOf("") }
+    var managerEmail by remember { mutableStateOf(pending?.optString("email", "").orEmpty()) }
+    var managerRequestId by remember { mutableStateOf<Int?>(pending?.optInt("requestId")?.takeIf { it > 0 }) }
+    var managerRequestToken by remember { mutableStateOf(pending?.optString("token", "").orEmpty()) }
     var managerCredential by remember { mutableStateOf("") }
     var managerEmailVerified by remember { mutableStateOf(false) }
     var managerGatewayApproved by remember { mutableStateOf(false) }
@@ -193,6 +200,14 @@ private fun TaraSecApp(initialDestination: String?) {
                             managerRequestId = json.optInt("requestId")
                             managerRequestToken = json.optString("requestToken", "")
                             managerEmail = json.optString("email", managerEmail)
+                            SecureCredentialStore.put(activity, pendingKey, JSONObject().apply {
+                                put("requestId", managerRequestId)
+                                put("token", managerRequestToken)
+                                put("email", managerEmail)
+                                put("name", registrationName)
+                                put("base", base)
+                                put("serviceIp", registrationServiceIp)
+                            }.toString())
                             managerStatus = "Request created. Confirm the email and wait for installation-admin approval."
                         }
                         "status" -> {
@@ -219,6 +234,7 @@ private fun TaraSecApp(initialDestination: String?) {
                                     serviceIp = registrationServiceIp.ifBlank { selectedInstallation?.serviceIp ?: InstallationStore.endpointHost(base) }
                                 )
                                 SecureCredentialStore.put(activity, item.id, managerCredential)
+                                SecureCredentialStore.remove(activity, pendingKey)
                                 installations = InstallationStore.load(activity)
                                 selectedInstallationId = item.id
                                 InstallationStore.setSelected(activity, item.id)
@@ -282,7 +298,7 @@ private fun TaraSecApp(initialDestination: String?) {
         if (foreground && managerRequestId != null &&
             managerRequestToken.isNotBlank() && !managerAuthenticated &&
             !managerRejected &&
-            !(managerEmailVerified && managerGatewayApproved && managerCredentialReady)) {
+            true) {
             while (true) {
                 refreshApproval()
                 delay(5_000L)
@@ -362,7 +378,7 @@ private fun TaraSecApp(initialDestination: String?) {
     }
 
     LaunchedEffect(selectedInstallationId) {
-        resetManagerUi()
+        if (selectedInstallationId != null || managerRequestId == null) resetManagerUi()
         val installation = installations.firstOrNull { it.id == selectedInstallationId }
         if (installation != null) {
             registrationName = installation.name
@@ -481,7 +497,15 @@ private fun TaraSecApp(initialDestination: String?) {
                 }) { Text("Add another installation") }
                 val installation = selectedInstallation
                 if (installation == null) {
-                    Text("No registered installation selected.")
+                    if (managerRequestId != null) {
+                        Text("${registrationName.ifBlank { "Installation" }} — approval pending")
+                        Text(managerStatus)
+                        Text("Email: ${if (managerEmailVerified) "Confirmed" else "Waiting"} · Admin: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
+                        Button(enabled = !busy, onClick = { managerRequest("status") }) { Text("Check approval") }
+                        Button(onClick = { page = AppPage.SETUP }) { Text("View registration") }
+                    } else {
+                        Text("No registered installation selected.")
+                    }
                     Button(onClick = { page = AppPage.SETUP }) { Text("Register an installation") }
                 } else {
                     Text("${installation.name} — Status / Units", style = MaterialTheme.typography.titleLarge)
