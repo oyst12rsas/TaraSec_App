@@ -297,8 +297,7 @@ private fun TaraSecApp(initialDestination: String?) {
         managerGatewayApproved, managerCredentialReady) {
         if (foreground && managerRequestId != null &&
             managerRequestToken.isNotBlank() && !managerAuthenticated &&
-            !managerRejected &&
-            true) {
+            !managerRejected) {
             while (true) {
                 refreshApproval()
                 delay(5_000L)
@@ -485,7 +484,7 @@ private fun TaraSecApp(initialDestination: String?) {
 
         when (page) {
             AppPage.UNITS -> {
-                Button(enabled = !busy, onClick = {
+                Button(enabled = !busy && managerRequestId == null, onClick = {
                     selectedInstallationId = null
                     InstallationStore.setSelected(activity, null)
                     registrationName = ""
@@ -591,7 +590,7 @@ private fun TaraSecApp(initialDestination: String?) {
                 Text("Installations", style = MaterialTheme.typography.titleLarge)
                 Text("The global DB/control plane is discovered and checked in the background. Users normally do not need to configure it.", style = MaterialTheme.typography.bodySmall)
 
-                Button(onClick = {
+                Button(enabled = !busy && managerRequestId == null, onClick = {
                     selectedInstallationId = null
                     InstallationStore.setSelected(activity, null)
                     registrationName = ""
