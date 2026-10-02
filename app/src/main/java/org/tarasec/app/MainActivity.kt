@@ -236,6 +236,13 @@ private fun TaraSecApp(initialDestination: String?) {
                         }
                     }
                     busy = false
+                    // Registration and credential storage still happen only after
+                    // the gateway accepts login with both approvals complete.
+                    if (action == "status" && json.optBoolean("active", false) &&
+                        managerEmailVerified && managerGatewayApproved &&
+                        managerCredential.isNotBlank()) {
+                        managerRequest("login")
+                    }
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
@@ -462,6 +469,16 @@ private fun TaraSecApp(initialDestination: String?) {
 
         when (page) {
             AppPage.UNITS -> {
+                Button(enabled = !busy, onClick = {
+                    selectedInstallationId = null
+                    InstallationStore.setSelected(activity, null)
+                    registrationName = ""
+                    registrationBaseUrl = ""
+                    registrationServiceIp = ""
+                    managerCredential = ""
+                    resetManagerUi("Enter installation details and request access.")
+                    page = AppPage.SETUP
+                }) { Text("Add another installation") }
                 val installation = selectedInstallation
                 if (installation == null) {
                     Text("No registered installation selected.")
