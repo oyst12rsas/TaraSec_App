@@ -56,6 +56,7 @@ object SubscriberAccountClient {
 
     fun clearToken(context: Context) {
         SecureCredentialStore.remove(context, SUBSCRIBER_TOKEN_KEY)
+        SecureCredentialStore.remove(context, "subscriber-account-id")
     }
 
     fun identityLoginUrl(provider: String): String {
@@ -77,6 +78,7 @@ object SubscriberAccountClient {
         val json = requestAbsolute(IDENTITY_API_BASE + "/identity-exchange.php", "POST", body, null)
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec identity exchange did not return a subscriber token")
+        SecureCredentialStore.remove(context, "subscriber-account-id")
         SecureCredentialStore.put(context, SUBSCRIBER_TOKEN_KEY, token)
         return account(context)
     }
@@ -90,6 +92,7 @@ object SubscriberAccountClient {
         val json = request("/subscriber-login.php", "POST", body, null)
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec login did not return a subscriber token")
+        SecureCredentialStore.remove(context, "subscriber-account-id")
         SecureCredentialStore.put(context, SUBSCRIBER_TOKEN_KEY, token)
         return account(context)
     }
@@ -97,6 +100,9 @@ object SubscriberAccountClient {
     fun account(context: Context): SubscriberAccount {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
         val json = request("/subscriber-account.php", "GET", null, token)
+        if (storedToken(context) != token) throw IllegalStateException("Account changed during refresh")
+        val currentAccountId = json.getLong("customer_id")
+        SecureCredentialStore.put(context, "subscriber-account-id", currentAccountId.toString())
         val sessionsJson = json.optJSONArray("sessions")
         val usages = buildList {
             if (sessionsJson != null) {
