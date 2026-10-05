@@ -15,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -22,16 +23,20 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 @Composable
-fun PartnerNetworkStatus(baseUrl: String) {
-    var status by remember(baseUrl) { mutableStateOf<JSONObject?>(null) }
-    var failure by remember(baseUrl) { mutableStateOf("") }
-    LaunchedEffect(baseUrl) {
+fun PartnerNetworkStatus(baseUrl: String, gatewayControlBase: String?, onStatus: (String) -> Unit) {
+    val callback by rememberUpdatedState(onStatus)
+    val selectedIp = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }?.takeIf { it.matches(Regex("[0-9.]+")) }
+    var status by remember(baseUrl, selectedIp) { mutableStateOf<JSONObject?>(null) }
+    var failure by remember(baseUrl, selectedIp) { mutableStateOf("") }
+    LaunchedEffect(baseUrl, selectedIp) {
+        callback(JSONObject().put("status", "checking").put("selected_gateway", selectedIp ?: "DB path").toString())
         while (true) {
             try {
-                val fresh = withContext(Dispatchers.IO) { DemoPartnerClient.request(baseUrl, "appPartnerStatus.php") }
+                val fresh = withContext(Dispatchers.IO) { DemoPartnerClient.request(baseUrl, "appPartnerStatus.php" + (selectedIp?.let { "?gateway_ip=$it" } ?: "")) }
                 status = fresh
+                callback(fresh.toString())
                 failure = ""
-            } catch (e: Exception) { failure = e.message ?: "DB status unavailable" }
+            } catch (e: Exception) { failure = e.message ?: "DB status unavailable"; callback(JSONObject().put("ok", false).put("error", failure).put("stale", true).toString()) }
             delay(5000)
         }
     }
@@ -41,7 +46,7 @@ fun PartnerNetworkStatus(baseUrl: String) {
     val tagging = partner?.optString("taggingState") ?: "unknown"
     val warning = failure.isNotBlank() || blacklisted || tagging == "failed" || age == null || age > 300
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Partner network status", style = MaterialTheme.typography.titleSmall)
+        Text("Partner network status · ${if (selectedIp != null) "selected gateway" else "DB connection"}", style = MaterialTheme.typography.titleSmall)
         Text(when {
             failure.isNotBlank() -> "DB check failed: $failure. Previous status is stale."
             status == null -> "Checking DB…"
@@ -54,7 +59,7 @@ fun PartnerNetworkStatus(baseUrl: String) {
             age == null || age > 300 -> "Gateway ${partner.optString("gateway_ip")}: tagging status unknown or stale."
             else -> "Gateway ${partner.optString("gateway_ip")}: $tagging · updated ${age}s ago."
         }, color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-        status?.let { Text("DB checked: ${it.optString("checked_at")}", style = MaterialTheme.typography.bodySmall) }
+        status?.let { Text("DB observed source: ${it.optString("observed_source_ip")} · DB checked: ${it.optString("checked_at")}", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
