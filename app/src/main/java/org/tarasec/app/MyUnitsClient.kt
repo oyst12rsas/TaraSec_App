@@ -18,12 +18,41 @@ object MyUnitsClient {
     fun accountId(context: Context): Long? = SecureCredentialStore.get(context, "subscriber-account-id")?.toLongOrNull()
 
     fun gatewayOrigin(input: String): String {
-        val uri = try { URI(input.trim()) } catch (_: Exception) { throw IllegalArgumentException("Enter a valid HTTPS gateway address") }
+        val uri = try { URI(input.trim().let { if ("://" in it) it else "https://$it" }) } catch (_: Exception) { throw IllegalArgumentException("Enter a valid HTTPS gateway address") }
         require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null && (uri.path.isNullOrEmpty() || uri.path == "/")) {
             "Use the gateway HTTPS origin, without a path, login or query"
         }
         require(uri.port == -1 || uri.port in 1..65535) { "Invalid gateway port" }
         return "https://${if (uri.host.contains(':')) uri.host.let { if (it.startsWith("[")) it else "[$it]" } else uri.host.lowercase()}${if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"}"
+    }
+
+    data class PairCode(val gateway: String, val gatewayId: String, val code: String, val name: String) {
+        override fun toString() = "PairCode(credential=omitted)"
+    }
+
+    fun parsePairCode(raw: String): PairCode {
+        require(raw.length <= 4096) { "Unsupported QR code" }
+        val json = try { JSONObject(raw) } catch (_: Exception) { throw IllegalArgumentException("Scan a TaraSec linking QR code") }
+        require(json.optString("type") == "tarasec-unit-pair" && json.optInt("version") == 1) { "Scan a TaraSec linking QR code" }
+        val base = gatewayOrigin(json.getString("gateway"))
+        val id = json.getString("gateway_id"); val code = json.getString("code")
+        require(Regex("[a-f0-9]{32}").matches(id) && Regex("[a-f0-9]{64}").matches(code)) { "Invalid pairing code" }
+        return PairCode(base,id,code,json.optString("unit_name").take(100).ifBlank { "This laptop" })
+    }
+
+    fun redeemPairCode(context: Context, accountId: Long, pair: PairCode): List<LinkedUnit> {
+        require(accountId(context) == accountId) { "Account changed. Reopen My units." }
+        // Check gateway identity before sending a Google handoff ticket.
+        val meta = request("${pair.gateway}/script/unitLinked.php")
+        require(meta.getString("gateway_id") == pair.gatewayId && gatewayOrigin(meta.getString("base_url")) == pair.gateway) { "Gateway identity does not match the QR code" }
+        val json = request("${pair.gateway}/script/unitPairCode.php",form("code" to pair.code,"client_id" to clientId(context,accountId),"ticket" to ticket(context,pair.gatewayId)))
+        require(json.getString("gateway_id") == pair.gatewayId && json.getString("scope") == "single_unit_read_only") { "Unexpected unit access scope" }
+        val identity = json.getJSONObject("unit"); val id = identity.getLong("unitId"); val token = json.getString("token")
+        require(id > 0 && Regex("[a-f0-9]{64}").matches(token)) { "Invalid unit credential" }
+        require(accountId(context) == accountId) { "Account changed. Reopen My units." }
+        val old = load(context,accountId); val key = "${pair.gatewayId}:$id"
+        val unit = LinkedUnit(key,pair.gateway,pair.gatewayId,id,if(identity.isNull("ownerId")) null else identity.getLong("ownerId"),old.firstOrNull { it.key == key }?.name ?: identity.optString("hostname").ifBlank { "Unit $id" },token)
+        return (old.filter { it.key != key && !(it.gateway == pair.gateway && it.unitId == id) } + unit).also { save(context,accountId,it) }
     }
 
     fun load(context: Context, accountId: Long): List<LinkedUnit> {
@@ -62,6 +91,7 @@ object MyUnitsClient {
             val code = c.responseCode
             if (code == 401 || code == 403) throw IllegalStateException("Authorization expired, revoked or unavailable. Sign in with Google and sync again.")
             if (code == 404 || code == 405) throw IllegalStateException("This gateway does not provide the required unit API. Ask its operator to upgrade it.")
+            if (code == 410) throw IllegalStateException("Pairing code expired or already used. Create a new QR code on the laptop.")
             if (code == 429) throw IllegalStateException("Too many sync requests. Retry in a minute.")
             if (code !in 200..299) throw IllegalStateException("Service unavailable (HTTP $code). Status is unknown.")
             val raw = c.inputStream.bufferedReader().use { it.readText() }
@@ -128,3 +158,4 @@ object MyUnitsClient {
         return (load(context,accountId).filter { it.gateway != base || it.unitId != unitId } + unit).also { save(context,accountId,it) }
     }
 }
+
