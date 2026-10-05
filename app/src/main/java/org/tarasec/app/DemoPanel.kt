@@ -155,6 +155,8 @@ fun DemoPanel(
     var showDemo2 by remember { mutableStateOf(false) }
     var showDemo3 by remember { mutableStateOf(false) }
     var showDemo4 by remember { mutableStateOf(false) }
+    var showDemo5 by remember { mutableStateOf(false) }
+    var partnerNetworkDebug by remember { mutableStateOf("status=not_checked") }
     var message by remember { mutableStateOf("Demo 1 is ready. Expand Demo 2 when you want to run the SSH self-healing scenario.") }
 
     LaunchedEffect(configuredTargets.map { it.ip }) {
@@ -929,6 +931,9 @@ fun DemoPanel(
                             appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
                             appendLine("secrets=omitted (no credentials or tokens included)")
                             appendLine()
+                            appendLine("[partner_network_status]")
+                            appendLine(partnerNetworkDebug)
+                            appendLine()
                             appendLine("[demo_path]")
                             appendLine("mode=" + if (directHotspotActive()) "hotspot" else "vpn")
                             appendLine("derived_gateway=" + (if (verifiedDemo1GatewayIp.isNotBlank()) selectedGatewayName else "unverified"))
@@ -1074,6 +1079,18 @@ fun DemoPanel(
                 subtitle = "Normal public path when clean; NetBird path when infected"
             ) {
                 DemoRoutingPanel(baseUrl = "http://100.68.126.0", gatewayControlBase = activeControlBase())
+            }
+        }
+
+        PartnerNetworkStatus(baseUrl = "http://100.68.126.0", gatewayControlBase = activeControlBase(), onStatus = { partnerNetworkDebug = it })
+        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { showDemo5 = !showDemo5 }) {
+            Text((if (showDemo5) "▼ " else "▶ ") + "Demo 5 · Partner loses tagging")
+        }
+        if (showDemo5) {
+            demoSessionState.SaveableStateProvider("demo5") {
+                TaraSectionCard(title = "Demo 5 · Partner containment", subtitle = "Receiver reports, DB distribution and verified enforcement") {
+                    DemoPartnerPanel(baseUrl = "http://100.68.126.0")
+                }
             }
         }
 
