@@ -155,6 +155,7 @@ fun DemoPanel(
     var showDemo2 by remember { mutableStateOf(false) }
     var showDemo3 by remember { mutableStateOf(false) }
     var showDemo4 by remember { mutableStateOf(false) }
+    var showDemo5 by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Demo 1 is ready. Expand Demo 2 when you want to run the SSH self-healing scenario.") }
 
     LaunchedEffect(configuredTargets.map { it.ip }) {
@@ -1074,6 +1075,18 @@ fun DemoPanel(
                 subtitle = "Normal public path when clean; NetBird path when infected"
             ) {
                 DemoRoutingPanel(baseUrl = "http://100.68.126.0", gatewayControlBase = activeControlBase())
+            }
+        }
+
+        PartnerNetworkStatus(baseUrl = "http://100.68.126.0")
+        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { showDemo5 = !showDemo5 }) {
+            Text((if (showDemo5) "▼ " else "▶ ") + "Demo 5 · Partner loses tagging")
+        }
+        if (showDemo5) {
+            demoSessionState.SaveableStateProvider("demo5") {
+                TaraSectionCard(title = "Demo 5 · Partner containment", subtitle = "Receiver reports, DB distribution and verified enforcement") {
+                    DemoPartnerPanel(baseUrl = "http://100.68.126.0")
+                }
             }
         }
 
