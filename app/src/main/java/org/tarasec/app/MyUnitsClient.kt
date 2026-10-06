@@ -18,9 +18,12 @@ object MyUnitsClient {
     fun accountId(context: Context): Long? = SecureCredentialStore.get(context, "subscriber-account-id")?.toLongOrNull()
 
     fun gatewayOrigin(input: String): String {
-        val uri = try { URI(input.trim()) } catch (_: Exception) { throw IllegalArgumentException("Enter a valid HTTPS gateway address") }
+        val address = input.trim()
+        require(address.isNotEmpty()) { "Enter the gateway IP address" }
+        val normalized = if (address.contains("://")) address else "https://$address"
+        val uri = try { URI(normalized) } catch (_: Exception) { throw IllegalArgumentException("Enter a valid gateway IP address") }
         require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null && (uri.path.isNullOrEmpty() || uri.path == "/")) {
-            "Use the gateway HTTPS origin, without a path, login or query"
+            "Enter the gateway IP address, without a path, login or query"
         }
         require(uri.port == -1 || uri.port in 1..65535) { "Invalid gateway port" }
         return "https://${if (uri.host.contains(':')) uri.host.let { if (it.startsWith("[")) it else "[$it]" } else uri.host.lowercase()}${if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"}"
