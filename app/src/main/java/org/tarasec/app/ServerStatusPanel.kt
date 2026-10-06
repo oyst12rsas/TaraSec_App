@@ -187,6 +187,7 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
     var localSite by remember { mutableStateOf<StatusSite?>(null) }
     var sites by remember { mutableStateOf<List<StatusSite>>(emptyList()) }
     var units by remember { mutableStateOf<List<ActiveUnit>>(emptyList()) }
+    var sshLogins by remember { mutableStateOf<JSONObject?>(null) }
     var loadedBase by remember { mutableStateOf<String?>(null) }
 
     fun load() {
@@ -235,6 +236,7 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                     }
                 }
                 activity.runOnUiThread {
+                    sshLogins = json.optJSONObject("sshLogins")
                     localSite = parsedLocal
                     sites = parsedSites
                     units = parsedUnits
@@ -255,6 +257,7 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
 
     LaunchedEffect(gatewayBaseUrl, managerAuthenticated) {
         if (gatewayBaseUrl != loadedBase) {
+            sshLogins = null
             localSite = null
             sites = emptyList()
             units = emptyList()
@@ -307,6 +310,28 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
         ) {
             Text(if (loading) "Refreshing…" else "Refresh status")
         }
+
+        Text("Successful SSH logins", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        val ssh = sshLogins
+        if (ssh == null) {
+            Text("SSH activity not reported.")
+        } else if (ssh.optString("status") != "ok") {
+            Text(ssh.optString("summary", "SSH activity unavailable"))
+        } else {
+            Text("This installation only · last 24 hours · refresh to check for new logins",
+                style = MaterialTheme.typography.bodySmall)
+            val events = ssh.optJSONArray("events") ?: JSONArray()
+            if (events.length() == 0) Text("No successful logins in the collected journal window.")
+            for (i in 0 until events.length()) {
+                val event = events.optJSONObject(i) ?: continue
+                Column(modifier = Modifier.fillMaxWidth().border(1.dp, GatekeeperBorder).padding(8.dp)) {
+                    Text(event.optString("time"), style = MaterialTheme.typography.bodySmall)
+                    Text("Account: ${event.optString("account")} · Source: ${event.optString("source")}")
+                    Text("Authentication: ${event.optString("authentication")}")
+                }
+            }
+        }
+
         Text(message, style = MaterialTheme.typography.bodySmall)
     }
 }
