@@ -28,9 +28,10 @@ class MyUnitsActivity : ComponentActivity() {
 
     @Composable
     private fun MyUnitsScreen(version: Int) {
+        val provider = remember(version) { ServiceDiscovery.selected(this) }
         val accountId = remember(version) { MyUnitsClient.accountId(this) }
         val signedIn = remember(version) { SubscriberAccountClient.storedToken(this) != null }
-        var units by remember(accountId) { mutableStateOf(accountId?.let { MyUnitsClient.load(this,it) } ?: emptyList()) }
+        var units by remember(accountId, provider) { mutableStateOf(accountId?.let { MyUnitsClient.load(this,it) } ?: emptyList()) }
         var gateway by remember { mutableStateOf("") }
         var gatewayExample by remember { mutableStateOf("") }
         var gatewayDiscoveryMessage by remember { mutableStateOf("Checking your IP with the DB server…") }
@@ -38,8 +39,8 @@ class MyUnitsActivity : ComponentActivity() {
         var manual by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
         var busy by remember { mutableStateOf(false) }
-        var statuses by remember(accountId) { mutableStateOf<Map<String,JSONObject>>(emptyMap()) }
-        var errors by remember(accountId) { mutableStateOf<Map<String,String>>(emptyMap()) }
+        var statuses by remember(accountId, provider) { mutableStateOf<Map<String,JSONObject>>(emptyMap()) }
+        var errors by remember(accountId, provider) { mutableStateOf<Map<String,String>>(emptyMap()) }
         var revoke by remember { mutableStateOf<LinkedUnit?>(null) }
         var rename by remember { mutableStateOf<LinkedUnit?>(null) }
         var newName by remember { mutableStateOf("") }

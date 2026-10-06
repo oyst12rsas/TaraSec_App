@@ -9,13 +9,13 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
 
-data class LinkedUnit(val key: String, val gateway: String, val gatewayId: String, val unitId: Long, val ownerId: Long?, val name: String, val token: String) {
+data class LinkedUnit(val key: String, val gateway: String, val gatewayId: String, val unitId: Long, val ownerId: Long?, val name: String, val token: String, val identityApi: String = ServiceDiscovery.central.identity) {
     override fun toString() = "LinkedUnit(key=$key, token=omitted)"
 }
 
 object MyUnitsClient {
-    private fun storeKey(accountId: Long) = "my-units-v1-$accountId"
-    fun accountId(context: Context): Long? = SecureCredentialStore.get(context, "subscriber-account-id")?.toLongOrNull()
+    private fun storeKey(context: Context, accountId: Long) = ServiceDiscovery.selected(context).key("my-units-v1-$accountId")
+    fun accountId(context: Context): Long? = SecureCredentialStore.get(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))?.toLongOrNull()
 
     fun gatewayOrigin(input: String): String {
         val address = input.trim()
@@ -30,22 +30,22 @@ object MyUnitsClient {
     }
 
     fun load(context: Context, accountId: Long): List<LinkedUnit> {
-        val raw = SecureCredentialStore.get(context, storeKey(accountId)) ?: return emptyList()
+        val raw = SecureCredentialStore.get(context, storeKey(context, accountId)) ?: return emptyList()
         val array = JSONArray(raw)
         return (0 until array.length()).map { i ->
             val o = array.getJSONObject(i)
-            LinkedUnit(o.getString("key"), o.getString("gateway"), o.optString("gatewayId"), o.getLong("unitId"), if (o.isNull("ownerId")) null else o.getLong("ownerId"), o.getString("name"), o.getString("token"))
+            LinkedUnit(o.getString("key"), o.getString("gateway"), o.optString("gatewayId"), o.getLong("unitId"), if (o.isNull("ownerId")) null else o.getLong("ownerId"), o.getString("name"), o.getString("token"), o.optString("identityApi",ServiceDiscovery.central.identity))
         }
     }
 
     fun save(context: Context, accountId: Long, units: List<LinkedUnit>) {
         val array = JSONArray()
-        units.forEach { u -> array.put(JSONObject().put("key",u.key).put("gateway",u.gateway).put("gatewayId",u.gatewayId).put("unitId",u.unitId).put("ownerId",u.ownerId ?: JSONObject.NULL).put("name",u.name).put("token",u.token)) }
-        SecureCredentialStore.put(context, storeKey(accountId), array.toString())
+        units.forEach { u -> array.put(JSONObject().put("key",u.key).put("gateway",u.gateway).put("gatewayId",u.gatewayId).put("unitId",u.unitId).put("ownerId",u.ownerId ?: JSONObject.NULL).put("name",u.name).put("token",u.token).put("identityApi",u.identityApi)) }
+        SecureCredentialStore.put(context, storeKey(context, accountId), array.toString())
     }
 
     private fun clientId(context: Context, accountId: Long): String {
-        val key = "my-units-client-$accountId"
+        val key = ServiceDiscovery.selected(context).key("my-units-client-$accountId")
         return SecureCredentialStore.get(context,key) ?: UUID.randomUUID().toString().replace("-", "").also { SecureCredentialStore.put(context,key,it) }
     }
 
@@ -86,18 +86,23 @@ object MyUnitsClient {
         } finally { c.disconnect() }
     }
 
-    private fun ticket(context: Context, gatewayId: String): String {
-        val token = SubscriberAccountClient.storedToken(context) ?: throw IllegalStateException("Sign in with Google first")
-        return request("https://tarasec.org/api/v1/identity/unit-identity.php",form("gateway_id" to gatewayId),subscriber=token).getString("ticket")
+    private fun ticket(context: Context, gatewayId: String, identityApi: String): String {
+        val services = ServiceDiscovery.selected(context)
+        require(services.identity == identityApi) { "This gateway uses a different account service. In My access, find this gateway's account service and sign in there first." }
+        val token = SecureCredentialStore.get(context, services.key("global-subscriber-token")) ?: throw IllegalStateException("Sign in with Google first")
+        return request("$identityApi/unit-identity.php",form("gateway_id" to gatewayId),subscriber=token).getString("ticket")
     }
 
     fun sync(context: Context, accountId: Long, input: String): List<LinkedUnit> {
         require(accountId(context) == accountId) { "Account changed. Reopen My units." }
+        val services = ServiceDiscovery.selected(context)
         val base = gatewayOrigin(input)
         val meta = request("$base/script/unitLinked.php")
+        val provider = meta.optJSONObject("account_services")?.let { ServiceDiscovery.parse(it) } ?: ServiceDiscovery.central
+        require(provider == services) { "In My access, find this gateway's account service and sign in there first." }
         val gatewayId = meta.getString("gateway_id")
         require(Regex("[a-f0-9]{32}").matches(gatewayId) && gatewayOrigin(meta.getString("base_url")) == base) { "Gateway identity or address does not match its configuration" }
-        val json = request("$base/script/unitLinked.php",form("ticket" to ticket(context,gatewayId),"client_id" to clientId(context,accountId),"action" to "list"))
+        val json = request("$base/script/unitLinked.php",form("ticket" to ticket(context,gatewayId,provider.identity),"client_id" to clientId(context,accountId),"action" to "list"))
         require(json.getString("gateway_id") == gatewayId) { "Gateway identity changed" }
         val old = load(context,accountId)
         val array = json.getJSONArray("units")
@@ -107,9 +112,9 @@ object MyUnitsClient {
             val unitId = o.getLong("unitId"); val token = o.getString("token")
             require(unitId > 0 && Regex("[a-f0-9]{64}").matches(token)) { "Invalid unit credential" }
             val key = "$gatewayId:$unitId"
-            LinkedUnit(key,base,gatewayId,unitId,if (o.isNull("ownerId")) null else o.getLong("ownerId"),old.firstOrNull { it.key == key }?.name ?: o.optString("hostname").ifBlank { "Unit $unitId" },token)
+            LinkedUnit(key,base,gatewayId,unitId,if (o.isNull("ownerId")) null else o.getLong("ownerId"),old.firstOrNull { it.key == key }?.name ?: o.optString("hostname").ifBlank { "Unit $unitId" },token,provider.identity)
         }
-        require(accountId(context) == accountId) { "Account changed. Reopen My units." }
+        require(accountId(context) == accountId && ServiceDiscovery.selected(context) == services) { "Account changed. Reopen My units." }
         return (old.filter { it.gatewayId != gatewayId && it.gateway != base } + incoming).also { save(context,accountId,it) }
     }
 
@@ -124,12 +129,16 @@ object MyUnitsClient {
     }
 
     fun unlink(context: Context, accountId: Long, unit: LinkedUnit) {
+        val services = ServiceDiscovery.selected(context)
+        require(accountId(context) == accountId) { "Account changed. Reopen My units." }
         require(unit.gatewayId.isNotBlank()) { "For a manual pairing, ask the gateway operator to revoke its token" }
-        request("${unit.gateway}/script/unitLinked.php",form("action" to "unlink","unit_id" to unit.unitId.toString(),"ticket" to ticket(context,unit.gatewayId)))
+        request("${unit.gateway}/script/unitLinked.php",form("action" to "unlink","unit_id" to unit.unitId.toString(),"ticket" to ticket(context,unit.gatewayId,unit.identityApi)))
+        require(accountId(context) == accountId && ServiceDiscovery.selected(context) == services) { "Account changed. Reopen My units." }
         save(context,accountId,load(context,accountId).filter { it.key != unit.key })
     }
 
     fun importPairing(context: Context, accountId: Long, input: String, gatewayInput: String): List<LinkedUnit> {
+        val services = ServiceDiscovery.selected(context)
         require(input.length <= 32768) { "Pairing data is too large" }
         val json = try { JSONObject(input) } catch (_: Exception) { throw IllegalArgumentException("Invalid pairing JSON") }
         require(json.optBoolean("ok") && json.getString("scope") == "single_unit_read_only") { "Unsupported pairing" }
@@ -137,7 +146,9 @@ object MyUnitsClient {
         val identity = json.getJSONObject("unit"); val unitId = identity.getLong("unitId"); val token = json.getString("token")
         require(unitId > 0 && Regex("[a-fA-F0-9]{64}").matches(token)) { "Invalid pairing credential" }
         val unit = LinkedUnit("manual:$base:$unitId",base,"",unitId,if (identity.isNull("ownerId")) null else identity.getLong("ownerId"),identity.optString("hostname").ifBlank { "Unit $unitId" },token.lowercase())
+        require(accountId(context) == accountId) { "Account changed. Reopen My units." }
         status(unit) // Validate the endpoint and credential before saving.
+        require(accountId(context) == accountId && ServiceDiscovery.selected(context) == services) { "Account changed. Reopen My units." }
         return (load(context,accountId).filter { it.gateway != base || it.unitId != unitId } + unit).also { save(context,accountId,it) }
     }
 }

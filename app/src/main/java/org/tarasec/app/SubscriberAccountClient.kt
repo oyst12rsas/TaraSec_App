@@ -11,8 +11,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-private const val SUBSCRIBER_API_BASE = "https://tarasec.org/api/v1/subscriber"
-private const val IDENTITY_API_BASE = "https://tarasec.org/api/v1/identity"
 private const val SUBSCRIBER_TOKEN_KEY = "global-subscriber-token"
 
 data class SubscriberUsage(
@@ -52,17 +50,17 @@ data class HotspotActivationResult(
 )
 
 object SubscriberAccountClient {
-    fun storedToken(context: Context): String? = SecureCredentialStore.get(context, SUBSCRIBER_TOKEN_KEY)
+    fun storedToken(context: Context): String? = SecureCredentialStore.get(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY))
 
     fun clearToken(context: Context) {
-        SecureCredentialStore.remove(context, SUBSCRIBER_TOKEN_KEY)
-        SecureCredentialStore.remove(context, "subscriber-account-id")
+        SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY))
+        SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
     }
 
-    fun identityLoginUrl(provider: String): String {
+    fun identityLoginUrl(context: Context, provider: String): String {
         val normalized = provider.lowercase()
         require(normalized == "google" || normalized == "facebook") { "Unsupported identity provider" }
-        return IDENTITY_API_BASE + "/identity-start.php?provider=" +
+        return ServiceDiscovery.rememberSignIn(context).identity + "/identity-start.php?provider=" +
             URLEncoder.encode(normalized, "UTF-8") + "&app_redirect=" +
             URLEncoder.encode("tarasec://identity", "UTF-8")
     }
@@ -75,34 +73,38 @@ object SubscriberAccountClient {
             "device_key" to deviceKey.lowercase(),
             "device_label" to "Android ${Build.MODEL}"
         )
-        val json = requestAbsolute(IDENTITY_API_BASE + "/identity-exchange.php", "POST", body, null)
+        val services = ServiceDiscovery.signInServices(context)
+        val json = requestAbsolute(services.identity + "/identity-exchange.php", "POST", body, null)
+        require(ServiceDiscovery.selected(context) == services) { "Account service changed. Sign in again." }
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec identity exchange did not return a subscriber token")
-        SecureCredentialStore.remove(context, "subscriber-account-id")
-        SecureCredentialStore.put(context, SUBSCRIBER_TOKEN_KEY, token)
+        SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
+        SecureCredentialStore.put(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY), token)
         return account(context)
     }
 
     fun login(context: Context, identifier: String, password: String): SubscriberAccount {
+        val services = ServiceDiscovery.selected(context)
         val body = form(
             "identifier" to identifier.trim(),
             "password" to password,
             "device_label" to "Android ${Build.MODEL}"
         )
-        val json = request("/subscriber-login.php", "POST", body, null)
+        val json = requestAbsolute(services.subscriber + "/subscriber-login.php", "POST", body, null)
+        require(ServiceDiscovery.selected(context) == services) { "Account service changed. Sign in again." }
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec login did not return a subscriber token")
-        SecureCredentialStore.remove(context, "subscriber-account-id")
-        SecureCredentialStore.put(context, SUBSCRIBER_TOKEN_KEY, token)
+        SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
+        SecureCredentialStore.put(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY), token)
         return account(context)
     }
 
     fun account(context: Context): SubscriberAccount {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
-        val json = request("/subscriber-account.php", "GET", null, token)
+        val json = request(context, "/subscriber-account.php", "GET", null, token)
         if (storedToken(context) != token) throw IllegalStateException("Account changed during refresh")
         val currentAccountId = json.getLong("customer_id")
-        SecureCredentialStore.put(context, "subscriber-account-id", currentAccountId.toString())
+        SecureCredentialStore.put(context, ServiceDiscovery.selected(context).key("subscriber-account-id"), currentAccountId.toString())
         val sessionsJson = json.optJSONArray("sessions")
         val usages = buildList {
             if (sessionsJson != null) {
@@ -154,7 +156,7 @@ object SubscriberAccountClient {
         val identity = requestAbsolute("$localBase/tarasec_identity.php", "GET", null, null)
         val gatewayKey = identity.optString("gateway_key").trim()
         if (gatewayKey.isBlank()) throw IllegalStateException("This hotspot is not registered for global TaraSec access")
-        val grant = request(
+        val grant = request(context,
             "/device-bind-code.php",
             "POST",
             form("gateway_key" to gatewayKey),
@@ -277,7 +279,7 @@ object SubscriberAccountClient {
 
     fun applyForCredit(context: Context, amountCredits: String): SubscriberAccount {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
-        request(
+        request(context,
             "/subscriber-credit-apply.php",
             "POST",
             form("amount_credits" to amountCredits.trim(), "mode" to "test"),
@@ -288,7 +290,7 @@ object SubscriberAccountClient {
 
     fun drawCredit(context: Context, amountCredits: String): SubscriberAccount {
         val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
-        request(
+        request(context,
             "/subscriber-credit-draw.php",
             "POST",
             form("amount_credits" to amountCredits.trim()),
@@ -297,8 +299,13 @@ object SubscriberAccountClient {
         return account(context)
     }
 
-    private fun request(path: String, method: String, body: String?, token: String?): JSONObject =
-        requestAbsolute(SUBSCRIBER_API_BASE + path, method, body, token)
+    private fun request(context: Context, path: String, method: String, body: String?, token: String?): JSONObject {
+        val services = ServiceDiscovery.selected(context)
+        if (token != null) require(SecureCredentialStore.get(context, services.key(SUBSCRIBER_TOKEN_KEY)) == token) { "Account service changed. Retry the request." }
+        val result = requestAbsolute(services.subscriber + path, method, body, token)
+        require(ServiceDiscovery.selected(context) == services) { "Account service changed. Retry the request." }
+        return result
+    }
 
     private fun requestAbsolute(url: String, method: String, body: String?, token: String?): JSONObject {
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -307,6 +314,7 @@ object SubscriberAccountClient {
             connection.connectTimeout = 5000
             connection.readTimeout = 8000
             connection.useCaches = false
+            connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             token?.let { connection.setRequestProperty("X-TaraSec-Subscriber-Token", it) }
             if (body != null) {

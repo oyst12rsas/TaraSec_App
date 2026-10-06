@@ -47,3 +47,18 @@ AI and recovery; this change does not implement an interactive remediation chat.
 
 No source change alone configures Google, HTTPS, the database or a running APK.
 See Core `docs/unit-app-pairing.md` for gateway setup and deployment validation.
+
+## Gateway-first service selection
+
+In My access, **Find account service** checks the gateway before using tarasec.org.
+A configured owner-hosted identity/subscriber service takes precedence; a gateway
+with no local service configured (or no discovery endpoint) uses tarasec.org.
+The app also checks the DB-recognized NetBird gateway before first sign-in.
+A failing or invalid configured service is an error, not automatic central fallback.
+The service hostname is shown before sign-in. Tokens, account IDs and saved units
+are isolated by provider. OAuth exchanges stay with the provider that started them.
+My units checks that its gateway uses the same account service before sending proof.
+See Core `docs/service-discovery.md` for server configuration and deployment.
+
+This does not configure gateway HTTPS or create the missing unit-link configuration.
+Those prerequisites above remain required for the existing Google unit-link flow.
