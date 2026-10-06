@@ -67,15 +67,15 @@ class MyUnitsActivity : ComponentActivity() {
                 Button(onClick={ startActivity(Intent(this@MyUnitsActivity,SubscriberHomeActivity::class.java).putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.MY_ACCESS.name)) }) { Text("Open sign-in") }
                 return@Column
             }
-            Text("On each laptop or unit, open its gateway's /script/unitLink.php page while connected to that gateway, then continue with Google. Add the gateway HTTPS address here and sync. Add only gateways you trust to receive your account proof.")
-            OutlinedTextField(value=gateway,onValueChange={gateway=it},label={Text("Gateway HTTPS address")},singleLine=true,modifier=Modifier.fillMaxWidth())
+            Text("On each laptop or unit, open its gateway's /script/unitLink.php page while connected to that gateway, then continue with Google. Enter the gateway IP address here and sync. Add only gateways you trust to receive your account proof.")
+            OutlinedTextField(value=gateway,onValueChange={gateway=it},label={Text("Gateway IP address")},supportingText={Text("For example: 100.68.165.190")},singleLine=true,modifier=Modifier.fillMaxWidth())
             Button(enabled=!busy && gateway.isNotBlank(),onClick={
                 val input=gateway
                 runTask { val result=MyUnitsClient.sync(this@MyUnitsActivity,accountId,input); runOnUiThread { units=result; statuses=emptyMap(); errors=emptyMap() } }
             }) { Text("Sync linked units") }
             TextButton(enabled=!busy,onClick={manual=!manual}) { Text(if(manual) "Hide manual pairing" else "Pair a device without Google/browser") }
             if(manual) {
-                Text("Paste the JSON produced by the unit pairing tool. This contains a secret; do not share it in a debug report. Enter the reachable HTTPS gateway address above.")
+                Text("Paste the JSON produced by the unit pairing tool. This contains a secret; do not share it in a debug report. Enter the reachable gateway IP address above.")
                 OutlinedTextField(value=pairing,onValueChange={pairing=it},label={Text("Pairing JSON (secret)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
                 Button(enabled=!busy && pairing.isNotBlank(),onClick={ val input=pairing; val base=gateway; runTask { val result=MyUnitsClient.importPairing(this@MyUnitsActivity,accountId,input,base); runOnUiThread { units=result; pairing="" } } }) { Text("Import pairing") }
             }
