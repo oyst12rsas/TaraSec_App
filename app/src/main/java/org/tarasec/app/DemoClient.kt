@@ -41,7 +41,8 @@ data class DemoThreatStatus(
     val polledAt: String = "",
     val endpoint: String = "",
     val httpCode: Int = 0,
-    val rawJson: String = ""
+    val rawJson: String = "",
+    val requestedAtEpochMs: Long = 0L
 )
 
 object DemoClient {
@@ -212,7 +213,8 @@ object DemoClient {
 
     private fun readThreatStatus(baseUrl: String, script: String): DemoThreatStatus {
         var c: HttpURLConnection? = null
-        val polledAt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+        val requestedAtEpochMs = System.currentTimeMillis()
+        val polledAt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(requestedAtEpochMs))
         val base = normaliseBase(baseUrl)
         val endpoint = "$base/script/$script"
         try {
@@ -226,7 +228,7 @@ object DemoClient {
             val body = (if (code in 200..299) c.inputStream else c.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
-                return DemoThreatStatus(false, false, 0, null, "", 0, "none", "HTTP $code", polledAt, endpoint, code, body)
+                return DemoThreatStatus(false, false, 0, null, "", 0, "none", "HTTP $code", polledAt, endpoint, code, body, requestedAtEpochMs)
             }
             val json = JSONObject(body)
             return DemoThreatStatus(
@@ -241,10 +243,11 @@ object DemoClient {
                 polledAt = polledAt,
                 endpoint = endpoint,
                 httpCode = code,
-                rawJson = body
+                rawJson = body,
+                requestedAtEpochMs = requestedAtEpochMs
             )
         } catch (e: Exception) {
-            return DemoThreatStatus(false, false, 0, null, "", 0, "none", e.message ?: "Status failed", polledAt, endpoint, 0, "")
+            return DemoThreatStatus(false, false, 0, null, "", 0, "none", e.message ?: "Status failed", polledAt, endpoint, 0, "", requestedAtEpochMs)
         } finally {
             c?.disconnect()
         }
