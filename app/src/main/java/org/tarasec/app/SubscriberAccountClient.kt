@@ -78,8 +78,8 @@ object SubscriberAccountClient {
         require(ServiceDiscovery.selected(context) == services) { "Account service changed. Sign in again." }
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec identity exchange did not return a subscriber token")
-        SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
-        SecureCredentialStore.put(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY), token)
+        SecureCredentialStore.remove(context, services.key("subscriber-account-id"))
+        SecureCredentialStore.put(context, services.key(SUBSCRIBER_TOKEN_KEY), token)
         return account(context)
     }
 
@@ -94,17 +94,18 @@ object SubscriberAccountClient {
         require(ServiceDiscovery.selected(context) == services) { "Account service changed. Sign in again." }
         val token = json.optString("token")
         if (token.isBlank()) throw IllegalStateException("TaraSec login did not return a subscriber token")
-        SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
-        SecureCredentialStore.put(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY), token)
+        SecureCredentialStore.remove(context, services.key("subscriber-account-id"))
+        SecureCredentialStore.put(context, services.key(SUBSCRIBER_TOKEN_KEY), token)
         return account(context)
     }
 
     fun account(context: Context): SubscriberAccount {
-        val token = storedToken(context) ?: throw IllegalStateException("Not signed in")
+        val services = ServiceDiscovery.selected(context)
+        val token = SecureCredentialStore.get(context, services.key(SUBSCRIBER_TOKEN_KEY)) ?: throw IllegalStateException("Not signed in")
         val json = request(context, "/subscriber-account.php", "GET", null, token)
-        if (storedToken(context) != token) throw IllegalStateException("Account changed during refresh")
+        if (ServiceDiscovery.selected(context) != services || SecureCredentialStore.get(context, services.key(SUBSCRIBER_TOKEN_KEY)) != token) throw IllegalStateException("Account changed during refresh")
         val currentAccountId = json.getLong("customer_id")
-        SecureCredentialStore.put(context, ServiceDiscovery.selected(context).key("subscriber-account-id"), currentAccountId.toString())
+        SecureCredentialStore.put(context, services.key("subscriber-account-id"), currentAccountId.toString())
         val sessionsJson = json.optJSONArray("sessions")
         val usages = buildList {
             if (sessionsJson != null) {
