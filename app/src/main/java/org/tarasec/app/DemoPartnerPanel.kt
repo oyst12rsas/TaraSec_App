@@ -116,6 +116,8 @@ fun DemoPartnerPanel(baseUrl: String) {
             val pauseExpired = System.currentTimeMillis()/1000 >= s.optLong("pause_until_epoch")
             Text("Tagging pause: ${if (pauseExpired) "expired; kernel deadline restores prior policy" else s.optString("pause_state", "unknown")} · ${s.optString("pause_message")}")
             val metrics = s.optJSONObject("observation_metrics")
+            val ratioText = if (metrics == null || metrics.isNull("ratio")) "unknown" else String.format("%.1f%%", metrics.optDouble("ratio")*100)
+            Text("Malicious / untagged ratio: $ratioText · tagged: ${metrics?.optInt("tagged") ?: 0} · unknown tags: ${metrics?.optInt("unknownTag") ?: 0} · policy denials: ${metrics?.optInt("policyDenied") ?: 0}")
             Text("Observation: ${s.optJSONObject("observation")?.optString("status") ?: "pending"} · untagged: ${metrics?.optInt("untagged") ?: 0} · malicious: ${metrics?.optInt("malicious") ?: 0} · independent receivers: ${metrics?.optInt("receivers") ?: 0}")
             Text("State: ${s.optString("state")} · tagging: ${s.optString("tagging_state")}", color = if (s.optBoolean("blacklist_active") || stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text("Partner notified: ${if (s.isNull("partner_notified_at")) "pending" else s.optString("partner_notified_at")} · grace: ${s.optInt("grace_seconds")}s")
