@@ -113,7 +113,8 @@ fun DemoPartnerPanel(baseUrl: String) {
             val stale = checkedAt == 0L || System.currentTimeMillis() - checkedAt > 15000
             Text("Gateway: ${s.optString("gateway_ip")} · observed source: ${s.optString("source_ip")}")
             Text("Receiver: ${s.optString("receiver_ip")}:${s.optInt("receiver_port")}")
-            Text("Tagging pause: ${s.optString("pause_state", "unknown")} · ${s.optString("pause_message")}")
+            val pauseExpired = System.currentTimeMillis()/1000 >= s.optLong("pause_until_epoch")
+            Text("Tagging pause: ${if (pauseExpired) "expired; kernel deadline restores prior policy" else s.optString("pause_state", "unknown")} · ${s.optString("pause_message")}")
             val metrics = s.optJSONObject("observation_metrics")
             Text("Observation: ${s.optJSONObject("observation")?.optString("status") ?: "pending"} · untagged: ${metrics?.optInt("untagged") ?: 0} · malicious: ${metrics?.optInt("malicious") ?: 0} · independent receivers: ${metrics?.optInt("receivers") ?: 0}")
             Text("State: ${s.optString("state")} · tagging: ${s.optString("tagging_state")}", color = if (s.optBoolean("blacklist_active") || stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
@@ -160,5 +161,4 @@ fun DemoPartnerPanel(baseUrl: String) {
         Text(message)
     }
 }
-
 
