@@ -97,7 +97,7 @@ fun DemoPartnerPanel(baseUrl: String) {
         Text("Demo 5 · Partner loses tagging", style = MaterialTheme.typography.titleMedium)
         Text("A controlled connection hits a configured honeypot or reporting firewall rule. The receiver reports normally to the DB. Repeated untagged rejections after partner notification can produce a temporary restriction distributed to enabled receivers.")
         Text("Use an operator-enabled test gateway. A NAT gateway's address may represent every connected device. The receiver cannot determine whether the router or a subnode originated the attack. No malware is installed.")
-        Text("With healthy tagging, the DB should observe tagged traffic. To exercise failure, the operator must arrange missing tagging on the dedicated test gateway. This app never stops tarakernel.")
+        Text("With healthy tagging, the DB should observe tagged traffic. Starting this exercise asks the DB-registered, operator-enabled gateway to pause tagging for at most three minutes. The kernel remains running and restores tagging automatically. The DB observes ordinary receiver reports; it does not invent evidence.")
         Button(enabled = !busy && (id.isBlank() || (status?.optInt("seconds_remaining") ?: 1) == 0), onClick = {
             action {
                 val started = withContext(Dispatchers.IO) { DemoPartnerClient.request(baseUrl, "appDemo5.php?action=create", body = JSONObject()) }
@@ -113,6 +113,9 @@ fun DemoPartnerPanel(baseUrl: String) {
             val stale = checkedAt == 0L || System.currentTimeMillis() - checkedAt > 15000
             Text("Gateway: ${s.optString("gateway_ip")} · observed source: ${s.optString("source_ip")}")
             Text("Receiver: ${s.optString("receiver_ip")}:${s.optInt("receiver_port")}")
+            Text("Tagging pause: ${s.optString("pause_state", "unknown")} · ${s.optString("pause_message")}")
+            val metrics = s.optJSONObject("observation_metrics")
+            Text("Observation: ${s.optJSONObject("observation")?.optString("status") ?: "pending"} · untagged: ${metrics?.optInt("untagged") ?: 0} · malicious: ${metrics?.optInt("malicious") ?: 0} · independent receivers: ${metrics?.optInt("receivers") ?: 0}")
             Text("State: ${s.optString("state")} · tagging: ${s.optString("tagging_state")}", color = if (s.optBoolean("blacklist_active") || stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text("Partner notified: ${if (s.isNull("partner_notified_at")) "pending" else s.optString("partner_notified_at")} · grace: ${s.optInt("grace_seconds")}s")
             Text("Blacklist ${s.optString("scope")}: ${s.optString("distribution_state")} · ${s.optInt("applied_receivers")}/${s.optInt("expected_receivers")} applied · ${s.optInt("restriction_seconds_remaining")}s left")
@@ -125,15 +128,23 @@ fun DemoPartnerPanel(baseUrl: String) {
                 val d = deliveries.getJSONObject(i)
                 Text("${d.optString("receiver_ip")}: ${d.optString("state")} · ${d.optString("message")}", style = MaterialTheme.typography.bodySmall)
             }
-            Button(enabled = !busy && !stale && s.optInt("seconds_remaining") > 0 && s.optString("state") != "released", onClick = {
+            Button(enabled = !busy && !stale && s.optInt("seconds_remaining") > 0 && s.optString("state") != "released" && s.optString("pause_state") == "pause_configured" && System.currentTimeMillis()/1000 < s.optLong("pause_until_epoch"), onClick = {
                 action {
                     val path = withContext(Dispatchers.IO) { DemoPartnerClient.request(baseUrl, "appPartnerStatus.php") }
                     check(path.optString("observed_source_ip") == s.optString("source_ip")) { "Network path changed. Release this exercise and reconnect to its gateway." }
                     attempts++
-                    message = withContext(Dispatchers.IO) { DemoPartnerClient.probe(s.getString("receiver_ip"), s.getInt("receiver_port")) }
+                    val targets = s.optJSONArray("test_targets")
+                    message = withContext(Dispatchers.IO) {
+                        if (targets == null || targets.length() == 0)
+                            DemoPartnerClient.probe(s.getString("receiver_ip"), s.getInt("receiver_port"))
+                        else (0 until targets.length()).joinToString("\n") { index ->
+                            val target = targets.getJSONObject(index)
+                            DemoPartnerClient.probe(target.getString("ip"), target.getInt("port"))
+                        }
+                    }
                 }
             }) { Text("Send one test connection") }
-            Text("After notification, wait for the grace period and send another connection. A timeout alone proves neither tagging loss nor enforcement.")
+            Text("Wait for pause configured, send a test to notify the partner, then wait for notification and its grace period. Send at least ten further tests to the two configured decoy receivers to meet the default sample threshold. A timeout alone proves neither tagging loss nor enforcement.")
         }
         if (id.isNotBlank()) OutlinedButton(enabled = !busy, onClick = {
             action {
@@ -149,3 +160,5 @@ fun DemoPartnerPanel(baseUrl: String) {
         Text(message)
     }
 }
+
+
