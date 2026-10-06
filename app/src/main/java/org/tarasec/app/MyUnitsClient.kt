@@ -52,7 +52,10 @@ object MyUnitsClient {
     private fun form(vararg values: Pair<String,String>) = values.joinToString("&") { (k,v) -> "${URLEncoder.encode(k,"UTF-8")}=${URLEncoder.encode(v,"UTF-8")}" }
 
     private fun request(url: String, body: String? = null, subscriber: String? = null, unitToken: String? = null): JSONObject {
-        val c = URL(url).openConnection() as HttpURLConnection
+        val endpoint = URL(url)
+        val service = if (subscriber != null) "Identity service" else "Gateway"
+        val origin = "${endpoint.protocol}://${endpoint.host}${if (endpoint.port == -1) "" else ":${endpoint.port}"}"
+        val c = endpoint.openConnection() as HttpURLConnection
         c.connectTimeout = 5000; c.readTimeout = 15000; c.instanceFollowRedirects = false; c.useCaches = false
         try {
             subscriber?.let { c.setRequestProperty("X-TaraSec-Subscriber-Token",it) }
@@ -72,7 +75,14 @@ object MyUnitsClient {
             if (!json.optBoolean("ok")) throw IllegalStateException("The service could not complete the request.")
             return json
         } catch (e: java.io.IOException) {
-            throw IllegalStateException("Gateway or identity service unreachable. Status is unknown.")
+            val detail = when (e) {
+                is javax.net.ssl.SSLException -> "HTTPS failed. Check that the service has a trusted certificate valid for this address."
+                is java.net.SocketTimeoutException -> "Connection timed out. Check VPN routing, firewall and service availability."
+                is java.net.UnknownHostException -> "Address could not be resolved. Check the service address."
+                is java.net.ConnectException -> "Connection failed. Check that the HTTPS service is listening and reachable through the VPN."
+                else -> "Connection failed. Check VPN routing and service availability."
+            }
+            throw IllegalStateException("$service at $origin: $detail Status is unknown.")
         } finally { c.disconnect() }
     }
 
