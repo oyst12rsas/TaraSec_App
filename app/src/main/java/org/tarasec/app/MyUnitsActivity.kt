@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class MyUnitsActivity : ComponentActivity() {
@@ -30,6 +32,8 @@ class MyUnitsActivity : ComponentActivity() {
         val signedIn = remember(version) { SubscriberAccountClient.storedToken(this) != null }
         var units by remember(accountId) { mutableStateOf(accountId?.let { MyUnitsClient.load(this,it) } ?: emptyList()) }
         var gateway by remember { mutableStateOf("") }
+        var gatewayExample by remember { mutableStateOf("") }
+        var gatewayDiscoveryMessage by remember { mutableStateOf("Checking your IP with the DB server…") }
         var pairing by remember { mutableStateOf("") }
         var manual by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
@@ -39,6 +43,25 @@ class MyUnitsActivity : ComponentActivity() {
         var revoke by remember { mutableStateOf<LinkedUnit?>(null) }
         var rename by remember { mutableStateOf<LinkedUnit?>(null) }
         var newName by remember { mutableStateOf("") }
+
+        LaunchedEffect(version, signedIn) {
+            gatewayExample = ""
+            if (!signedIn) return@LaunchedEffect
+            gatewayDiscoveryMessage = "Checking your IP with the DB server…"
+            val observed = withContext(Dispatchers.IO) {
+                DemoSshClient.observedGateway(HotspotDirectoryClient.DEFAULT_BASE_URL)
+            }
+            if (observed.recognized && android.util.Patterns.IP_ADDRESS.matcher(observed.address).matches()) {
+                gatewayExample = observed.address
+                gatewayDiscoveryMessage = "DB server sees your connection through ${observed.address}"
+            } else {
+                gatewayDiscoveryMessage = if (observed.address.isNotBlank()) {
+                    "DB server sees ${observed.address}, but could not identify it as a gateway. Enter your gateway IP address."
+                } else {
+                    "Could not check your IP with the DB server. Enter your gateway IP address."
+                }
+            }
+        }
 
         fun runTask(work: () -> Unit) {
             if (busy) return
@@ -68,7 +91,7 @@ class MyUnitsActivity : ComponentActivity() {
                 return@Column
             }
             Text("On each laptop or unit, open its gateway's /script/unitLink.php page while connected to that gateway, then continue with Google. Enter the gateway IP address here and sync. Add only gateways you trust to receive your account proof.")
-            OutlinedTextField(value=gateway,onValueChange={gateway=it},label={Text("Gateway IP address")},supportingText={Text("For example: 100.68.165.190")},singleLine=true,modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(value=gateway,onValueChange={gateway=it},label={Text("Gateway IP address")},placeholder={if(gatewayExample.isNotBlank()) Text(gatewayExample)},supportingText={Text(if(gatewayExample.isNotBlank()) "For example: $gatewayExample (reported by the DB server)" else gatewayDiscoveryMessage)},singleLine=true,modifier=Modifier.fillMaxWidth())
             Button(enabled=!busy && gateway.isNotBlank(),onClick={
                 val input=gateway
                 runTask { val result=MyUnitsClient.sync(this@MyUnitsActivity,accountId,input); runOnUiThread { units=result; statuses=emptyMap(); errors=emptyMap() } }
