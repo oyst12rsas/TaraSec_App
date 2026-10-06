@@ -149,6 +149,7 @@ fun DemoPanel(
     var secondsUntilRefresh by remember { mutableStateOf(0) }
     var automaticChecksEnabled by remember { mutableStateOf(true) }
     var intendedPhoneState by remember { mutableStateOf<Boolean?>(null) }
+    var requestedStateAtEpochMs by remember { mutableStateOf(0L) }
     var completedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var auditApproved by remember { mutableStateOf(false) }
     var showDemo1 by remember { mutableStateOf(true) }
@@ -205,14 +206,23 @@ fun DemoPanel(
         else -> null
     }
 
-    // Live gateway state is authoritative only for nodes whose replies prove
-    // they use that same gateway. Keep reachability/issues and other routes intact.
-    fun endpointInfected(status: DemoThreatStatus?): Boolean? {
-        if (status?.reachable != true) return null
-        val live = activePhoneState()
-        return if (verifiedDemo1GatewayIp.isNotBlank() &&
-            status.publicIp == verifiedDemo1GatewayIp && live?.reachable == true
-        ) live.infected else status.infected
+    // Gateway classification and receiver traffic evidence are separate observations.
+    fun endpointInfected(status: DemoThreatStatus?): Boolean? =
+        status?.takeIf { it.reachable }?.infected
+
+    fun statusIssue(status: DemoThreatStatus?, now: Long = System.currentTimeMillis()): String? {
+        if (status == null) return "not_checked"
+        if (!status.reachable) return status.message.ifBlank { "status_unavailable" }
+        val issues = mutableListOf<String>()
+        if (status.requestedAtEpochMs <= 0L || now - status.requestedAtEpochMs > 2000L) {
+            issues += "stale_check"
+        }
+        val phone = activePhoneState()
+        if (verifiedDemo1GatewayIp.isNotBlank() && status.publicIp == verifiedDemo1GatewayIp &&
+            phone?.reachable == true && status.infected != phone.infected) {
+            issues += "receiver_gateway_disagreement"
+        }
+        return issues.takeIf { it.isNotEmpty() }?.joinToString(",")
     }
 
     fun activeControlBase(): String? = when {
@@ -264,6 +274,7 @@ fun DemoPanel(
         val selectedBaseAtStart = selectedServiceBase
         val basicTargetAtStart = basicTarget
         val checkNodes = configuredTargets.isNotEmpty() && System.currentTimeMillis() - lastNodeCheckAt >= 15000L
+        val nodeCheckStartedAt = System.currentTimeMillis()
         val nodeResults = if (checkNodes) configuredTargets.distinctBy { it.ip }.map { endpoint ->
             endpoint.ip to DemoClient.threatStatus(endpoint)
         } else emptyList()
@@ -343,7 +354,7 @@ fun DemoPanel(
                     DemoClient.endpointProblem(basicIdentity, basicReceiver)
             }
             if (checkNodes) {
-                lastNodeCheckAt = System.currentTimeMillis()
+                lastNodeCheckAt = nodeCheckStartedAt
                 nodeStatuses = nodeResults.filter { it.second.reachable }.toMap()
                 nodeIssues = nodeResults.filterNot { it.second.reachable }
                     .associate { it.first to it.second.message.ifBlank { "Status unavailable" } }
@@ -366,6 +377,8 @@ fun DemoPanel(
                 basicReceiverProbe = basicIdentity
                 basicReceiverState = basicReceiver
                 basicReceiverFailureCount = 0
+                nodeStatuses = nodeStatuses + (basicTargetAtStart!!.ip to basicReceiver)
+                nodeIssues = nodeIssues - basicTargetAtStart.ip
             } else if (basicTargetAtStart != null) {
                 basicReceiverFailureCount += 1
                 // Do not replace a confirmed CLEAN/INFECTED state with
@@ -416,6 +429,7 @@ fun DemoPanel(
             return
         }
         val gatewayLabel = activeGatewayLabel()
+        requestedStateAtEpochMs = System.currentTimeMillis()
         intendedPhoneState = infected
         completedPhoneState = null
         automaticChecksEnabled = true
@@ -456,13 +470,16 @@ fun DemoPanel(
                 if (receiverTarget != null) {
                     basicReceiverProbe = updatedReceiverProbe
                     basicReceiverState = updatedReceiver
+                    basicReceiverFailureCount = if (updatedReceiver?.reachable == true) 0 else basicReceiverFailureCount + 1
                     if (updatedReceiver?.reachable == true) {
                         nodeStatuses = nodeStatuses + (receiverTarget.ip to updatedReceiver)
                         nodeIssues = nodeIssues - receiverTarget.ip
+                    } else {
+                        nodeIssues = nodeIssues + (receiverTarget.ip to updatedReceiver?.message.orEmpty().ifBlank { "Status unavailable" })
                     }
                 }
                 if (!infected) auditApproved = false
-                message = result
+                message = result + "; awaiting fresh gateway and receiver confirmation."
                 busy = false
                 actionInProgress.set(false)
             }
@@ -516,6 +533,7 @@ fun DemoPanel(
         else -> verifiedDemo1GatewayIp.isNotBlank() && selectedGatewayConfig?.reachable == true
     }
     val phase = when {
+        intendedPhoneState != null -> "AWAITING_RECEIVER_CONFIRMATION"
         phoneState == null || !phoneState.reachable -> "CHECKING"
         phoneState.infected && auditApproved -> "REASSESSING"
         phoneState.infected -> "INFECTED"
@@ -525,17 +543,20 @@ fun DemoPanel(
 
     LaunchedEffect(
         intendedPhoneState,
+        busy,
         phoneState,
         gatewayReachable,
         basicTarget?.ip,
         basicReceiverState
     ) {
         val intended = intendedPhoneState ?: return@LaunchedEffect
-        val phoneReached = phoneState?.reachable == true && phoneState.infected == intended
-        val receiverReached = basicTarget == null ||
-            (basicReceiverState?.reachable == true && basicReceiverState?.infected == intended)
+        val phoneReached = phoneState?.reachable == true && phoneState.infected == intended &&
+            phoneState.requestedAtEpochMs >= requestedStateAtEpochMs
+        val receiverReached = basicTarget != null &&
+            basicReceiverState?.reachable == true && basicReceiverState?.infected == intended &&
+            basicReceiverState!!.requestedAtEpochMs >= requestedStateAtEpochMs
 
-        if (phoneReached && gatewayReachable && receiverReached) {
+        if (!busy && !actionInProgress.get() && phoneReached && gatewayReachable && receiverReached) {
             intendedPhoneState = null
             completedPhoneState = intended
             automaticChecksEnabled = false
@@ -640,7 +661,7 @@ fun DemoPanel(
                             ) {
                                 val status = nodeStatuses[endpoint.ip]
                                 val dot = when {
-                                    nodeIssues.containsKey(endpoint.ip) -> "🟡"
+                                    nodeIssues.containsKey(endpoint.ip) || statusIssue(status) != null -> "🟡"
                                     endpointInfected(status) == true -> "🔴"
                                     status?.reachable == true -> "🟢"
                                     else -> "🟡"
@@ -649,7 +670,7 @@ fun DemoPanel(
                                     "${endpoint.name} · ${endpoint.ip}")
                             }
                         }
-                        Text("Green = clean · Red = infected · Yellow = checking or status issue",
+                        Text("Green = receiver observed clean · Red = receiver observed infected · Yellow = stale, conflicting or unavailable check",
                             style = MaterialTheme.typography.bodySmall)
                         val sharedGateway = basicTarget?.let { selected ->
                             nodeStatuses[selected.ip]?.publicIp?.takeIf { validIpv4(it) }
@@ -662,14 +683,14 @@ fun DemoPanel(
                             onClick = { gatewayExplanationExpanded = !gatewayExplanationExpanded }
                         ) {
                             Text((if (gatewayExplanationExpanded) "▼ " else "▶ ") +
-                                "Why nodes on the same gateway share status")
+                                "Which nodes use the same gateway")
                         }
                         if (gatewayExplanationExpanded) {
                             Text(
                                 if (sharedGateway == null) "Select a node and refresh to identify its gateway. Nodes with unavailable status cannot yet be grouped." else
                                     "Nodes reporting gateway $sharedGateway: " +
                                         sameGatewayNodes.joinToString { it.name } +
-                                        ". The gateway simulates an ISP and is authoritative for this phone’s infection status. Changing the status through one end node changes what every node connected through that gateway sees. Nodes on other gateways can show a different status.",
+                                        ". The gateway simulates an ISP and is authoritative for this phone’s infection status. Changing the gateway classification should affect subsequent traffic to these nodes. Each receiver must independently confirm the result; sharing a gateway does not prove tagging reached it. Nodes on other gateways can show a different status.",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -827,6 +848,20 @@ fun DemoPanel(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+                if (intendedPhoneState != null) {
+                    Text("Awaiting receiver confirmation of " + (if (intendedPhoneState == true) "INFECTED" else "CLEAN") +
+                        ". Gateway classification alone does not confirm that tagging reached the receiver.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (phoneState?.reachable == true && basicReceiverState?.reachable == true &&
+                    phoneState.infected != basicReceiverState?.infected) {
+                    Text("⚠ Gateway and receiver disagree. The receiver's observed traffic differs from the gateway classification.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (basicReceiverState?.reachable == true && statusIssue(basicReceiverState)?.contains("stale_check") == true) {
+                    Text("Receiver check is over 2 seconds old; showing an earlier observation.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 if (basicTarget == null) {
                     TaraStatusRow("Receiver", if (directHotspotActive()) "No demo receivers configured" else "Select an endpoint")
                     Text(
@@ -907,11 +942,15 @@ fun DemoPanel(
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
+                        val reportAt = System.currentTimeMillis()
                         val report = buildString {
                             fun status(label: String, value: DemoThreatStatus?) {
                                 appendLine("[$label]")
                                 appendLine("endpoint=" + (value?.endpoint ?: "not checked"))
                                 appendLine("checked_at=" + (value?.polledAt ?: "never"))
+                                appendLine("checked_at_epoch_ms=" + (value?.requestedAtEpochMs ?: 0L))
+                                appendLine("age_ms=" + (value?.requestedAtEpochMs?.takeIf { it > 0L }?.let { reportAt - it } ?: "unknown"))
+                                appendLine("stale=" + (value == null || value.requestedAtEpochMs <= 0L || reportAt - value.requestedAtEpochMs > 2000L))
                                 appendLine("reachable=" + (value?.reachable?.toString() ?: "unknown"))
                                 appendLine("http_code=" + (value?.httpCode ?: 0))
                                 appendLine("infected=" + (value?.infected?.toString() ?: "unknown"))
@@ -926,7 +965,7 @@ fun DemoPanel(
                             appendLine("TaraSec Demo 1 debug report")
                             appendLine("ai_background=https://tarasec.org/ai/demo-guide/")
                             appendLine("For an AI session unfamiliar with TaraSec: read the ai_background page before interpreting this report.")
-                            appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
+                            appendLine("generated_at_epoch_ms=" + reportAt)
                             appendLine("app_version=" + BuildConfig.VERSION_NAME)
                             appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
                             appendLine("secrets=omitted (no credentials or tokens included)")
@@ -946,8 +985,8 @@ fun DemoPanel(
                             appendLine("receiver=" + (basicTarget?.name ?: "none"))
                             appendLine("receiver_address=" + (basicTarget?.ip ?: "none"))
                             appendLine("entered_endpoint_ip=" + endpointIpDraft.ifBlank { "none" })
-                            appendLine("receiver_identity=" + (basicReceiverProbe?.message ?: "not checked"))
-                            appendLine("receiver_probe=" + (basicReceiverProbe?.message ?: "not checked"))
+                            appendLine("receiver_identity=" + (basicReceiverProbe?.let { it.message.ifBlank { if (it.reachable) "reachable" else "unavailable" } } ?: "not checked"))
+                            appendLine("receiver_probe=" + (basicReceiverProbe?.let { it.message.ifBlank { if (it.reachable) "reachable" else "unavailable" } } ?: "not checked"))
                             appendLine("receiver_check_failures=" + basicReceiverFailureCount)
                             appendLine("route_message=" + demo1RouteMessage)
                             appendLine()
@@ -959,19 +998,20 @@ fun DemoPanel(
                             appendLine("node_checks_started_at_epoch_ms=" + lastNodeCheckAt)
                             configuredTargets.distinctBy { it.ip }.forEachIndexed { index, endpoint ->
                                 val nodeStatus = nodeStatuses[endpoint.ip]
-                                val issue = nodeIssues[endpoint.ip]
+                                val issue = nodeIssues[endpoint.ip] ?: statusIssue(nodeStatus, reportAt)
                                 appendLine("node_${index + 1}=" + endpoint.name + " · " + endpoint.ip +
                                     "; state=" + when {
-                                        issue != null -> "ISSUE"
+                                        nodeStatus?.reachable != true -> "UNKNOWN"
                                         endpointInfected(nodeStatus) == true -> "INFECTED"
                                         nodeStatus?.reachable == true -> "CLEAN"
                                         else -> "UNKNOWN"
                                     } +
-                                    "; state_source=" + (if (nodeStatus?.reachable == true && activePhoneState()?.reachable == true &&
-                                        verifiedDemo1GatewayIp.isNotBlank() && nodeStatus.publicIp == verifiedDemo1GatewayIp)
-                                        "live_gateway" else "node_reply") +
+                                    "; state_source=node_reply" +
+                                    "; gateway_classification=" + (if (nodeStatus?.publicIp == verifiedDemo1GatewayIp &&
+                                        phoneState?.reachable == true) if (phoneState.infected) "INFECTED" else "CLEAN" else "unknown") +
                                     "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
                                     "; checked_at=" + (nodeStatus?.polledAt ?: "unknown") +
+                                    "; age_ms=" + (nodeStatus?.requestedAtEpochMs?.takeIf { it > 0L }?.let { reportAt - it } ?: "unknown") +
                                     "; issue=" + (issue ?: "none"))
                             }
                             val sharingNodes = configuredTargets.filter {
@@ -981,11 +1021,15 @@ fun DemoPanel(
                             appendLine("nodes_sharing_selected_gateway=" +
                                 if (selectedObservedGateway == null) "unknown" else
                                     sharingNodes.joinToString { it.name + " (" + it.ip + ")" })
-                            appendLine("significance=The gateway simulates the ISP and is authoritative for this phone's infection status. Changing that status through one endpoint changes what all nodes reached through the same gateway see. A different gateway can show a different status.")
+                            appendLine("significance=The gateway simulates the ISP and is authoritative for this phone's infection status. Receiver results are independent traffic observations; a shared gateway does not prove tagging reached every node. A different gateway can show a different status.")
                             appendLine("interpretation=Group only nodes with a matching observed gateway IP. An unknown or failed check does not prove a node shares the gateway; report inconsistent node replies or stale checks as issues.")
                             appendLine()
                             appendLine("[progress]")
                             appendLine("phase=" + phase)
+                            appendLine("requested_at_epoch_ms=" + requestedStateAtEpochMs)
+                            appendLine("receiver_gateway_agreement=" + (if (phoneState?.reachable == true && basicReceiverState?.reachable == true)
+                                (phoneState.infected == basicReceiverState?.infected).toString() else "unknown"))
+                            appendLine("confirmation_basis=Gateway and selected receiver checks must both start after the latest request and match its state.")
                             appendLine("requested_state=" + (intendedPhoneState?.let { if (it) "INFECTED" else "CLEAN" } ?: "none"))
                             appendLine("confirmed_state=" + (completedPhoneState?.let { if (it) "INFECTED" else "CLEAN" } ?: "none"))
                             appendLine("automatic_checks=" + if (automaticChecksEnabled) "enabled" else "paused")
