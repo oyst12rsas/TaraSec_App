@@ -133,9 +133,26 @@ private fun Dot(state: DotState) {
 
 @Composable
 private fun SiteStatusDots(site: StatusSite) {
-    statusDots(site).chunked(6).forEach { rowDots ->
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            rowDots.forEach { Dot(it) }
+    val labels = listOf("Report age", "TaraKernel", "TaraLink", "Scheduled tasks", "Kernel log age", "Traffic report age", "SQL threads", "Reboot requested", "Available updates", "Security updates", "Last update age", "System load", "Disk usage", "Memory usage", "System logging", "Unhealthy services", "Active users")
+    val j = site.status
+    val updates = j.optString("updates").split(';')
+    val values = listOf(
+        site.secondsSince?.let { "$it seconds" } ?: "Unknown",
+        j.optString("knl", "Unknown"), j.optString("lnk", "Unknown"), j.optString("cron", "Unknown"),
+        j.optString("dmesg", "Unknown"), j.optString("trfc", "Unknown"), j.optString("sqlThrds", "Unknown"),
+        j.optString("bootReq", "Unknown"), updates.getOrNull(0).orEmpty(), updates.getOrNull(1).orEmpty(),
+        j.optString("lstUp", "Unknown"), j.optString("ld", "Unknown"), j.optString("df", "Unknown"),
+        j.optString("mem", "Unknown"), j.optString("rsyslog", "Unknown"),
+        j.optString("srvcNtOk", "Unknown").ifBlank { "None" }, j.optString("usr", "Unknown")
+    )
+    statusDots(site).forEachIndexed { index, state ->
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Dot(state)
+            Text("${labels[index]}: ${values[index]} · ${when (state) {
+                DotState.GREEN -> "Within expected range"
+                DotState.YELLOW -> "Check / unknown"
+                DotState.RED -> "Needs attention"
+            }}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -188,6 +205,7 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
     var sites by remember { mutableStateOf<List<StatusSite>>(emptyList()) }
     var units by remember { mutableStateOf<List<ActiveUnit>>(emptyList()) }
     var sshLogins by remember { mutableStateOf<JSONObject?>(null) }
+    var showPartners by remember { mutableStateOf(false) }
     var loadedBase by remember { mutableStateOf<String?>(null) }
 
     fun load() {
@@ -279,15 +297,20 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
             fontWeight = FontWeight.Bold
         )
 
-        val allSites = listOfNotNull(localSite) + sites
+        val allSites = listOfNotNull(localSite)
         if (allSites.isEmpty()) {
             Text("No gateway status reported yet.")
         } else {
             allSites.forEach { site -> StatusSiteCard(site) }
         }
+        if (sites.isNotEmpty()) {
+            Button(onClick = { showPartners = !showPartners }) { Text(if (showPartners) "Hide partner nodes" else "Other partner nodes (${sites.size})") }
+            if (showPartners) sites.take(20).forEach { StatusSiteCard(it) }
+            if (showPartners && sites.size > 20) Text("Showing the first 20 partner nodes.")
+        }
 
         Text(
-            "Dots show status age, TaraKernel, TaraLink, scheduled tasks, dmesg, traffic, SQL, boot/updates, load, disk, memory, rsyslog, services and active users.",
+            "Green: within expected range. Yellow: warning or missing data. Red: needs attention. These indicators describe service health; they do not prove infection. Ages are seconds; update counts and SQL threads are counts; memory is free/total.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -332,6 +355,12 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
             }
         }
 
-        Text(message, style = MaterialTheme.typography.bodySmall)
+        AiDebugActions("Node status", buildString {
+            appendLine("Explain this node's status indicators, identify missing or stale evidence, and suggest the next diagnostic step. Do not infer infection from service-health dots.")
+            appendLine("endpoint=$gatewayBaseUrl")
+            appendLine("status=$message")
+            appendLine("report_age_seconds=${localSite?.secondsSince}")
+            appendLine("local_status=${localSite?.status ?: "Not reported"}")
+        })
     }
 }

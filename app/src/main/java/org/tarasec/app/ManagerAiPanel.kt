@@ -36,11 +36,11 @@ fun ManagerAiPanel(
     managerAuthenticated: Boolean
 ) {
     val activity = LocalContext.current as Activity
-    var loading by remember { mutableStateOf(false) }
+    var loading by remember(gatewayBaseUrl) { mutableStateOf(false) }
     var loadedOnce by remember { mutableStateOf(false) }
     var loadedBaseUrl by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("AI assessment not loaded") }
-    var latest by remember { mutableStateOf<JSONObject?>(null) }
+    var latest by remember(gatewayBaseUrl) { mutableStateOf<JSONObject?>(null) }
     var latestTime by remember { mutableStateOf("") }
     var fundingMode by remember { mutableStateOf("") }
     var quotaText by remember { mutableStateOf("") }
@@ -202,6 +202,13 @@ fun ManagerAiPanel(
                 }
             }
 
+            AiDebugActions("AI assessment", buildString {
+                appendLine("Explain this TaraSec AI assessment in plain language. Separate AI conclusions from confirmed observations. Check timestamps, missing evidence and whether demo activity was identified; do not assume probing is malicious.")
+                appendLine("endpoint=$gatewayBaseUrl")
+                appendLine("status=$status")
+                appendLine("assessed_at=$latestTime")
+                appendLine("assessment=${latest ?: "Not available"}")
+            })
             if (latest == null) Text(status)
             Button(enabled = managerAuthenticated && !loading && !gatewayBaseUrl.isNullOrBlank(), onClick = { loadAi() }) {
                 Text(if (loading) "Loading…" else if (latest == null) "Load assessment" else "Refresh")
