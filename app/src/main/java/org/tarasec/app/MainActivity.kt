@@ -530,7 +530,7 @@ private fun TaraSecApp(initialDestination: String?) {
             Text("Threat watch: no active warning from ${installations.size} registered installation(s).", style = MaterialTheme.typography.bodySmall)
         }
 
-        if (linkedUnitKey == null && installations.isNotEmpty() && page != AppPage.DEMO) {
+        if (linkedUnitKey == null && installations.isNotEmpty() && page != AppPage.DEMO && page != AppPage.MANAGER) {
             Text("Current installation", style = MaterialTheme.typography.titleMedium)
             installations.forEach { installation ->
                 Button(
@@ -606,8 +606,10 @@ private fun TaraSecApp(initialDestination: String?) {
 
             AppPage.MANAGER -> {
                 val installation = selectedInstallation
+                Text("Current node: ${installation?.name ?: linkedUnitName.ifBlank { "None selected" }}", style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = { activity.startActivity(android.content.Intent(activity, MyUnitsActivity::class.java)) }) { Text("Choose from My units") }
                 if (installation == null) {
-                    Text("Select or register an installation first.")
+                    Text("Select your linked node in My units, or register an installation first.")
                 } else if (!managerAuthenticated) {
                     Text("${installation.name} — Manager access", style = MaterialTheme.typography.titleLarge)
                     if (managerCredential.isNotBlank()) {
@@ -623,6 +625,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     )
                     HorizontalDivider()
                     Text("Assistance Request", style = MaterialTheme.typography.titleLarge)
+                    Text("Ask the TaraSec network to help protect this installation against traffic matching the selected port and threat threshold. Creating a request does not prove partners have applied it.")
                     Text("Requesting installation: ${installation.name}")
                     Text("Requesting IP: ${installation.serviceIp}")
                     OutlinedTextField(
@@ -644,6 +647,16 @@ private fun TaraSecApp(initialDestination: String?) {
                         Button(enabled = !busy, onClick = { assistanceRequest("list") }) { Text("Refresh") }
                     }
                     Text(assistanceStatus)
+                    AiDebugActions("Assistance request", buildString {
+                        appendLine("Explain this TaraSec assistance request, its scope and delivery state. Distinguish created, sent, DB accepted and actually applied; do not claim protection without evidence.")
+                        appendLine("node=${installation.name}")
+                        appendLine("service_ip=${installation.serviceIp}")
+                        appendLine("port=$assistancePort threshold=$assistanceThreshold")
+                        appendLine("status=$assistanceStatus")
+                        assistanceItems.forEach { item ->
+                            appendLine("request_id=${item.id} ip=${item.ip} port=${item.port} category=${item.category} threshold=${item.threshold} handled=${item.handled} sent_partners=${item.sentPartners} delivery_state=${item.deliveryState}")
+                        }
+                    })
                     assistanceItems.take(10).forEach { item ->
                         Text("#${item.id} ${item.ip}:${item.port} threshold ${item.threshold} — ${item.deliveryState}", style = MaterialTheme.typography.bodySmall)
                     }
