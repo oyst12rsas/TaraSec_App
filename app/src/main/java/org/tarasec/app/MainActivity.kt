@@ -31,6 +31,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -79,6 +81,18 @@ private fun TaraSecApp(initialDestination: String?) {
 
     val linkedUnitKey = activity.intent.getStringExtra(UNIT_MANAGEMENT_KEY_EXTRA)
     val linkedUnitName = activity.intent.getStringExtra(UNIT_MANAGEMENT_NAME_EXTRA).orEmpty()
+    val linkedUnit = remember(linkedUnitKey) {
+        MyUnitsClient.accountId(activity)?.let { account ->
+            MyUnitsClient.load(activity, account).firstOrNull { it.key == linkedUnitKey }
+        }
+    }
+    val linkedGateway = linkedUnit?.takeIf {
+        it.scope in listOf("gateway_read_only", "gateway_hosted_read_only")
+    }
+    val managementMappingKey = linkedUnitKey?.let {
+        ServiceDiscovery.selected(activity).key("manager-installation:${MyUnitsClient.accountId(activity)}:$it")
+    }
+    val managedInstallationId = managementMappingKey?.let { SecureCredentialStore.get(activity, it) }
     val pendingKey = linkedUnitKey?.let { "pending-manager-registration:$it" } ?: "pending-manager-registration"
     val pending = remember {
         runCatching { SecureCredentialStore.get(activity, pendingKey)?.let { JSONObject(it) } }.getOrNull()
@@ -87,7 +101,9 @@ private fun TaraSecApp(initialDestination: String?) {
     var installations by remember { mutableStateOf(InstallationStore.load(activity)) }
     var selectedInstallationId by remember {
         mutableStateOf(
-            if (pending != null || linkedUnitKey != null) null else InstallationStore.load(activity).let { items ->
+            if (pending != null) null
+            else if (linkedUnitKey != null) installations.firstOrNull { it.id == managedInstallationId }?.id
+            else InstallationStore.load(activity).let { items ->
                 items.firstOrNull { it.id == InstallationStore.selectedId(activity) }?.id
                     ?: items.firstOrNull()?.id
             }
@@ -96,13 +112,13 @@ private fun TaraSecApp(initialDestination: String?) {
     val selectedInstallation = installations.firstOrNull { it.id == selectedInstallationId }
 
     var registrationName by remember { mutableStateOf(pending?.optString("name", "") ?: linkedUnitName) }
-    var registrationBaseUrl by remember { mutableStateOf(pending?.optString("base", "").orEmpty()) }
-    var registrationServiceIp by remember { mutableStateOf(pending?.optString("serviceIp", "").orEmpty()) }
+    var registrationBaseUrl by remember { mutableStateOf(pending?.optString("base", "") ?: linkedGateway?.gateway.orEmpty()) }
+    var registrationServiceIp by remember { mutableStateOf(pending?.optString("serviceIp", "") ?: linkedGateway?.let { InstallationStore.endpointHost(it.gateway) }.orEmpty()) }
 
     var managerEmail by remember { mutableStateOf(pending?.optString("email", "").orEmpty()) }
     var managerRequestId by remember { mutableStateOf<Int?>(pending?.optInt("requestId")?.takeIf { it > 0 }) }
     var managerRequestToken by remember { mutableStateOf(pending?.optString("token", "").orEmpty()) }
-    var managerCredential by remember { mutableStateOf("") }
+    var managerCredential by remember { mutableStateOf(pending?.optString("credential", "").orEmpty()) }
     var managerEmailVerified by remember { mutableStateOf(false) }
     var managerGatewayApproved by remember { mutableStateOf(false) }
     var managerCredentialReady by remember { mutableStateOf(false) }
@@ -135,7 +151,25 @@ private fun TaraSecApp(initialDestination: String?) {
         managerStatus = message
     }
 
+    fun persistManagerRequest(base: String) {
+        SecureCredentialStore.put(activity, pendingKey, JSONObject().apply {
+            put("requestId", managerRequestId)
+            put("token", managerRequestToken)
+            put("email", managerEmail)
+            put("name", registrationName)
+            put("base", base)
+            put("serviceIp", registrationServiceIp)
+            put("credential", managerCredential)
+        }.toString())
+    }
+
     fun managerRequest(action: String) {
+        if (busy) return
+        // Reopening or tapping again must resume the saved request, not create another.
+        if (action == "request" && managerRequestId != null) {
+            managerRequest("status")
+            return
+        }
         val base = selectedInstallation?.managementBaseUrl
             ?: InstallationStore.normaliseBaseUrl(registrationBaseUrl)
         if (base.isBlank()) {
@@ -202,14 +236,7 @@ private fun TaraSecApp(initialDestination: String?) {
                             managerRequestId = json.optInt("requestId")
                             managerRequestToken = json.optString("requestToken", "")
                             managerEmail = json.optString("email", managerEmail)
-                            SecureCredentialStore.put(activity, pendingKey, JSONObject().apply {
-                                put("requestId", managerRequestId)
-                                put("token", managerRequestToken)
-                                put("email", managerEmail)
-                                put("name", registrationName)
-                                put("base", base)
-                                put("serviceIp", registrationServiceIp)
-                            }.toString())
+                            persistManagerRequest(base)
                             managerStatus = "Request created. Confirm the email and wait for installation-admin approval."
                         }
                         "status" -> {
@@ -219,10 +246,13 @@ private fun TaraSecApp(initialDestination: String?) {
                             managerRejected = json.optBoolean("rejected", false)
                             val returnedCredential = json.optString("credential", "")
                             if (returnedCredential.isNotBlank()) managerCredential = returnedCredential
+                            persistManagerRequest(base)
                             managerStatus = when {
                                 managerRejected -> "Manager request was rejected."
                                 json.optBoolean("active", false) -> "Manager access is ready to activate."
-                                else -> "Waiting for confirmations."
+                                !managerEmailVerified -> "Confirm your email, then approve this request on the node’s web page."
+                                !managerGatewayApproved -> "Waiting for administrator approval on the node’s web page."
+                                else -> "Approvals confirmed. Preparing management access."
                             }
                         }
                         "resend" -> managerStatus = "A new verification email has been queued."
@@ -236,7 +266,10 @@ private fun TaraSecApp(initialDestination: String?) {
                                     serviceIp = registrationServiceIp.ifBlank { selectedInstallation?.serviceIp ?: InstallationStore.endpointHost(base) }
                                 )
                                 SecureCredentialStore.put(activity, item.id, managerCredential)
+                                managementMappingKey?.let { SecureCredentialStore.put(activity, it, item.id) }
                                 SecureCredentialStore.remove(activity, pendingKey)
+                                managerRequestId = null
+                                managerRequestToken = ""
                                 installations = InstallationStore.load(activity)
                                 selectedInstallationId = item.id
                                 InstallationStore.setSelected(activity, item.id)
@@ -271,6 +304,36 @@ private fun TaraSecApp(initialDestination: String?) {
                 connection?.disconnect()
             }
         }.start()
+    }
+
+    var managementStartVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(linkedUnitKey, managementStartVersion) {
+        if (linkedGateway != null && selectedInstallationId == null && managerRequestId == null &&
+            activity.intent.getBooleanExtra(UNIT_MANAGEMENT_REQUEST_EXTRA, false)) {
+            busy = true
+            managerStatus = "Preparing management request for ${linkedGateway.name}…"
+            try {
+                val email = withContext(Dispatchers.IO) {
+                    if (linkedGateway.scope == "gateway_hosted_read_only") {
+                        val metadata = MyUnitsClient.gatewayMetadata(activity, linkedGateway.gateway)
+                        require(metadata.getString("gateway_id") == linkedGateway.gatewayId &&
+                            metadata.getString("service_node_id") == linkedGateway.serviceNodeId) {
+                            "This address now reaches a different node. Reopen My units and check its address."
+                        }
+                    }
+                    SubscriberAccountClient.account(activity).email
+                        ?.takeIf { it.isNotBlank() } ?: error("Your signed-in account has no email address.")
+                }
+                registrationBaseUrl = linkedGateway.gateway
+                registrationServiceIp = InstallationStore.endpointHost(linkedGateway.gateway)
+                managerEmail = email
+                busy = false
+                managerRequest("request")
+            } catch (e: Exception) {
+                busy = false
+                managerStatus = "Could not request management access: ${e.message}"
+            }
+        }
     }
 
     // Refresh pending approval on return from the browser/email app, and keep
@@ -467,7 +530,7 @@ private fun TaraSecApp(initialDestination: String?) {
             Text("Threat watch: no active warning from ${installations.size} registered installation(s).", style = MaterialTheme.typography.bodySmall)
         }
 
-        if (installations.isNotEmpty() && page != AppPage.DEMO) {
+        if (linkedUnitKey == null && installations.isNotEmpty() && page != AppPage.DEMO) {
             Text("Current installation", style = MaterialTheme.typography.titleMedium)
             installations.forEach { installation ->
                 Button(
@@ -487,7 +550,7 @@ private fun TaraSecApp(initialDestination: String?) {
 
         when (page) {
             AppPage.UNITS -> {
-                Button(enabled = !busy && managerRequestId == null, onClick = {
+                if (linkedUnitKey == null && managerRequestId == null) Button(enabled = !busy, onClick = {
                     selectedInstallationId = null
                     InstallationStore.setSelected(activity, null)
                     registrationName = ""
@@ -508,7 +571,9 @@ private fun TaraSecApp(initialDestination: String?) {
                     } else {
                         Text("No registered installation selected.")
                     }
-                    Button(onClick = { page = AppPage.SETUP }) { Text("Register an installation") }
+                    if (managerRequestId == null) {
+                        Button(onClick = { page = AppPage.SETUP }) { Text(if (linkedUnitKey != null) "Management access" else "Register an installation") }
+                    }
                 } else {
                     Text("${installation.name} — Status / Units", style = MaterialTheme.typography.titleLarge)
                     if (managerAuthenticated) {
@@ -593,7 +658,7 @@ private fun TaraSecApp(initialDestination: String?) {
                 Text(if (linkedUnitKey != null) "Management access · $linkedUnitName" else "Installations", style = MaterialTheme.typography.titleLarge)
                 Text("The global DB/control plane is discovered and checked in the background. Users normally do not need to configure it.", style = MaterialTheme.typography.bodySmall)
 
-                Button(enabled = !busy && managerRequestId == null, onClick = {
+                if (linkedUnitKey == null && managerRequestId == null) Button(enabled = !busy, onClick = {
                     selectedInstallationId = null
                     InstallationStore.setSelected(activity, null)
                     registrationName = ""
@@ -604,31 +669,42 @@ private fun TaraSecApp(initialDestination: String?) {
                 }) { Text("Register another installation") }
 
                 if (selectedInstallationId == null) {
-                    OutlinedTextField(registrationName, { registrationName = it }, label = { Text("Installation name") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(registrationBaseUrl, { registrationBaseUrl = it }, label = { Text(if (linkedUnitKey != null) "This node’s management URL / IP" else "Management URL / IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(registrationServiceIp, { registrationServiceIp = it }, label = { Text("Service / Assistance IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(managerEmail, { managerEmail = it }, label = { Text("Email address") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-
                     if (managerRequestId == null) {
-                        Button(enabled = !busy && registrationBaseUrl.isNotBlank(), onClick = { managerRequest("request") }) {
-                            Text("Request manager access")
+                        if (linkedGateway != null) {
+                            Text("Management access for ${linkedGateway.name}")
+                            Text(managerEmail.ifBlank { "Using your signed-in account" })
+                            if (!busy) Button(onClick = { managementStartVersion++ }) { Text("Retry management request") }
+                        } else if (linkedUnitKey != null && linkedUnit == null) {
+                            Text("This linked node is unavailable for the current account. Return to My units and sign in again.")
+                        } else {
+                            OutlinedTextField(registrationName, { registrationName = it }, label = { Text("Installation name") }, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(registrationBaseUrl, { registrationBaseUrl = it }, label = { Text(if (linkedUnitKey != null) "This node’s management URL / IP" else "Management URL / IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            OutlinedTextField(registrationServiceIp, { registrationServiceIp = it }, label = { Text("Service / Assistance IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            OutlinedTextField(managerEmail, { managerEmail = it }, label = { Text("Email address") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            Button(enabled = !busy && registrationBaseUrl.isNotBlank(), onClick = { managerRequest("request") }) { Text("Request manager access") }
                         }
                     } else {
+                        Text("${registrationName.ifBlank { linkedUnitName.ifBlank { "Installation" } }} — management approval")
+                        Text("Request #$managerRequestId · $managerEmail")
                         Text("Email verification: ${if (managerEmailVerified) "Confirmed" else "Waiting"}")
                         Text("Installation admin approval: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
-                        Text("Credential: ${if (managerCredentialReady) "Ready" else "Generating"}")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Refresh") }
-                            if (!managerEmailVerified && !managerRejected) {
-                                Button(enabled = !busy, onClick = { managerRequest("resend") }) { Text("Resend email") }
-                            }
+                        Text("The app checks automatically and activates management access after both confirmations.")
+                        Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Check approval") }
+                        if (!managerRejected) {
+                            Button(onClick = {
+                                val base = InstallationStore.normaliseBaseUrl(registrationBaseUrl)
+                                activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("$base/gatekeeper/index.php?f=main")))
+                            }) { Text("Open node approval page") }
                         }
-                        Button(
-                            enabled = !busy && managerEmailVerified && managerGatewayApproved && managerCredential.isNotBlank(),
-                            onClick = { managerRequest("login") }
-                        ) { Text("Activate and register") }
+                        if (!managerEmailVerified && !managerRejected) {
+                            Button(enabled = !busy, onClick = { managerRequest("resend") }) { Text("Resend verification email") }
+                        }
                     }
                     Text(managerStatus)
+                } else {
+                    Text(managerStatus)
+                    Button(enabled = !busy && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Reconnect management access") }
                 }
 
                 HorizontalDivider()

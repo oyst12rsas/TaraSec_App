@@ -78,6 +78,15 @@ The default My units screen shows saved units and one **Link a node** action.
 Gateway discovery, Google sign-in and adding linked nodes are presented in sequence.
 Manual pairing is hidden under Advanced. Once linked, each node offers
 **Request management access**, using the existing administrator approval flow.
-Pending management requests are stored separately per linked node. The node's
-management address must be entered explicitly; its gateway is not assumed to
-be the node's management endpoint. Linking never automatically grants management.
+For a linked gateway, tapping **Request management access** submits one request
+using that saved gateway address and the signed-in account email. Reopening resumes
+the pending request and shows **Check management approval**, with no repeated
+registration form or second request. **Open node approval page** opens Gatekeeper
+Home, where a local administrator reviews the request after email verification.
+Foreground polling checks every five seconds and activates access after both
+confirmations. Pending request credentials survive activity recreation; successful
+activation saves a node/account-specific installation mapping and changes the action
+to **Manage**. Read-only linking does not grant management permission.
+
+For a single endpoint paired through a gateway, its gateway address is not assumed
+to be that endpoint’s management address; the explicit management form remains.
