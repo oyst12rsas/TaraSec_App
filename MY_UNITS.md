@@ -3,10 +3,11 @@
 This is unit-owner access, separate from gateway-manager authorization.
 
 1. Open **My units**, select **Link a node**, enter the gateway IP, and continue with Google when prompted.
-2. On each laptop/unit, while on its TaraSec-managed LAN, open
-   `https://GATEWAY/script/unitLink.php` and continue with the same Google account.
-3. Open **My units** in the app menu, enter that gateway's HTTPS origin and tap
-   **Sync linked units**. Repeat for other gateways.
+2. Use **Copy link** to copy the gateway's linking URL. Open it on the device you
+   want to link, while on its TaraSec-managed LAN, and continue with the same
+   Google account. Opening the link on the phone links the phone; this URL does
+   not carry another node's identity or a pairing proof.
+3. Return to **My units** and tap **Add linked nodes**. Repeat for other gateways.
 4. Name units and use **Check status** for each. Offline units stay saved.
 
 The gateway must serve HTTPS with a trusted certificate, identify each unit

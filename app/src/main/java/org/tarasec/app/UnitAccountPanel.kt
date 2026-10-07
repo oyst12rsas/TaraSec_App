@@ -1,5 +1,7 @@
 package org.tarasec.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -94,7 +96,14 @@ fun UnitAccountPanel(
             }
             else -> {
                 val linkPage=runCatching { MyUnitsClient.gatewayOrigin(gateway)+"/script/unitLink.php" }.getOrDefault("")
-                Text("On the node, open $linkPage and sign in with the same Google account.")
+                Text("Open this link on the device you want to link and sign in with the same Google account:")
+                Text(linkPage)
+                OutlinedButton(enabled=linkPage.isNotBlank(), onClick={
+                    val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("TaraSec node linking URL",linkPage))
+                    message="Link copied."
+                }) { Text("Copy link") }
+                Text("Opening this link on your phone links the phone.",style=MaterialTheme.typography.bodySmall)
                 Button(enabled=!working && !externalBusy, onClick=onAddLinkedNodes) {
                     Text(if(externalBusy) "Adding…" else "Add linked nodes")
                 }
