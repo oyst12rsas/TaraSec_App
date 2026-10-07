@@ -111,12 +111,12 @@ fun UnitAccountPanel(
                             val request=MyUnitsClient.requestGateway(context,account,input)
                             approvalUrl=request.getString("approval_url")
                             confirmationCode=request.getString("confirmation_code")
-                            "Request created. Approve it using the gateway administrator login."
+                            "Request created. Approve it using the account service administrator approval."
                         }
                     }) { Text(if(working) "Requesting…" else "Request app link") }
                 } else {
                     Text("Confirmation code: $confirmationCode",style=MaterialTheme.typography.titleMedium)
-                    Text("Open the approval page on this phone or any computer with a browser. Sign in as the gateway administrator and approve only if the code matches. The request expires after ten minutes.")
+                    Text("Open the approval page on this phone or any computer with a browser. Sign in with the Google account of a node administrator and approve only if the code matches. The request expires after ten minutes.")
                     Button(enabled=!working && !externalBusy,onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(approvalUrl)))}) { Text("Open approval page") }
                     OutlinedButton(enabled=!working && !externalBusy,onClick={
                         val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

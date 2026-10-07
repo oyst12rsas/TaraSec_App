@@ -174,9 +174,9 @@ class MyUnitsActivity : ComponentActivity() {
             units.forEach { unit ->
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(unit.name,style=MaterialTheme.typography.titleMedium)
-                    Text(if(unit.scope=="gateway_read_only") "${unit.gateway} · Linked phone app" else "${unit.gateway} · Unit ${unit.unitId}",style=MaterialTheme.typography.bodySmall)
+                    Text(if(unit.scope in listOf("gateway_read_only","gateway_hosted_read_only")) "${unit.gateway} · Linked phone app" else "${unit.gateway} · Unit ${unit.unitId}",style=MaterialTheme.typography.bodySmall)
                     val status=statuses[unit.key]; val threat=status?.optJSONObject("threat")
-                    if(unit.scope=="gateway_read_only") {
+                    if(unit.scope in listOf("gateway_read_only","gateway_hosted_read_only")) {
                         Text(errors[unit.key] ?: if(status!=null) "Gateway reachable · Checked: ${status.optString("server_time")}" else "Status not checked")
                         Text("Read-only gateway access. Management requires separate approval.",style=MaterialTheme.typography.bodySmall)
                     } else if(threat==null) Text(errors[unit.key] ?: "Status not checked") else {
