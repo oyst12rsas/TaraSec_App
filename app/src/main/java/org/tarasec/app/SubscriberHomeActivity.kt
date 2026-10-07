@@ -58,7 +58,7 @@ class SubscriberHomeActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        captureIdentityCode(intent)
+        if (captureIdentityCode(intent)) { finish(); return }
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -82,14 +82,22 @@ class SubscriberHomeActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        captureIdentityCode(intent)
+        if (captureIdentityCode(intent)) finish()
     }
 
-    private fun captureIdentityCode(intent: Intent?) {
-        val uri = intent?.data ?: return
+    private fun captureIdentityCode(intent: Intent?): Boolean {
+        val uri = intent?.data ?: return false
         if (uri.scheme == "tarasec" && uri.host == "identity") {
-            identityCode = uri.getQueryParameter("code")
+            val code = uri.getQueryParameter("code")
+            if (!code.isNullOrBlank() && ServiceDiscovery.signInDestination(this) == TaraMenuDestination.MY_UNITS.name) {
+                startActivity(Intent(this, MyUnitsActivity::class.java)
+                    .putExtra(UNIT_IDENTITY_CODE_EXTRA, code)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                return true
+            }
+            identityCode = code
         }
+        return false
     }
 }
 

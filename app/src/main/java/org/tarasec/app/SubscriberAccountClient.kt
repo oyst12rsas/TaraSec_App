@@ -57,10 +57,10 @@ object SubscriberAccountClient {
         SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
     }
 
-    fun identityLoginUrl(context: Context, provider: String): String {
+    fun identityLoginUrl(context: Context, provider: String, destination: String? = null): String {
         val normalized = provider.lowercase()
         require(normalized == "google" || normalized == "facebook") { "Unsupported identity provider" }
-        return ServiceDiscovery.rememberSignIn(context).identity + "/identity-start.php?provider=" +
+        return ServiceDiscovery.rememberSignIn(context, destination).identity + "/identity-start.php?provider=" +
             URLEncoder.encode(normalized, "UTF-8") + "&app_redirect=" +
             URLEncoder.encode("tarasec://identity", "UTF-8")
     }

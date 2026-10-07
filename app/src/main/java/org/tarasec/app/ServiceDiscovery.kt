@@ -47,12 +47,16 @@ object ServiceDiscovery {
             .putString("identity", services.identity).putString("subscriber", services.subscriber).apply()
     }
 
-    fun rememberSignIn(context: Context): AccountServices {
+    fun rememberSignIn(context: Context, destination: String? = null): AccountServices {
         val services = selected(context)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("pending_identity", services.identity).putString("pending_subscriber", services.subscriber).apply()
+            .putString("pending_identity", services.identity).putString("pending_subscriber", services.subscriber)
+            .putString("pending_destination", destination).apply()
         return services
     }
+
+    fun signInDestination(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("pending_destination", null)
 
     fun signInServices(context: Context): AccountServices {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -60,7 +64,7 @@ object ServiceDiscovery {
         val subscriber = prefs.getString("pending_subscriber", null) ?: error("Sign-in service configuration is incomplete")
         val services = parse(JSONObject().put("identity_api_base", identity).put("subscriber_api_base", subscriber))
         select(context, services)
-        prefs.edit().remove("pending_identity").remove("pending_subscriber").apply()
+        prefs.edit().remove("pending_identity").remove("pending_subscriber").remove("pending_destination").apply()
         return services
     }
 

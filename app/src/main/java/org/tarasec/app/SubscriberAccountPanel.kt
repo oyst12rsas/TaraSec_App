@@ -36,8 +36,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import java.math.RoundingMode
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 private fun displayCreditBalance(value: String): String =
     value.toBigDecimalOrNull()
@@ -61,10 +59,6 @@ fun SubscriberAccountPanel(
     identityCode: String? = null,
     identityCodeConsumed: () -> Unit = {}
 ) {
-    var serviceGateway by remember { mutableStateOf("") }
-    var serviceProvider by remember { mutableStateOf(ServiceDiscovery.selected(context)) }
-    var discoveryError by remember { mutableStateOf("") }
-    var discoveringServices by remember { mutableStateOf(false) }
     var account by remember { mutableStateOf<SubscriberAccount?>(null) }
     var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -83,30 +77,6 @@ fun SubscriberAccountPanel(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         wifiScanPermissionGranted = granted
-    }
-
-    fun discoverServices(input: String) {
-        if (loading || discoveringServices) return
-        discoveringServices = true; loading = true; discoveryError = ""
-        Thread {
-            try {
-                val found = ServiceDiscovery.discover(input)
-                (context as? android.app.Activity)?.runOnUiThread {
-                    if (found != serviceProvider) {
-                        ServiceDiscovery.select(context, found)
-                        serviceProvider = found; account = null; password = ""
-                        currentHotspotActivated = false; accessLight = AccountAccessLight.RED
-                        status = "Service changed. Sign in to ${java.net.URI(found.identity).host}."
-                    }
-                    discoveringServices = false; loading = false
-                }
-            } catch (e: Exception) {
-                (context as? android.app.Activity)?.runOnUiThread {
-                    discoveryError = e.message ?: "Service discovery failed. Provider was not changed."
-                    discoveringServices = false; loading = false
-                }
-            }
-        }.start()
     }
 
     fun refresh() {
@@ -305,15 +275,7 @@ fun SubscriberAccountPanel(
 
     LaunchedEffect(Unit) {
         if (identityCode == null && SubscriberAccountClient.storedToken(context) != null) refresh()
-        else if (identityCode == null) {
-            discoveringServices = true
-            val gateway = withContext(Dispatchers.IO) { DemoSshClient.observedGateway(HotspotDirectoryClient.DEFAULT_BASE_URL) }
-            discoveringServices = false
-            if (gateway.recognized && gateway.address.isNotBlank()) {
-                serviceGateway = gateway.address
-                discoverServices(gateway.address)
-            }
-        }
+
     }
 
     LaunchedEffect(identityCode) {
@@ -328,7 +290,6 @@ fun SubscriberAccountPanel(
                 val loaded = SubscriberAccountClient.exchangeIdentityCode(context, code)
                 (context as? android.app.Activity)?.runOnUiThread {
                     account = loaded
-                    serviceProvider = ServiceDiscovery.selected(context)
                     status = "Signed in to TaraSec, but not yet this hotspot."
                     accessLight = AccountAccessLight.YELLOW
                     loading = false
@@ -346,26 +307,19 @@ fun SubscriberAccountPanel(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("My TaraSec account", style = MaterialTheme.typography.titleMedium)
-        Text("Account service: ${java.net.URI(serviceProvider.identity).host}", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(value=serviceGateway, onValueChange={serviceGateway=it}, label={Text("Gateway IP address")}, singleLine=true, enabled=!loading && !discoveringServices, modifier=Modifier.fillMaxWidth())
-        OutlinedButton(enabled=!loading && !discoveringServices && serviceGateway.isNotBlank(), onClick={discoverServices(serviceGateway)}) {
-            Text(if (discoveringServices) "Checking gateway…" else "Find account service")
-        }
-        Text("Checks the gateway first; uses tarasec.org when no local account service is configured. Only use gateways you trust. Sign-in credentials stay with the selected service.", style = MaterialTheme.typography.bodySmall)
-        if (discoveryError.isNotBlank()) Text(discoveryError)
 
         if (account == null) {
             Text("Sign in with a global identity. This grants subscriber access only; node-management approval remains local.", style = MaterialTheme.typography.bodySmall)
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !loading && !discoveringServices,
+                enabled = !loading,
                 onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SubscriberAccountClient.identityLoginUrl(context, "google"))))
                 }
             ) { Text("Continue with Google") }
             OutlinedButton(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !loading && !discoveringServices,
+                enabled = !loading,
                 onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SubscriberAccountClient.identityLoginUrl(context, "facebook"))))
                 }
@@ -374,7 +328,7 @@ fun SubscriberAccountPanel(
             Text("Or use an existing TaraSec password", style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = identifier, onValueChange = { identifier = it }, singleLine = true, label = { Text("Email or phone") })
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = password, onValueChange = { password = it }, singleLine = true, visualTransformation = PasswordVisualTransformation(), label = { Text("Password") })
-            Button(modifier = Modifier.fillMaxWidth(), enabled = !loading && !discoveringServices && identifier.isNotBlank() && password.isNotBlank(), onClick = { login() }) {
+            Button(modifier = Modifier.fillMaxWidth(), enabled = !loading && identifier.isNotBlank() && password.isNotBlank(), onClick = { login() }) {
                 Text(if (loading) "Signing in..." else "Sign in to TaraSec")
             }
         } else {
@@ -386,7 +340,7 @@ fun SubscriberAccountPanel(
 
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !loading && !discoveringServices,
+                enabled = !loading,
                 onClick = { activateHotspot() }
             ) {
                 Text(if (loading) "Activating hotspot..." else "Use this account on current hotspot")
@@ -395,7 +349,7 @@ fun SubscriberAccountPanel(
             if (currentHotspotActivated) {
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !loading && !discoveringServices,
+                    enabled = !loading,
                     onClick = { checkInternetAgain() }
                 ) {
                     Text(if (loading) "Checking Internet..." else "Check Internet again")
@@ -450,7 +404,7 @@ fun SubscriberAccountPanel(
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(modifier = Modifier.weight(1f), enabled = !loading && !discoveringServices, onClick = { refresh() }) { Text("Refresh") }
+                Button(modifier = Modifier.weight(1f), enabled = !loading, onClick = { refresh() }) { Text("Refresh") }
                 OutlinedButton(modifier = Modifier.weight(1f), onClick = {
                     SubscriberAccountClient.clearToken(context)
                     account = null
