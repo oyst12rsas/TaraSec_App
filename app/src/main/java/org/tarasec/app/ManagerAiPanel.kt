@@ -42,6 +42,7 @@ fun ManagerAiPanel(
     var status by remember { mutableStateOf("AI assessment not loaded") }
     var latest by remember { mutableStateOf<JSONObject?>(null) }
     var latestTime by remember { mutableStateOf("") }
+    var assessmentAgeSeconds by remember { mutableStateOf<Long?>(null) }
     var fundingMode by remember { mutableStateOf("") }
     var quotaText by remember { mutableStateOf("") }
     var history by remember { mutableStateOf<List<AiHistoryItem>>(emptyList()) }
@@ -101,6 +102,7 @@ fun ManagerAiPanel(
                 activity.runOnUiThread {
                     latest = latestJson
                     latestTime = json.optString("gatewayAssessmentTime", "")
+                    assessmentAgeSeconds = if (json.isNull("gatewayAssessmentAgeSeconds")) null else json.optLong("gatewayAssessmentAgeSeconds")
                     fundingMode = meta?.optString("fundingMode", "").orEmpty()
                     quotaText = if (quota != null && quota.optInt("used", -1) >= 0 && quota.optInt("limit", -1) >= 0)
                         "${quota.optInt("used")} / ${quota.optInt("limit")} calls used today" else ""
@@ -126,6 +128,7 @@ fun ManagerAiPanel(
             loadedOnce = false
             latest = null
             latestTime = ""
+            assessmentAgeSeconds = null
             fundingMode = ""
             quotaText = ""
             history = emptyList()
@@ -152,7 +155,8 @@ fun ManagerAiPanel(
                 val severity = assessment.optInt("event_severity", assessment.optInt("severity", 0))
                 val category = assessment.optString("category", "unknown")
                 val confidenceRaw = assessment.optDouble("confidence", Double.NaN)
-                val confidence = if (confidenceRaw.isNaN()) "—" else String.format("%.0f%%", confidenceRaw * 100.0)
+                val confidence = if (!confidenceRaw.isFinite() || confidenceRaw < 0.0 || confidenceRaw > 100.0) "—"
+                    else String.format("%.0f%%", if (confidenceRaw <= 1.0) confidenceRaw * 100.0 else confidenceRaw)
                 val summary = assessment.optString("summary", "")
                 val reasoning = assessment.optString("reasoning", "")
                 val action = assessment.optString("recommended_action", "")
@@ -161,6 +165,9 @@ fun ManagerAiPanel(
                 TaraStatusRow("Category", category)
                 TaraStatusRow("Confidence", confidence)
                 if (latestTime.isNotBlank()) TaraStatusRow("Assessed", latestTime)
+                if ((assessmentAgeSeconds ?: 0L) > 86400L) {
+                    Text("This assessment is more than 24 hours old. It does not describe current activity.", style = MaterialTheme.typography.bodySmall)
+                }
                 if (summary.isNotBlank()) { Text("Summary", style = MaterialTheme.typography.labelLarge); Text(summary) }
                 if (action.isNotBlank()) { Text("Recommended action", style = MaterialTheme.typography.labelLarge); Text(action) }
 
@@ -202,7 +209,7 @@ fun ManagerAiPanel(
                 }
             }
 
-            if (latest == null) Text(status)
+            Text(status, style = MaterialTheme.typography.bodySmall)
             Button(enabled = managerAuthenticated && !loading && !gatewayBaseUrl.isNullOrBlank(), onClick = { loadAi() }) {
                 Text(if (loading) "Loading…" else if (latest == null) "Load assessment" else "Refresh")
             }
