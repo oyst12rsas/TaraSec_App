@@ -20,10 +20,10 @@ object UnitGatewayTransport {
         val value = input.trim()
         require(value.isNotEmpty()) { "Enter the gateway IP address" }
         val guessed = URI(if (value.contains("://")) value else "https://$value")
-        val scheme = if (!value.contains("://") && isNetBird(guessed.host.orEmpty())) "http" else guessed.scheme
+        val scheme = if (!value.contains("://")) "http" else guessed.scheme
         require(!guessed.host.isNullOrBlank() && guessed.rawUserInfo == null && guessed.rawQuery == null && guessed.rawFragment == null &&
             (guessed.path.isNullOrEmpty() || guessed.path == "/") && (guessed.port == -1 || guessed.port in 1..65535) &&
-            (scheme == "https" || (scheme == "http" && isNetBird(guessed.host)))) {
+            (scheme == "https" || scheme == "http")) {
             "Enter the gateway IP address, without a path, login or query"
         }
         val host = guessed.host.lowercase().let { if (it.contains(':') && !it.startsWith("[")) "[$it]" else it }
