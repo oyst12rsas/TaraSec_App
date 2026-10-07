@@ -48,7 +48,6 @@ class MyUnitsActivity : ComponentActivity() {
         var gatewayExample by remember { mutableStateOf("") }
         var gatewayDiscoveryMessage by remember { mutableStateOf("Checking your IP with the DB server…") }
         var showAdd by rememberSaveable { mutableStateOf(false) }
-        var addKind by rememberSaveable { mutableStateOf("") }
         var pairing by remember { mutableStateOf("") }
         var manual by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
@@ -61,7 +60,7 @@ class MyUnitsActivity : ComponentActivity() {
         var newName by remember { mutableStateOf("") }
 
         LaunchedEffect(identityCode) {
-            if (!identityCode.isNullOrBlank()) { showAdd=true; addKind="node" }
+            if (!identityCode.isNullOrBlank()) { showAdd=true }
         }
 
         LaunchedEffect(version, signedIn) {
@@ -104,7 +103,7 @@ class MyUnitsActivity : ComponentActivity() {
                 TextButton(onClick={ finish() }) { Text("Back") }
             }
             Text("Your nodes and installations, with the access granted to your account.")
-            Button(enabled=!busy && !accountBusy,onClick={showAdd=true;addKind=""}) { Text("Add unit") }
+            Button(enabled=!busy && !accountBusy,onClick={showAdd=true}) { Text("Link a node") }
             if(installations.isNotEmpty()) Text("Managed installations",style=MaterialTheme.typography.titleMedium)
             installations.forEach { installation ->
                 Card(Modifier.fillMaxWidth()) {
@@ -130,15 +129,6 @@ class MyUnitsActivity : ComponentActivity() {
             if(showAdd) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        if(addKind.isBlank()) {
-                            Text("What would you like to add?",style=MaterialTheme.typography.titleMedium)
-                            OutlinedButton(onClick={addKind="node"}) { Text("Link a node") }
-                            OutlinedButton(onClick={
-                                showAdd=false
-                                startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
-                                    .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name))
-                            }) { Text("Manage a gateway or installation") }
-                        } else {
                             UnitAccountPanel(
                                 context=this@MyUnitsActivity,
                                 version=version,
@@ -156,7 +146,7 @@ class MyUnitsActivity : ComponentActivity() {
                                     val input=gateway
                                     if(currentAccount!=null) runTask {
                                         val result=MyUnitsClient.sync(this@MyUnitsActivity,currentAccount,input)
-                                        runOnUiThread { units=result; statuses=emptyMap(); errors=emptyMap(); showAdd=false; addKind="" }
+                                        runOnUiThread { units=result; statuses=emptyMap(); errors=emptyMap(); showAdd=false }
                                     }
                                 }
                             )
@@ -169,19 +159,18 @@ class MyUnitsActivity : ComponentActivity() {
                                         val input=pairing; val base=gateway
                                         runTask {
                                             val result=MyUnitsClient.importPairing(this@MyUnitsActivity,accountId,input,base)
-                                            runOnUiThread { units=result;pairing="";manual=false;showAdd=false;addKind="" }
+                                            runOnUiThread { units=result;pairing="";manual=false;showAdd=false }
                                         }
                                     }) { Text("Add paired node") }
                                 }
                             }
-                        }
-                        TextButton(enabled=!busy && !accountBusy,onClick={showAdd=false;addKind="";manual=false}) { Text("Cancel") }
+                        TextButton(enabled=!busy && !accountBusy,onClick={showAdd=false;manual=false}) { Text("Cancel") }
                     }
                 }
             }
             Text(message)
             if(units.isNotEmpty()) Text("Linked nodes",style=MaterialTheme.typography.titleMedium)
-            if(units.isEmpty() && installations.isEmpty() && !showAdd) Text("No units added yet. Tap Add unit to get started.")
+            if(units.isEmpty() && installations.isEmpty() && !showAdd) Text("No units added yet. Tap Link a node to get started.")
             units.forEach { unit ->
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(unit.name,style=MaterialTheme.typography.titleMedium)
@@ -201,6 +190,12 @@ class MyUnitsActivity : ComponentActivity() {
                         Button(enabled=!busy && !accountBusy,onClick={refresh(unit)}) { Text("Check status") }
                         TextButton(enabled=!busy && !accountBusy,onClick={rename=unit;newName=unit.name}) { Text("Name") }
                     }
+                    OutlinedButton(enabled=!busy && !accountBusy,onClick={
+                        startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
+                            .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name)
+                            .putExtra(UNIT_MANAGEMENT_KEY_EXTRA,unit.key)
+                            .putExtra(UNIT_MANAGEMENT_NAME_EXTRA,unit.name))
+                    }) { Text("Request management access") }
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         TextButton(enabled=!busy && !accountBusy,onClick={if(accountId!=null){units=units.filter { it.key!=unit.key };MyUnitsClient.save(this@MyUnitsActivity,accountId,units);statuses=statuses-unit.key;errors=errors-unit.key}}) { Text("Remove from phone") }
                         if(unit.gatewayId.isNotBlank()) TextButton(enabled=!busy && !accountBusy,onClick={revoke=unit}) { Text("Unlink account") }

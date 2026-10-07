@@ -77,7 +77,9 @@ private fun TaraSecApp(initialDestination: String?) {
         )
     }
 
-    val pendingKey = "pending-manager-registration"
+    val linkedUnitKey = activity.intent.getStringExtra(UNIT_MANAGEMENT_KEY_EXTRA)
+    val linkedUnitName = activity.intent.getStringExtra(UNIT_MANAGEMENT_NAME_EXTRA).orEmpty()
+    val pendingKey = linkedUnitKey?.let { "pending-manager-registration:$it" } ?: "pending-manager-registration"
     val pending = remember {
         runCatching { SecureCredentialStore.get(activity, pendingKey)?.let { JSONObject(it) } }.getOrNull()
     }
@@ -85,7 +87,7 @@ private fun TaraSecApp(initialDestination: String?) {
     var installations by remember { mutableStateOf(InstallationStore.load(activity)) }
     var selectedInstallationId by remember {
         mutableStateOf(
-            if (pending != null) null else InstallationStore.load(activity).let { items ->
+            if (pending != null || linkedUnitKey != null) null else InstallationStore.load(activity).let { items ->
                 items.firstOrNull { it.id == InstallationStore.selectedId(activity) }?.id
                     ?: items.firstOrNull()?.id
             }
@@ -93,7 +95,7 @@ private fun TaraSecApp(initialDestination: String?) {
     }
     val selectedInstallation = installations.firstOrNull { it.id == selectedInstallationId }
 
-    var registrationName by remember { mutableStateOf(pending?.optString("name", "").orEmpty()) }
+    var registrationName by remember { mutableStateOf(pending?.optString("name", "") ?: linkedUnitName) }
     var registrationBaseUrl by remember { mutableStateOf(pending?.optString("base", "").orEmpty()) }
     var registrationServiceIp by remember { mutableStateOf(pending?.optString("serviceIp", "").orEmpty()) }
 
@@ -588,7 +590,7 @@ private fun TaraSecApp(initialDestination: String?) {
             }
 
             AppPage.SETUP -> {
-                Text("Installations", style = MaterialTheme.typography.titleLarge)
+                Text(if (linkedUnitKey != null) "Management access · $linkedUnitName" else "Installations", style = MaterialTheme.typography.titleLarge)
                 Text("The global DB/control plane is discovered and checked in the background. Users normally do not need to configure it.", style = MaterialTheme.typography.bodySmall)
 
                 Button(enabled = !busy && managerRequestId == null, onClick = {
@@ -603,7 +605,7 @@ private fun TaraSecApp(initialDestination: String?) {
 
                 if (selectedInstallationId == null) {
                     OutlinedTextField(registrationName, { registrationName = it }, label = { Text("Installation name") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(registrationBaseUrl, { registrationBaseUrl = it }, label = { Text("Management URL / IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(registrationBaseUrl, { registrationBaseUrl = it }, label = { Text(if (linkedUnitKey != null) "This node’s management URL / IP" else "Management URL / IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     OutlinedTextField(registrationServiceIp, { registrationServiceIp = it }, label = { Text("Service / Assistance IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     OutlinedTextField(managerEmail, { managerEmail = it }, label = { Text("Email address") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
 

@@ -84,6 +84,9 @@ enum class TaraMenuDestination {
     SETUP_HOTSPOTS
 }
 
+const val UNIT_MANAGEMENT_KEY_EXTRA = "org.tarasec.app.UNIT_MANAGEMENT_KEY"
+const val UNIT_MANAGEMENT_NAME_EXTRA = "org.tarasec.app.UNIT_MANAGEMENT_NAME"
+
 const val CONSOLE_DESTINATION_EXTRA = "org.tarasec.app.CONSOLE_DESTINATION"
 
 private val taraMenuItems = listOf(
