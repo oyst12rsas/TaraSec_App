@@ -279,6 +279,10 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
             fontWeight = FontWeight.Bold
         )
 
+        if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank()) {
+            ManagerSshPanel(gatewayBaseUrl, managerAuthenticated)
+        }
+
         val allSites = listOfNotNull(localSite) + sites
         if (allSites.isEmpty()) {
             Text("No gateway status reported yet.")

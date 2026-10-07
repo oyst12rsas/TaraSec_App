@@ -90,3 +90,14 @@ to **Manage**. Read-only linking does not grant management permission.
 
 For a single endpoint paired through a gateway, its gateway address is not assumed
 to be that endpoint’s management address; the explicit management form remains.
+
+## Timed administrative SSH
+
+Manage → Status / Units includes an Administrative SSH card for the selected
+installation. An active manager can open SSH for 5, 10 or 15 minutes when the
+owner has installed and enabled the backend helper. The card reports access for
+the app's current IPv4 source, port and countdown, and refreshes every five
+seconds while the page is foregrounded. Errors clear the old state. Expiry is
+enforced by the node's kernel and continues when the app is closed. Other units
+listed on the gateway do not automatically receive SSH controls or permission.
+See taransvar `docs/manager-timed-ssh.md` for backend prerequisites and limitations.
