@@ -119,7 +119,11 @@ fun ManagerSshPanel(baseUrl: String, authenticated: Boolean) {
         })
         ssh?.let {
             Text("Port ${it.optInt("port")} · Source ${it.optString("source")}")
-            remaining?.let { seconds -> Text("Closes in ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}") }
+            remaining?.takeIf { state == "open" }?.let { seconds -> Text("Closes in ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}") }
+        }
+        if (ssh != null && state == "closed" && !ssh.optBoolean("canOpen")) {
+            Text(if (!ssh.optBoolean("listening")) "The administrative SSH service is not listening."
+                else "Timed opening is disabled by this node’s owner or policy.")
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Open SSH for:")
