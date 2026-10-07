@@ -196,9 +196,19 @@ class MyUnitsActivity : ComponentActivity() {
                     OutlinedButton(enabled=!busy && !accountBusy,onClick={
                         startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
                             .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name)
+                            .putExtra(UNIT_MANAGEMENT_REQUEST_EXTRA,true)
                             .putExtra(UNIT_MANAGEMENT_KEY_EXTRA,unit.key)
                             .putExtra(UNIT_MANAGEMENT_NAME_EXTRA,unit.name))
-                    }) { Text("Request management access") }
+                    }) {
+                        val pending = SecureCredentialStore.get(this@MyUnitsActivity,"pending-manager-registration:${unit.key}")
+                        val managed = SecureCredentialStore.get(this@MyUnitsActivity,
+                            provider.key("manager-installation:$accountId:${unit.key}"))
+                        Text(when {
+                            managed != null -> "Manage"
+                            pending != null -> "Check management approval"
+                            else -> "Request management access"
+                        })
+                    }
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         TextButton(enabled=!busy && !accountBusy,onClick={if(accountId!=null){units=units.filter { it.key!=unit.key };MyUnitsClient.save(this@MyUnitsActivity,accountId,units);statuses=statuses-unit.key;errors=errors-unit.key}}) { Text("Remove from phone") }
                         if(unit.gatewayId.isNotBlank()) TextButton(enabled=!busy && !accountBusy,onClick={revoke=unit}) { Text("Unlink account") }
