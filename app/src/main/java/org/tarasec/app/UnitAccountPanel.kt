@@ -37,6 +37,8 @@ fun UnitAccountPanel(
     var services by remember(version) { mutableStateOf(ServiceDiscovery.selected(context)) }
     var working by remember { mutableStateOf(false) }
     var checkedGateway by rememberSaveable { mutableStateOf("") }
+    var checkedProvider by rememberSaveable { mutableStateOf("") }
+    var linkMode by rememberSaveable { mutableStateOf("") }
     var advanced by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -77,18 +79,21 @@ fun UnitAccountPanel(
             supportingText={Text(if(gatewayExample.isNotBlank()) "Detected gateway: $gatewayExample" else gatewayHint)},
             enabled=!working && !externalBusy, singleLine=true, modifier=Modifier.fillMaxWidth())
         when {
-            checkedGateway != gateway || gateway.isBlank() -> {
+            checkedGateway != gateway || checkedProvider != services.identity || gateway.isBlank() -> {
                 Button(enabled=!working && !externalBusy && gateway.isNotBlank(), onClick={
                     val input=gateway
                     accountTask(onSuccess={checkedGateway=input}) {
-                        val found=ServiceDiscovery.discover(input)
+                        val meta=MyUnitsClient.gatewayMetadata(context,input)
+                        val found=ServiceDiscovery.parse(meta.getJSONObject("account_services"))
+                        linkMode=meta.optString("link_mode","google_https")
+                        checkedProvider=found.identity
                         ServiceDiscovery.select(context,found)
                         ""
                     }
                 }) { Text(if(working) "Checking gateway…" else "Continue") }
             }
             !signedIn -> {
-                Text("Sign in with the Google account used on your node. Service: ${java.net.URI(services.identity).host}.")
+                Text("Sign in with the Google account you want to link to this node. Service: ${java.net.URI(services.identity).host}.")
                 Button(enabled=!working && !externalBusy, onClick={
                     val url=SubscriberAccountClient.identityLoginUrl(context,"google",TaraMenuDestination.MY_UNITS.name)
                     context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))
@@ -96,14 +101,14 @@ fun UnitAccountPanel(
             }
             else -> {
                 val linkPage=runCatching { MyUnitsClient.gatewayOrigin(gateway)+"/script/unitLink.php" }.getOrDefault("")
-                Text("Open this link on the device you want to link and sign in with the same Google account:")
+                Text(if(linkMode=="service_handoff") "Open this page on the node you want to link. Create an approval link there, copy it to your phone, and approve with this Google account:" else "Open this link on the device you want to link and sign in with the same Google account:")
                 Text(linkPage)
                 OutlinedButton(enabled=linkPage.isNotBlank(), onClick={
                     val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("TaraSec node linking URL",linkPage))
                     message="Link copied."
                 }) { Text("Copy link") }
-                Text("Opening this link on your phone links the phone.",style=MaterialTheme.typography.bodySmall)
+                Text(if(linkMode=="service_handoff") "The approval link created on the node can be opened on your phone. This setup-page link must be opened on the node." else "Opening this link on your phone links the phone.",style=MaterialTheme.typography.bodySmall)
                 Button(enabled=!working && !externalBusy, onClick=onAddLinkedNodes) {
                     Text(if(externalBusy) "Adding…" else "Add linked nodes")
                 }

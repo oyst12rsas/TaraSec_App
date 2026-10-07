@@ -3,8 +3,6 @@ package org.tarasec.app
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
@@ -16,16 +14,17 @@ data class LinkedUnit(val key: String, val gateway: String, val gatewayId: Strin
 object MyUnitsClient {
     fun accountId(context: Context): Long? = SecureCredentialStore.get(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))?.toLongOrNull()
 
-    fun gatewayOrigin(input: String): String {
-        val address = input.trim()
-        require(address.isNotEmpty()) { "Enter the gateway IP address" }
-        val normalized = if (address.contains("://")) address else "https://$address"
-        val uri = try { URI(normalized) } catch (_: Exception) { throw IllegalArgumentException("Enter a valid gateway IP address") }
-        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null && (uri.path.isNullOrEmpty() || uri.path == "/")) {
-            "Enter the gateway IP address, without a path, login or query"
+    fun gatewayOrigin(input: String): String = UnitGatewayTransport.origin(input)
+
+    fun gatewayMetadata(context: Context, input: String): JSONObject {
+        val base = gatewayOrigin(input)
+        val meta = request(context,"$base/script/unitLinked.php")
+        require(Regex("[a-f0-9]{32}").matches(meta.getString("gateway_id")) && gatewayOrigin(meta.getString("base_url")) == base) { "Gateway identity or address does not match its configuration" }
+        require(meta.getString("link_path") == "/script/unitLink.php") { "Unsupported node linking page" }
+        if (base.startsWith("http://")) require(meta.optString("link_mode") == "service_handoff" && meta.optString("transport") == "netbird") {
+            "This gateway has not enabled encrypted VPN linking. Ask its operator to configure hosted linking."
         }
-        require(uri.port == -1 || uri.port in 1..65535) { "Invalid gateway port" }
-        return "https://${if (uri.host.contains(':')) uri.host.let { if (it.startsWith("[")) it else "[$it]" } else uri.host.lowercase()}${if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"}"
+        return meta
     }
 
     fun load(context: Context, accountId: Long, services: AccountServices = ServiceDiscovery.selected(context)): List<LinkedUnit> {
@@ -50,11 +49,11 @@ object MyUnitsClient {
 
     private fun form(vararg values: Pair<String,String>) = values.joinToString("&") { (k,v) -> "${URLEncoder.encode(k,"UTF-8")}=${URLEncoder.encode(v,"UTF-8")}" }
 
-    private fun request(url: String, body: String? = null, subscriber: String? = null, unitToken: String? = null): JSONObject {
+    private fun request(context: Context, url: String, body: String? = null, subscriber: String? = null, unitToken: String? = null): JSONObject {
         val endpoint = URL(url)
         val service = if (subscriber != null) "Identity service" else "Gateway"
         val origin = "${endpoint.protocol}://${endpoint.host}${if (endpoint.port == -1) "" else ":${endpoint.port}"}"
-        val c = endpoint.openConnection() as HttpURLConnection
+        val c = UnitGatewayTransport.connection(context, endpoint)
         c.connectTimeout = 5000; c.readTimeout = 15000; c.instanceFollowRedirects = false; c.useCaches = false
         try {
             subscriber?.let { c.setRequestProperty("X-TaraSec-Subscriber-Token",it) }
@@ -78,7 +77,7 @@ object MyUnitsClient {
                 is javax.net.ssl.SSLException -> "HTTPS failed. Check that the service has a trusted certificate valid for this address."
                 is java.net.SocketTimeoutException -> "Connection timed out. Check VPN routing, firewall and service availability."
                 is java.net.UnknownHostException -> "Address could not be resolved. Check the service address."
-                is java.net.ConnectException -> "Connection failed. Check that the HTTPS service is listening and reachable through the VPN."
+                is java.net.ConnectException -> "Connection failed. Check that the gateway service is listening and reachable through the VPN."
                 else -> "Connection failed. Check VPN routing and service availability."
             }
             throw IllegalStateException("$service at $origin: $detail Status is unknown.")
@@ -89,19 +88,19 @@ object MyUnitsClient {
         val services = ServiceDiscovery.selected(context)
         require(services.identity == identityApi) { "This gateway uses a different account service. In My access, find this gateway's account service and sign in there first." }
         val token = SecureCredentialStore.get(context, services.key("global-subscriber-token")) ?: throw IllegalStateException("Sign in with Google first")
-        return request("$identityApi/unit-identity.php",form("gateway_id" to gatewayId),subscriber=token).getString("ticket")
+        return request(context,"$identityApi/unit-identity.php",form("gateway_id" to gatewayId),subscriber=token).getString("ticket")
     }
 
     fun sync(context: Context, accountId: Long, input: String): List<LinkedUnit> {
         require(accountId(context) == accountId) { "Account changed. Reopen My units." }
         val services = ServiceDiscovery.selected(context)
         val base = gatewayOrigin(input)
-        val meta = request("$base/script/unitLinked.php")
+        val meta = gatewayMetadata(context, input)
         val provider = meta.optJSONObject("account_services")?.let { ServiceDiscovery.parse(it) } ?: ServiceDiscovery.central
         require(provider == services) { "In My access, find this gateway's account service and sign in there first." }
         val gatewayId = meta.getString("gateway_id")
         require(Regex("[a-f0-9]{32}").matches(gatewayId) && gatewayOrigin(meta.getString("base_url")) == base) { "Gateway identity or address does not match its configuration" }
-        val json = request("$base/script/unitLinked.php",form("ticket" to ticket(context,gatewayId,provider.identity),"client_id" to clientId(context,accountId),"action" to "list"))
+        val json = request(context,"$base/script/unitLinked.php",form("ticket" to ticket(context,gatewayId,provider.identity),"client_id" to clientId(context,accountId),"action" to "list"))
         require(json.getString("gateway_id") == gatewayId) { "Gateway identity changed" }
         val old = load(context,accountId,services)
         val array = json.getJSONArray("units")
@@ -117,8 +116,8 @@ object MyUnitsClient {
         return (old.filter { it.gatewayId != gatewayId && it.gateway != base } + incoming).also { save(context,accountId,it,services) }
     }
 
-    fun status(unit: LinkedUnit): JSONObject {
-        val json = request("${unit.gateway}/script/unitStatus.php",unitToken=unit.token)
+    fun status(context: Context, unit: LinkedUnit): JSONObject {
+        val json = request(context,"${unit.gateway}/script/unitStatus.php",unitToken=unit.token)
         val identity = json.getJSONObject("unit")
         require(json.getString("scope") == "single_unit_read_only" && identity.getLong("unitId") == unit.unitId && (unit.ownerId == null || identity.optLong("ownerId") == unit.ownerId)) { "Status does not match the linked unit" }
         val threat = json.getJSONObject("threat")
@@ -131,7 +130,7 @@ object MyUnitsClient {
         val services = ServiceDiscovery.selected(context)
         require(accountId(context) == accountId) { "Account changed. Reopen My units." }
         require(unit.gatewayId.isNotBlank()) { "For a manual pairing, ask the gateway operator to revoke its token" }
-        request("${unit.gateway}/script/unitLinked.php",form("action" to "unlink","unit_id" to unit.unitId.toString(),"ticket" to ticket(context,unit.gatewayId,unit.identityApi)))
+        request(context,"${unit.gateway}/script/unitLinked.php",form("action" to "unlink","unit_id" to unit.unitId.toString(),"ticket" to ticket(context,unit.gatewayId,unit.identityApi)))
         require(accountId(context) == accountId && ServiceDiscovery.selected(context) == services) { "Account changed. Reopen My units." }
         save(context,accountId,load(context,accountId,services).filter { it.key != unit.key },services)
     }
@@ -146,7 +145,7 @@ object MyUnitsClient {
         require(unitId > 0 && Regex("[a-fA-F0-9]{64}").matches(token)) { "Invalid pairing credential" }
         val unit = LinkedUnit("manual:$base:$unitId",base,"",unitId,if (identity.isNull("ownerId")) null else identity.getLong("ownerId"),identity.optString("hostname").ifBlank { "Unit $unitId" },token.lowercase())
         require(accountId(context) == accountId) { "Account changed. Reopen My units." }
-        status(unit) // Validate the endpoint and credential before saving.
+        status(context,unit) // Validate the endpoint and credential before saving.
         require(accountId(context) == accountId && ServiceDiscovery.selected(context) == services) { "Account changed. Reopen My units." }
         return (load(context,accountId,services).filter { it.gateway != base || it.unitId != unitId } + unit).also { save(context,accountId,it,services) }
     }

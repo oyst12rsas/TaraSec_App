@@ -92,7 +92,7 @@ class MyUnitsActivity : ComponentActivity() {
         fun refresh(unit: LinkedUnit) {
             statuses = statuses - unit.key; errors = errors - unit.key
             runTask {
-                try { val s = MyUnitsClient.status(unit); runOnUiThread { statuses = statuses + (unit.key to s) } }
+                try { val s = MyUnitsClient.status(this,unit); runOnUiThread { statuses = statuses + (unit.key to s) } }
                 catch (e: Exception) { runOnUiThread { errors = errors + (unit.key to (e.message ?: "Status unknown")) } }
             }
         }
