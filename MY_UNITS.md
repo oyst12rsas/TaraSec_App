@@ -2,7 +2,7 @@
 
 This is unit-owner access, separate from gateway-manager authorization.
 
-1. Open **My units**, enter the gateway IP, select **Find account service**, and sign in using Google there.
+1. Open **My units**, select **Add unit → Link a node**, enter the gateway IP, and continue with Google when prompted.
 2. On each laptop/unit, while on its TaraSec-managed LAN, open
    `https://GATEWAY/script/unitLink.php` and continue with the same Google account.
 3. Open **My units** in the app menu, enter that gateway's HTTPS origin and tap
@@ -50,7 +50,7 @@ See Core `docs/unit-app-pairing.md` for gateway setup and deployment validation.
 
 ## Gateway-first service selection
 
-In My units, **Find account service** checks the gateway before using tarasec.org.
+In My units, **Add unit → Link a node → Continue** checks the gateway before using tarasec.org.
 A configured owner-hosted identity/subscriber service takes precedence; a gateway
 with no local service configured (or no discovery endpoint) uses tarasec.org.
 The app also checks the DB-recognized NetBird gateway before first sign-in.
@@ -72,3 +72,10 @@ Setup / My hotspots menu entry is removed. Google sign-in started from My units
 returns to My units. Hotspot Internet sign-in remains in My access without the
 node ownership discovery controls. Unit read-only credentials and installation
 manager authorization remain distinct; the existing manager API verifies access.
+
+The default My units screen shows saved units and one **Add unit** action. Adding
+reveals a choice between linking a node and managing a gateway/installation. The
+node flow presents gateway discovery, sign-in and adding linked nodes in sequence.
+Manual pairing is hidden under Advanced within that flow. Discovery and token
+sync remain unchanged internally; the normal screen does not expose those as
+separate parallel tasks.

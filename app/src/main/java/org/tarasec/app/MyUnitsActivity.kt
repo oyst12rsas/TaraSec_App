@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -43,9 +44,11 @@ class MyUnitsActivity : ComponentActivity() {
         val accountId = remember(version) { MyUnitsClient.accountId(this) }
         val signedIn = remember(version) { SubscriberAccountClient.storedToken(this) != null }
         var units by remember(accountId, provider) { mutableStateOf(accountId?.let { MyUnitsClient.load(this,it) } ?: emptyList()) }
-        var gateway by remember { mutableStateOf("") }
+        var gateway by rememberSaveable { mutableStateOf("") }
         var gatewayExample by remember { mutableStateOf("") }
         var gatewayDiscoveryMessage by remember { mutableStateOf("Checking your IP with the DB server…") }
+        var showAdd by rememberSaveable { mutableStateOf(false) }
+        var addKind by rememberSaveable { mutableStateOf("") }
         var pairing by remember { mutableStateOf("") }
         var manual by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
@@ -56,6 +59,10 @@ class MyUnitsActivity : ComponentActivity() {
         var revoke by remember { mutableStateOf<LinkedUnit?>(null) }
         var rename by remember { mutableStateOf<LinkedUnit?>(null) }
         var newName by remember { mutableStateOf("") }
+
+        LaunchedEffect(identityCode) {
+            if (!identityCode.isNullOrBlank()) { showAdd=true; addKind="node" }
+        }
 
         LaunchedEffect(version, signedIn) {
             gatewayExample = ""
@@ -97,7 +104,8 @@ class MyUnitsActivity : ComponentActivity() {
                 TextButton(onClick={ finish() }) { Text("Back") }
             }
             Text("Your nodes and installations, with the access granted to your account.")
-            Text("Gateways and installations",style=MaterialTheme.typography.titleMedium)
+            Button(enabled=!busy && !accountBusy,onClick={showAdd=true;addKind=""}) { Text("Add unit") }
+            if(installations.isNotEmpty()) Text("Managed installations",style=MaterialTheme.typography.titleMedium)
             installations.forEach { installation ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -119,43 +127,61 @@ class MyUnitsActivity : ComponentActivity() {
                     }
                 }
             }
-            OutlinedButton(enabled=!busy && !accountBusy,onClick={
-                startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
-                    .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name))
-            }) { Text("Add installation / request manager access") }
-            HorizontalDivider()
-            UnitAccountPanel(
-                context=this@MyUnitsActivity,
-                version=version,
-                gateway=gateway,
-                gatewayExample=gatewayExample,
-                gatewayHint=gatewayDiscoveryMessage,
-                onGatewayChanged={gateway=it},
-                identityCode=identityCode,
-                identityCodeConsumed={identityCode=null},
-                onAccountChanged={resumeVersion++},
-                externalBusy=busy,
-                onWorkingChanged={accountBusy=it}
-            )
-            if (!signedIn || accountId == null) {
-                Text("Sign in above to sync linked nodes. Installation manager access is handled separately.")
-                return@Column
-            }
-            Text("On each laptop or unit, open its gateway's /script/unitLink.php page while connected to that gateway, then continue with Google. Enter the gateway IP address here and sync. Add only gateways you trust to receive your account proof.")
-
-            Button(enabled=!busy && !accountBusy && gateway.isNotBlank(),onClick={
-                val input=gateway
-                runTask { val result=MyUnitsClient.sync(this@MyUnitsActivity,accountId,input); runOnUiThread { units=result; statuses=emptyMap(); errors=emptyMap() } }
-            }) { Text("Sync linked units") }
-            TextButton(enabled=!busy && !accountBusy,onClick={manual=!manual}) { Text(if(manual) "Hide manual pairing" else "Pair a device without Google/browser") }
-            if(manual) {
-                Text("Paste the JSON produced by the unit pairing tool. This contains a secret; do not share it in a debug report. Enter the reachable gateway IP address above.")
-                OutlinedTextField(value=pairing,onValueChange={pairing=it},label={Text("Pairing JSON (secret)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
-                Button(enabled=!busy && !accountBusy && pairing.isNotBlank(),onClick={ val input=pairing; val base=gateway; runTask { val result=MyUnitsClient.importPairing(this@MyUnitsActivity,accountId,input,base); runOnUiThread { units=result; pairing="" } } }) { Text("Import pairing") }
+            if(showAdd) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        if(addKind.isBlank()) {
+                            Text("What would you like to add?",style=MaterialTheme.typography.titleMedium)
+                            OutlinedButton(onClick={addKind="node"}) { Text("Link a node") }
+                            OutlinedButton(onClick={
+                                showAdd=false
+                                startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
+                                    .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name))
+                            }) { Text("Manage a gateway or installation") }
+                        } else {
+                            UnitAccountPanel(
+                                context=this@MyUnitsActivity,
+                                version=version,
+                                gateway=gateway,
+                                gatewayExample=gatewayExample,
+                                gatewayHint=gatewayDiscoveryMessage,
+                                onGatewayChanged={gateway=it},
+                                identityCode=identityCode,
+                                identityCodeConsumed={identityCode=null},
+                                onAccountChanged={resumeVersion++},
+                                externalBusy=busy,
+                                onWorkingChanged={accountBusy=it},
+                                onAddLinkedNodes={
+                                    val currentAccount=MyUnitsClient.accountId(this@MyUnitsActivity)
+                                    val input=gateway
+                                    if(currentAccount!=null) runTask {
+                                        val result=MyUnitsClient.sync(this@MyUnitsActivity,currentAccount,input)
+                                        runOnUiThread { units=result; statuses=emptyMap(); errors=emptyMap(); showAdd=false; addKind="" }
+                                    }
+                                }
+                            )
+                            if(signedIn && accountId!=null) {
+                                TextButton(enabled=!busy && !accountBusy,onClick={manual=!manual}) { Text(if(manual) "Hide advanced" else "Advanced") }
+                                if(manual) {
+                                    Text("Manual pairing: paste the pairing JSON from the node. It contains a secret; do not share it in debug reports.")
+                                    OutlinedTextField(value=pairing,onValueChange={pairing=it},label={Text("Pairing JSON")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
+                                    Button(enabled=!busy && !accountBusy && pairing.isNotBlank() && gateway.isNotBlank(),onClick={
+                                        val input=pairing; val base=gateway
+                                        runTask {
+                                            val result=MyUnitsClient.importPairing(this@MyUnitsActivity,accountId,input,base)
+                                            runOnUiThread { units=result;pairing="";manual=false;showAdd=false;addKind="" }
+                                        }
+                                    }) { Text("Add paired node") }
+                                }
+                            }
+                        }
+                        TextButton(enabled=!busy && !accountBusy,onClick={showAdd=false;addKind="";manual=false}) { Text("Cancel") }
+                    }
+                }
             }
             Text(message)
-            Text("Linked nodes",style=MaterialTheme.typography.titleMedium)
-            if(units.isEmpty()) Text("No saved units. Link a unit and sync its gateway. An empty list does not mean a gateway is clean.")
+            if(units.isNotEmpty()) Text("Linked nodes",style=MaterialTheme.typography.titleMedium)
+            if(units.isEmpty() && installations.isEmpty() && !showAdd) Text("No units added yet. Tap Add unit to get started.")
             units.forEach { unit ->
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(unit.name,style=MaterialTheme.typography.titleMedium)
@@ -176,12 +202,12 @@ class MyUnitsActivity : ComponentActivity() {
                         TextButton(enabled=!busy && !accountBusy,onClick={rename=unit;newName=unit.name}) { Text("Name") }
                     }
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        TextButton(enabled=!busy && !accountBusy,onClick={units=units.filter { it.key!=unit.key };MyUnitsClient.save(this@MyUnitsActivity,accountId,units);statuses=statuses-unit.key;errors=errors-unit.key}) { Text("Remove from phone") }
+                        TextButton(enabled=!busy && !accountBusy,onClick={if(accountId!=null){units=units.filter { it.key!=unit.key };MyUnitsClient.save(this@MyUnitsActivity,accountId,units);statuses=statuses-unit.key;errors=errors-unit.key}}) { Text("Remove from phone") }
                         if(unit.gatewayId.isNotBlank()) TextButton(enabled=!busy && !accountBusy,onClick={revoke=unit}) { Text("Unlink account") }
                     }
                 } }
             }
-            Text("Saved units remain here when offline. Removing one from the phone does not revoke gateway access. Unlink account revokes this account's Google-linked app grants for that unit; other accounts and manual tokens are separate.",style=MaterialTheme.typography.bodySmall)
+            if(units.isNotEmpty()) Text("Saved units remain here when offline. Removing one from the phone does not revoke gateway access. Unlink account revokes this account's Google-linked app grants for that unit; other accounts and manual tokens are separate.",style=MaterialTheme.typography.bodySmall)
         }
         rename?.let { unit -> AlertDialog(onDismissRequest={rename=null},title={Text("Name this unit")},text={OutlinedTextField(value=newName,onValueChange={newName=it.take(100)})},confirmButton={TextButton(onClick={if(accountId!=null){ units=units.map { if(it.key==unit.key) it.copy(name=newName.trim().ifBlank {unit.name}) else it };MyUnitsClient.save(this@MyUnitsActivity,accountId,units)};rename=null}){Text("Save")}},dismissButton={TextButton(onClick={rename=null}){Text("Cancel")}}) }
         revoke?.let { unit -> AlertDialog(onDismissRequest={revoke=null},title={Text("Unlink ${unit.name}?")},text={Text("Revoke this account's linked app access on all phones for this unit. You will need to sign in again on the unit to link it again.")},confirmButton={TextButton(onClick={revoke=null;if(accountId!=null)runTask{MyUnitsClient.unlink(this@MyUnitsActivity,accountId,unit);val result=MyUnitsClient.load(this@MyUnitsActivity,accountId);runOnUiThread{units=result;statuses=statuses-unit.key}}}){Text("Unlink")}},dismissButton={TextButton(onClick={revoke=null}){Text("Cancel")}}) }

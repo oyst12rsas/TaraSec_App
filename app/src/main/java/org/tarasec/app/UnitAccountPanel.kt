@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -28,15 +29,18 @@ fun UnitAccountPanel(
     identityCodeConsumed: () -> Unit,
     onAccountChanged: () -> Unit,
     externalBusy: Boolean,
-    onWorkingChanged: (Boolean) -> Unit
+    onWorkingChanged: (Boolean) -> Unit,
+    onAddLinkedNodes: () -> Unit
 ) {
     var services by remember(version) { mutableStateOf(ServiceDiscovery.selected(context)) }
     var working by remember { mutableStateOf(false) }
+    var checkedGateway by rememberSaveable { mutableStateOf("") }
+    var advanced by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val signedIn = remember(version) { SubscriberAccountClient.storedToken(context) != null && MyUnitsClient.accountId(context) != null }
 
-    fun accountTask(work: () -> String) {
+    fun accountTask(onSuccess: () -> Unit = {}, work: () -> String) {
         if (working || externalBusy) return
         scope.launch {
             working = true
@@ -44,6 +48,7 @@ fun UnitAccountPanel(
             try {
                 message = withContext(Dispatchers.IO) { work() }
                 services = ServiceDiscovery.selected(context)
+                onSuccess()
                 onAccountChanged()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -63,34 +68,45 @@ fun UnitAccountPanel(
     }
 
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Text("Link nodes to your account", style=MaterialTheme.typography.titleMedium)
+        Text("Link a node", style=MaterialTheme.typography.titleMedium)
         OutlinedTextField(value=gateway, onValueChange=onGatewayChanged,
             label={Text("Gateway IP address")},
             placeholder={if(gatewayExample.isNotBlank()) Text(gatewayExample)},
-            supportingText={Text(if(gatewayExample.isNotBlank()) "For example: $gatewayExample (reported by the DB server)" else gatewayHint)},
+            supportingText={Text(if(gatewayExample.isNotBlank()) "Detected gateway: $gatewayExample" else gatewayHint)},
             enabled=!working && !externalBusy, singleLine=true, modifier=Modifier.fillMaxWidth())
-        OutlinedButton(enabled=!working && !externalBusy && gateway.isNotBlank(), onClick={
-            val input = gateway
-            accountTask {
-                val found = ServiceDiscovery.discover(input)
-                ServiceDiscovery.select(context, found)
-                "Account service: ${java.net.URI(found.identity).host}"
+        when {
+            checkedGateway != gateway || gateway.isBlank() -> {
+                Button(enabled=!working && !externalBusy && gateway.isNotBlank(), onClick={
+                    val input=gateway
+                    accountTask(onSuccess={checkedGateway=input}) {
+                        val found=ServiceDiscovery.discover(input)
+                        ServiceDiscovery.select(context,found)
+                        ""
+                    }
+                }) { Text(if(working) "Checking gateway…" else "Continue") }
             }
-        }) { Text(if(working) "Working…" else "Find account service") }
-        Text("Account service: ${java.net.URI(services.identity).host}", style=MaterialTheme.typography.bodySmall)
-        Text("Your gateway's account service is used when configured; otherwise tarasec.org is used. Only select gateways you trust.", style=MaterialTheme.typography.bodySmall)
+            !signedIn -> {
+                Text("Sign in with the Google account used on your node. Service: ${java.net.URI(services.identity).host}.")
+                Button(enabled=!working && !externalBusy, onClick={
+                    val url=SubscriberAccountClient.identityLoginUrl(context,"google",TaraMenuDestination.MY_UNITS.name)
+                    context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))
+                }) { Text(if(working) "Signing in…" else "Continue with Google") }
+            }
+            else -> {
+                val linkPage=runCatching { MyUnitsClient.gatewayOrigin(gateway)+"/script/unitLink.php" }.getOrDefault("")
+                Text("On the node, open $linkPage and sign in with the same Google account.")
+                Button(enabled=!working && !externalBusy, onClick=onAddLinkedNodes) {
+                    Text(if(externalBusy) "Adding…" else "Add linked nodes")
+                }
+            }
+        }
         if(signedIn) {
-            Text("Signed in. Use the same Google account when linking each node.")
-            TextButton(enabled=!working && !externalBusy, onClick={
+            TextButton(enabled=!working && !externalBusy,onClick={advanced=!advanced}) { Text(if(advanced) "Hide account options" else "Account options") }
+            if(advanced) TextButton(enabled=!working && !externalBusy, onClick={
                 SubscriberAccountClient.clearToken(context)
                 message="Signed out."
                 onAccountChanged()
             }) { Text("Sign out") }
-        } else {
-            Button(enabled=!working && !externalBusy, onClick={
-                val url = SubscriberAccountClient.identityLoginUrl(context,"google",TaraMenuDestination.MY_UNITS.name)
-                context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))
-            }) { Text("Continue with Google") }
         }
         if(message.isNotBlank()) Text(message)
     }
