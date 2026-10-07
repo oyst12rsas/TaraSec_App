@@ -38,7 +38,9 @@ fun UnitAccountPanel(
     var working by remember { mutableStateOf(false) }
     var checkedGateway by rememberSaveable { mutableStateOf("") }
     var checkedProvider by rememberSaveable { mutableStateOf("") }
-    var linkMode by rememberSaveable { mutableStateOf("") }
+    var nodeName by rememberSaveable { mutableStateOf("") }
+    var approvalUrl by rememberSaveable(MyUnitsClient.accountId(context),services.identity,gateway) { mutableStateOf("") }
+    var confirmationCode by rememberSaveable(MyUnitsClient.accountId(context),services.identity,gateway) { mutableStateOf("") }
     var advanced by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -74,7 +76,7 @@ fun UnitAccountPanel(
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Text("Link a node", style=MaterialTheme.typography.titleMedium)
         OutlinedTextField(value=gateway, onValueChange=onGatewayChanged,
-            label={Text("Gateway IP address")},
+            label={Text("Node IP address")},
             placeholder={if(gatewayExample.isNotBlank()) Text(gatewayExample)},
             supportingText={Text(if(gatewayExample.isNotBlank()) "Detected gateway: $gatewayExample" else gatewayHint)},
             enabled=!working && !externalBusy, singleLine=true, modifier=Modifier.fillMaxWidth())
@@ -85,7 +87,7 @@ fun UnitAccountPanel(
                     accountTask(onSuccess={checkedGateway=input}) {
                         val meta=MyUnitsClient.gatewayMetadata(context,input)
                         val found=ServiceDiscovery.parse(meta.getJSONObject("account_services"))
-                        linkMode=meta.optString("link_mode","google_https")
+                        nodeName=meta.getString("name")
                         checkedProvider=found.identity
                         ServiceDiscovery.select(context,found)
                         ""
@@ -100,18 +102,31 @@ fun UnitAccountPanel(
                 }) { Text(if(working) "Signing in…" else "Continue with Google") }
             }
             else -> {
-                val linkPage=runCatching { MyUnitsClient.gatewayOrigin(gateway)+"/script/unitLink.php" }.getOrDefault("")
-                Text(if(linkMode=="service_handoff") "Open this page on the node you want to link. Create an approval link there, copy it to your phone, and approve with this Google account:" else "Open this link on the device you want to link and sign in with the same Google account:")
-                Text(linkPage)
-                OutlinedButton(enabled=linkPage.isNotBlank(), onClick={
-                    val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("TaraSec node linking URL",linkPage))
-                    message="Link copied."
-                }) { Text("Copy link") }
-                Text(if(linkMode=="service_handoff") "The approval link created on the node can be opened on your phone. This setup-page link must be opened on the node." else "Opening this link on your phone links the phone.",style=MaterialTheme.typography.bodySmall)
-                Button(enabled=!working && !externalBusy, onClick=onAddLinkedNodes) {
-                    Text(if(externalBusy) "Adding…" else "Add linked nodes")
+                Text("Link this phone app to $nodeName.")
+                if(approvalUrl.isBlank()) {
+                    Button(enabled=!working && !externalBusy,onClick={
+                        val input=gateway
+                        val account=MyUnitsClient.accountId(context) ?: return@Button
+                        accountTask {
+                            val request=MyUnitsClient.requestGateway(context,account,input)
+                            approvalUrl=request.getString("approval_url")
+                            confirmationCode=request.getString("confirmation_code")
+                            "Request created. Approve it using the gateway administrator login."
+                        }
+                    }) { Text(if(working) "Requesting…" else "Request app link") }
+                } else {
+                    Text("Confirmation code: $confirmationCode",style=MaterialTheme.typography.titleMedium)
+                    Text("Open the approval page on this phone or any computer with a browser. Sign in as the gateway administrator and approve only if the code matches. The request expires after ten minutes.")
+                    Button(enabled=!working && !externalBusy,onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(approvalUrl)))}) { Text("Open approval page") }
+                    OutlinedButton(enabled=!working && !externalBusy,onClick={
+                        val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("TaraSec app approval URL",approvalUrl))
+                        message="Approval link copied."
+                    }) { Text("Copy approval link") }
+                    Button(enabled=!working && !externalBusy,onClick=onAddLinkedNodes) { Text(if(externalBusy) "Checking…" else "Finish linking") }
+                    TextButton(enabled=!working && !externalBusy,onClick={approvalUrl="";confirmationCode="";message=""}) { Text("Start a new request") }
                 }
+
             }
         }
         if(signedIn) {
