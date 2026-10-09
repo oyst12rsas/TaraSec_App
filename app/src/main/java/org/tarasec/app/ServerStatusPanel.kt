@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.URL
 
 private val GatekeeperGreen = Color(0xFFAFB99D)
@@ -46,8 +48,20 @@ private data class ActiveUnit(
     val vendor: String,
     val mac: String,
     val lastSeen: String,
-    val lastIp: String
+    val lastIp: String,
+    val thisPhone: Boolean = false
 )
+
+private fun localPhoneIpv4Addresses(): Set<String> = try {
+    NetworkInterface.getNetworkInterfaces()?.asSequence()
+        ?.flatMap { it.inetAddresses.asSequence() }
+        ?.filterIsInstance<Inet4Address>()
+        ?.filter { !it.isLoopbackAddress }
+        ?.mapNotNull { it.hostAddress }
+        ?.toSet() ?: emptySet()
+} catch (_: Exception) {
+    emptySet()
+}
 
 private enum class DotState { GREEN, YELLOW, RED }
 
@@ -188,7 +202,10 @@ private fun ActiveUnitCard(unit: ActiveUnit) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(unit.hostname.ifBlank { "Unnamed unit" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        val name = if (unit.thisPhone) {
+            "This phone" + unit.hostname.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        } else unit.hostname.ifBlank { "Unnamed unit" }
+        Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (unit.vendor.isNotBlank()) Text("Vendor: ${unit.vendor}")
         if (unit.lastIp.isNotBlank()) Text("IP: ${unit.lastIp}")
         if (unit.mac.isNotBlank()) Text("MAC: ${unit.mac}", style = MaterialTheme.typography.bodySmall)
@@ -238,6 +255,10 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                     val arr = json.optJSONArray("sites") ?: JSONArray()
                     for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { add(parseSite(it, false)) }
                 }
+                // Require both gateway-observed source and a current address on this
+                // phone. A shared NAT/VPN relay address must not identify a device.
+                val requestSourceIp = json.optString("requestSourceIp").removePrefix("::ffff:")
+                val localAddresses = localPhoneIpv4Addresses()
                 val parsedUnits = buildList {
                     val arr = json.optJSONArray("activeUnits") ?: JSONArray()
                     for (i in 0 until arr.length()) {
@@ -248,7 +269,8 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                                 o.optString("vendor"),
                                 o.optString("mac"),
                                 o.optString("lastSeen"),
-                                o.optString("lastIp")
+                                o.optString("lastIp"),
+                                thisPhone = o.optString("lastIp") == requestSourceIp && requestSourceIp in localAddresses
                             )
                         )
                     }
