@@ -420,6 +420,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             val assistanceRequestActive =
                 (current.assistanceRequestId ?: 0) > 0 && current.state == "contained"
             val demoFinished = current.state == "closed"
+            val recentPollingSuccess = lastHeartbeatSuccessEpochMs?.let {
+                System.currentTimeMillis() - it <= 6_000L
+            } == true && lastHeartbeatError.isBlank()
             val localBlockedSeconds = if (
                 ownInfected &&
                 requestSentLocally &&
@@ -462,9 +465,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                         desiredLocalSeverity > 0 ->
                             "Request for Assistance is active. This INFECTED unit is now contained."
                         ownInfected && current.state == "releasing" ->
-                            "Release sent by the DB server. Polling should resume; post-release observation is in progress."
+                            "Release recorded by the DB server. Checking status polling; normal app access is not yet verified."
                         ownInfected && current.state == "closed" ->
-                            "Demo complete. The DB server sent the release and polling should be restored."
+                            "Session closed. Review status polling below; normal app access is not verified."
                         else -> message
                     }
                 }.onFailure {
@@ -526,17 +529,26 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                     subtitle = "Networks can cooperate without disconnecting everyone"
                 ) {
                     Text(
-                        "The assistance request gave the gateway a narrow, temporary reason to contain traffic classified as infected while clean participants stayed connected. The DB then sent an explicit release and the app checked for restored contact. This is the basis for coordinated incident response with less collateral disruption than blocking an entire hotspot or public address."
+                        "The assistance request gave the gateway a narrow, temporary reason to contain traffic classified as infected while clean participants stayed connected. The DB records an explicit release and the app checks for restored status polling. Other app access must be verified separately. This is the basis for coordinated incident response with less collateral disruption than blocking an entire hotspot or public address."
                     )
                 }
             } else {
                 TaraStatusRow("Exercise", current.name)
                 TaraStatusRow("State", current.state.uppercase())
                 TaraStatusRow("Protected server", current.targetIp)
-                if (ownInfected && requestSentLocally) {
-                    TaraStatusRow("Network", if (heartbeatFailures > 0) "🔴 INFECTED · blocked for ${localBlockedSeconds}s" else "🔴 INFECTED · waiting for network block")
-                } else if (ownParticipant?.severity != null && ownParticipant.severity <= current.threshold) {
-                    TaraStatusRow("Network", "🟢 CLEAN · polling should continue")
+                TaraStatusRow("Exercise classification", if (ownInfected) "INFECTED · assigned for this exercise" else "CLEAN")
+                TaraStatusRow(
+                    "Status polling",
+                    when {
+                        recentPollingSuccess -> "Responding · normal app access remains unverified"
+                        lastHeartbeatError.isNotBlank() -> "Latest poll failed · ${localBlockedSeconds}s since last successful poll"
+                        else -> "Awaiting a fresh result"
+                    }
+                )
+                if (current.state == "releasing") {
+                    Text("Release recorded. Earlier polling failures do not prove a current block. " +
+                        "If other app functions remain blocked, recovery is incomplete.",
+                        style = MaterialTheme.typography.bodySmall)
                 }
                 TaraStatusRow(
                     "Request for Assistance",
@@ -557,14 +569,13 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                     )
                 } else if (current.state == "releasing") {
                     TaraStatusRow(
-                        "Containment completed",
-                        "Connection restored as expected · review remains open for " +
-                            formatDemoDuration(current.observationSecondsRemaining)
+                        "Post-release observation",
+                        (if (recentPollingSuccess) "Status polling resumed; app access unverified" else "Status polling recovery unverified") +
+                            " · review remains open for " + formatDemoDuration(current.observationSecondsRemaining)
                     )
                     Text(
-                        "TaraSec blocked infected traffic while assistance was active. " +
-                            "Assistance is now cancelled, so successful polling is expected again. " +
-                            "The demo closes after the review period or when all participants leave.",
+                        "Assistance is now cancelled. Polling should resume, but a successful status request " +
+                            "does not verify access to other app functions. The review period does not extend containment.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -784,7 +795,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             }
 
             if (current.state == "contained" || current.state == "releasing" || current.state == "closed") {
-                TaraSectionCard(title = "Observed containment", subtitle = "The server judges the result by actual polling loss and recovery") {
+                TaraSectionCard(title = "Observed containment", subtitle = "Polling loss and restored status contact; normal app access is unverified") {
                     val responsive = current.participants.count {
                         it.decision != "left" &&
                             it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age <= 6 } == true
@@ -794,7 +805,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                             it.secondsSinceSeen?.plus(participantAgeTick)?.let { age -> age > 6 } == true
                     }
                     val left = current.participants.count { it.decision == "left" }
-                    Text("${current.participants.size} joined · $responsive responding · $unresponsive without recent contact · $left left · ${current.recovered} recovered")
+                    Text("${current.participants.size} joined · $responsive responding · $unresponsive without recent contact · $left left · ${current.recovered} with restored polling contact")
                 }
             }
 
@@ -1031,14 +1042,15 @@ private fun buildDemoAssistanceDebugReport(
     appendLine("last_attempt_epoch_ms=" + (lastHeartbeatAttemptEpochMs ?: 0))
     appendLine("last_success_epoch_ms=" + (lastHeartbeatSuccessEpochMs ?: 0))
     appendLine("last_error=" + lastHeartbeatError.ifBlank { "none" })
-    val ownParticipant = session?.participants?.firstOrNull { it.id == participantId }
+    val diagnosticSession = liveDbSession?.takeIf { it.id == session?.id } ?: session
+    val ownParticipant = diagnosticSession?.participants?.firstOrNull { it.id == participantId }
     val gatewayHost = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
     val gatewayMismatch = ownParticipant?.observedIp in setOf("100.68.25.154", "100.68.153.251", "100.68.165.190") &&
         ownParticipant?.observedIp != gatewayHost
     val participantInfected = ownParticipant?.severity?.let { severity ->
-        session?.let { severity > it.threshold }
+        diagnosticSession?.let { severity > it.threshold }
     } == true
-    val assistanceRequestActive = session?.let {
+    val assistanceRequestActive = diagnosticSession?.let {
         (it.assistanceRequestId ?: 0) > 0 && it.state == "contained"
     } == true
     val expectedToBeBlocked = participantTokenPresent && participantInfected && assistanceRequestActive
@@ -1046,7 +1058,7 @@ private fun buildDemoAssistanceDebugReport(
         System.currentTimeMillis() - it <= 6_000L
     } == true
     val unexpectedPollingSuccess = expectedToBeBlocked && recentSuccessfulPoll
-    val localReleaseTimerElapsed = session?.let {
+    val localReleaseTimerElapsed = diagnosticSession?.let {
         it.state == "contained" &&
             (it.assistanceRequestId ?: 0) > 0 &&
             (it.releaseRequestId ?: 0) == 0 &&
@@ -1064,7 +1076,10 @@ private fun buildDemoAssistanceDebugReport(
     } else 0L
 
     appendLine("gateway_matches_db_observed_path=" + !gatewayMismatch)
-    appendLine("participant_infected=" + participantInfected)
+    appendLine("participant_demo_classification_infected=" + participantInfected)
+    appendLine("participant_classification_note=Assigned exercise severity; not proof of a current network block or device infection")
+    appendLine("classification_session_source=" + (if (diagnosticSession === liveDbSession) "live_db" else "cached"))
+    appendLine("latest_poll_succeeded=" + (recentSuccessfulPoll && lastHeartbeatError.isBlank()))
     appendLine("assistance_request_active=" + assistanceRequestActive)
     appendLine("expected_to_be_blocked=" + expectedToBeBlocked)
     appendLine("unexpected_success_while_infected=" + unexpectedPollingSuccess)
@@ -1080,15 +1095,20 @@ private fun buildDemoAssistanceDebugReport(
             (containmentPollingFailures > 0 && firstContainmentFailureEpochMs != null)
     )
     appendLine(
-        "recovery_observed=" +
+        "polling_recovery_observed=" +
             (firstPostReleaseSuccessEpochMs != null)
     )
+    appendLine("recovery_observed=unverified")
+    appendLine("normal_app_access_restored=unverified")
+    appendLine("assist_release_delivery_verified=false")
+    appendLine("evidence_scope=Demo status polling only; successful polls and a clean gateway record do not prove other app access was restored")
+    appendLine("failure_cause=unverified; polling failures alone do not prove firewall rejection")
     appendLine()
     appendLine("[expected_behavior]")
     appendLine("After Request for Assistance marks this participant INFECTED, the app MUST keep attempting normal polling.")
     appendLine("Those polling attempts are expected to FAIL because infected traffic to the protected demo server should be rejected.")
     appendLine("After the configured containment period, the DB server MUST issue the release; polling should then succeed again.")
-    appendLine("The Android app must never clear its own infection or send the release.")
+    appendLine("Automatic release is the DB server responsibility; the Android app must keep polling.")
     appendLine("Do NOT fix containment by stopping polling in the Android app; continued attempts are required to prove network/server blocking.")
     appendLine()
     appendLine("[diagnostic_flags]")
@@ -1114,8 +1134,12 @@ private fun buildDemoAssistanceDebugReport(
     } else if (expectedToBeBlocked) {
         appendLine("OK: infected participant is expected to be blocked; inspect failures and last successful contact to verify containment.")
     } else {
-        appendLine("No active infected-participant containment contradiction detected at report generation time.")
+        appendLine("No active containment contradiction in status polling; normal app access recovery remains unverified.")
     }
+    if (firstPostReleaseSuccessEpochMs != null) {
+        appendLine("POLLING RESUMED ONLY: do not conclude full recovery from successful status polling.")
+    }
+    appendLine("If the user reports other app functions remain blocked, treat recovery as incomplete and investigate; do not override that observation with polling success.")
     appendLine()
     appendLine("[session]")
     if (session == null) {
