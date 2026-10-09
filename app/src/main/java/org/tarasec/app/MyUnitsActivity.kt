@@ -174,9 +174,9 @@ class MyUnitsActivity : ComponentActivity() {
             if(units.isNotEmpty()) Text("Linked nodes",style=MaterialTheme.typography.titleMedium)
             if(units.isEmpty() && installations.isEmpty() && !showAdd) Text("No units added yet. Tap Link a node to get started.")
             units.forEach { unit ->
-                val managed = SecureCredentialStore.get(this,
+                val managed = SecureCredentialStore.get(this@MyUnitsActivity,
                     provider.key("manager-installation:$accountId:${unit.key}"))
-                val pending = SecureCredentialStore.get(this,"pending-manager-registration:${unit.key}")
+                val pending = SecureCredentialStore.get(this@MyUnitsActivity,"pending-manager-registration:${unit.key}")
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(unit.name,style=MaterialTheme.typography.titleMedium)
                     Text(if(unit.scope in listOf("gateway_read_only","gateway_hosted_read_only")) "${unit.gateway} · Linked phone app" else "${unit.gateway} · Unit ${unit.unitId}",style=MaterialTheme.typography.bodySmall)
