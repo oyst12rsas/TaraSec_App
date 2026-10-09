@@ -219,10 +219,8 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Server status not loaded") }
     var localSite by remember { mutableStateOf<StatusSite?>(null) }
-    var sites by remember { mutableStateOf<List<StatusSite>>(emptyList()) }
     var units by remember { mutableStateOf<List<ActiveUnit>>(emptyList()) }
     var sshLogins by remember { mutableStateOf<JSONObject?>(null) }
-    var showPartners by remember { mutableStateOf(false) }
     var loadedBase by remember { mutableStateOf<String?>(null) }
 
     fun load() {
@@ -251,10 +249,6 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                     local = local
                 )
                 val parsedLocal = json.optJSONObject("local")?.let { parseSite(it, true) }
-                val parsedSites = buildList {
-                    val arr = json.optJSONArray("sites") ?: JSONArray()
-                    for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { add(parseSite(it, false)) }
-                }
                 // Require both gateway-observed source and a current address on this
                 // phone. A shared NAT/VPN relay address must not identify a device.
                 val requestSourceIp = json.optString("requestSourceIp").removePrefix("::ffff:")
@@ -278,7 +272,6 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
                 activity.runOnUiThread {
                     sshLogins = json.optJSONObject("sshLogins")
                     localSite = parsedLocal
-                    sites = parsedSites
                     units = parsedUnits
                     loadedBase = base
                     message = "Updated"
@@ -299,7 +292,6 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
         if (gatewayBaseUrl != loadedBase) {
             sshLogins = null
             localSite = null
-            sites = emptyList()
             units = emptyList()
             loadedBase = gatewayBaseUrl
         }
@@ -324,11 +316,6 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
             Text("No gateway status reported yet.")
         } else {
             allSites.forEach { site -> StatusSiteCard(site) }
-        }
-        if (sites.isNotEmpty()) {
-            Button(onClick = { showPartners = !showPartners }) { Text(if (showPartners) "Hide partner nodes" else "Other partner nodes (${sites.size})") }
-            if (showPartners) sites.take(20).forEach { StatusSiteCard(it) }
-            if (showPartners && sites.size > 20) Text("Showing the first 20 partner nodes.")
         }
 
         Text(

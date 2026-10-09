@@ -137,13 +137,6 @@ fun ManagerAiPanel(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-        if (managerAuthenticated && !gatewayBaseUrl.isNullOrBlank()) {
-            GatewayManagementPanel(gatewayBaseUrl)
-        }
-
-        // Keep the detailed gateway/site status under the capability summary.
-        ServerStatusPanel(gatewayBaseUrl, managerAuthenticated)
-
         TaraSectionCard(
             title = "AI assessment",
             subtitle = "Local evidence combined with TaraSec network context. AI is supporting evidence, not a confirmed infection state."
