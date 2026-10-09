@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppPage { UNITS, DEMO, MANAGER, RESEARCH, SETUP }
+private enum class AppPage { UNITS, DEMO, MANAGER, ASSISTANCE, SSH, RESEARCH, SETUP }
 
 @androidx.compose.runtime.Composable
 private fun TaraSecApp(initialDestination: String?) {
@@ -532,7 +532,7 @@ private fun TaraSecApp(initialDestination: String?) {
             Text("Threat watch: no active warning from ${installations.size} registered installation(s).", style = MaterialTheme.typography.bodySmall)
         }
 
-        if (page in listOf(AppPage.UNITS, AppPage.MANAGER, AppPage.SETUP)) {
+        if (page in listOf(AppPage.UNITS, AppPage.MANAGER, AppPage.ASSISTANCE, AppPage.SSH, AppPage.SETUP)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(selectedInstallation?.name ?: linkedUnitName.ifBlank { "Node management" },
                     modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
@@ -542,7 +542,7 @@ private fun TaraSecApp(initialDestination: String?) {
             }
             if (selectedInstallation != null || linkedUnitKey != null || managerRequestId != null) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(AppPage.UNITS to "Status", AppPage.MANAGER to "AI & Assistance", AppPage.SETUP to "Access").forEach { (target, label) ->
+                    listOf(AppPage.UNITS to "Status", AppPage.MANAGER to "AI", AppPage.ASSISTANCE to "Assistance", AppPage.SSH to "SSH").forEach { (target, label) ->
                         FilterChip(selected = page == target, onClick = { page = target }, label = { Text(label) })
                     }
                 }
@@ -613,7 +613,17 @@ private fun TaraSecApp(initialDestination: String?) {
                         gatewayBaseUrl = installation.managementBaseUrl,
                         managerAuthenticated = true
                     )
-                    HorizontalDivider()
+                }
+            }
+
+            AppPage.ASSISTANCE -> {
+                val installation = selectedInstallation
+                if (installation == null) {
+                    Text("Choose a node from My units first.")
+                } else if (!managerAuthenticated) {
+                    Text("Management authentication is required to request assistance.")
+                    Button(enabled = !busy && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Reconnect management") }
+                } else {
                     Text("Assistance Request", style = MaterialTheme.typography.titleLarge)
                     Text("Ask the TaraSec network to help protect this installation against traffic matching the selected port and threat threshold. Creating a request does not prove partners have applied it.")
                     Text("Requesting installation: ${installation.name}")
@@ -650,6 +660,18 @@ private fun TaraSecApp(initialDestination: String?) {
                     assistanceItems.take(10).forEach { item ->
                         Text("#${item.id} ${item.ip}:${item.port} threshold ${item.threshold} — ${item.deliveryState}", style = MaterialTheme.typography.bodySmall)
                     }
+                }
+            }
+
+            AppPage.SSH -> {
+                val installation = selectedInstallation
+                if (installation == null) {
+                    Text("Choose a node from My units first.")
+                } else if (!managerAuthenticated) {
+                    Text("Management authentication is required for SSH controls.")
+                    Button(enabled = !busy && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Reconnect management") }
+                } else {
+                    ManagerSshPanel(installation.managementBaseUrl)
                 }
             }
 

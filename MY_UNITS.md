@@ -68,12 +68,24 @@ Those prerequisites above remain required for the existing Google unit-link flow
 
 **My units** is the only hamburger destination for nodes. The overlapping
 **Status / Units** and **AI / Assistance** menu entries are removed. Select a
-node and tap **Manage** to open its status, then use **Status**, **AI & Assistance**
-and **Access** inside that node's management screen. All three retain the same
+node and tap **Manage** to open its status, then use **Status**, **AI**,
+**Assistance** and **SSH** inside that node's management screen. All four retain the same
 selected node. Older status/AI intents still resolve to the corresponding view.
 Linked nodes with saved management mappings appear once, rather than repeating
 in the managed-installations section. Saved management access opens Status and
-is checked on entry; unapproved and pending requests continue to open Access.
+is checked on entry; unapproved and pending requests open the management approval flow.
+Status contains only the selected gateway and its clients; other partner servers
+are not listed there. AI assessments and network assistance requests have separate
+views. Approval/reconnection is shown when needed, rather than an empty Access tab.
+
+The SSH view requires the gateway's optional manager SSH worker. It offers 5, 10
+and 15 minute openings of the gateway's configured SSH port, with
+queued/applied state and a countdown. Kernel ipset timeouts enforce expiry even
+if the app or worker stops. The app triggers the opening; SSH may then be used from a computer or another
+client. Ending the temporary opening removes only that
+allowance; existing owner/recovery SSH policy is retained. The displayed status
+is the temporary firewall allowance, not a verified SSH login. See Core
+`docs/manager-ssh.md` for installation and live acceptance checks.
 
 The hamburger menu has one **My units** entry. It shows saved installations with
 Manage actions and linked nodes with a Request management access action, plus
