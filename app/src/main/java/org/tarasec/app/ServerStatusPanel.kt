@@ -159,6 +159,7 @@ private fun SiteStatusDots(site: StatusSite) {
 
 @Composable
 private fun StatusSiteCard(site: StatusSite) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -176,6 +177,16 @@ private fun StatusSiteCard(site: StatusSite) {
         }
         Text("Status", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         SiteStatusDots(site)
+        val nickname = site.status.optJSONObject("aiAgent")?.optString("nickname").orEmpty()
+        if (Regex("[A-Za-z][A-Za-z0-9 _-]{2,31}").matches(nickname)) {
+            Button(onClick = {
+                val url = android.net.Uri.parse("https://tarasec.org/ops/agent/").buildUpon()
+                    .appendQueryParameter("node", nickname).build()
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url))
+            }) { Text("Open SSH temporarily") }
+            Text("Google sign-in and authenticator approval required for this node.",
+                style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -364,3 +375,4 @@ fun ServerStatusPanel(gatewayBaseUrl: String?, managerAuthenticated: Boolean) {
         })
     }
 }
+
