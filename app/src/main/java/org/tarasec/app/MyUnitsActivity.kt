@@ -59,6 +59,13 @@ class MyUnitsActivity : ComponentActivity() {
         var rename by remember { mutableStateOf<LinkedUnit?>(null) }
         var newName by remember { mutableStateOf("") }
 
+        // A linked node with a management mapping already has its own card.
+        val standaloneInstallations = installations.filterNot { installation ->
+            units.any { unit ->
+                SecureCredentialStore.get(this, provider.key("manager-installation:$accountId:${unit.key}")) == installation.id
+            }
+        }
+
         LaunchedEffect(identityCode) {
             if (!identityCode.isNullOrBlank()) { showAdd=true }
         }
@@ -104,8 +111,8 @@ class MyUnitsActivity : ComponentActivity() {
             }
             Text("Your nodes and installations, with the access granted to your account.")
             Button(enabled=!busy && !accountBusy,onClick={showAdd=true}) { Text("Link a node") }
-            if(installations.isNotEmpty()) Text("Managed installations",style=MaterialTheme.typography.titleMedium)
-            installations.forEach { installation ->
+            if(standaloneInstallations.isNotEmpty()) Text("Managed installations",style=MaterialTheme.typography.titleMedium)
+            standaloneInstallations.forEach { installation ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                         Text(installation.name,style=MaterialTheme.typography.titleMedium)
@@ -117,11 +124,6 @@ class MyUnitsActivity : ComponentActivity() {
                                 startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
                                     .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.STATUS_UNITS.name))
                             }) { Text("Manage") }
-                            TextButton(enabled=!busy && !accountBusy,onClick={
-                                InstallationStore.setSelected(this@MyUnitsActivity,installation.id)
-                                startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
-                                    .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name))
-                            }) { Text("Setup") }
                         }
                     }
                 }
@@ -172,13 +174,17 @@ class MyUnitsActivity : ComponentActivity() {
             if(units.isNotEmpty()) Text("Linked nodes",style=MaterialTheme.typography.titleMedium)
             if(units.isEmpty() && installations.isEmpty() && !showAdd) Text("No units added yet. Tap Link a node to get started.")
             units.forEach { unit ->
+                val managed = SecureCredentialStore.get(this,
+                    provider.key("manager-installation:$accountId:${unit.key}"))
+                val pending = SecureCredentialStore.get(this,"pending-manager-registration:${unit.key}")
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(unit.name,style=MaterialTheme.typography.titleMedium)
                     Text(if(unit.scope in listOf("gateway_read_only","gateway_hosted_read_only")) "${unit.gateway} · Linked phone app" else "${unit.gateway} · Unit ${unit.unitId}",style=MaterialTheme.typography.bodySmall)
                     val status=statuses[unit.key]; val threat=status?.optJSONObject("threat")
                     if(unit.scope in listOf("gateway_read_only","gateway_hosted_read_only")) {
                         Text(errors[unit.key] ?: if(status!=null) "Gateway reachable · Checked: ${status.optString("server_time")}" else "Status not checked")
-                        Text("Read-only gateway access. Management requires separate approval.",style=MaterialTheme.typography.bodySmall)
+                        Text(if (managed != null) "Management access saved; permission is checked when opened."
+                            else "Read-only gateway access. Management requires separate approval.",style=MaterialTheme.typography.bodySmall)
                     } else if(threat==null) Text(errors[unit.key] ?: "Status not checked") else {
                         Text(when { threat.optBoolean("confirmedLocalInfection") -> "Gateway reports a confirmed local infection"; threat.optBoolean("warning") -> "Threat warning — investigate"; else -> "No current warning reported" })
                         Text("Severity: ${threat.optInt("severity")} · Recent threat records (24h): ${threat.optInt("recentThreatRecords24h")}")
@@ -195,14 +201,11 @@ class MyUnitsActivity : ComponentActivity() {
                     }
                     OutlinedButton(enabled=!busy && !accountBusy,onClick={
                         startActivity(Intent(this@MyUnitsActivity,MainActivity::class.java)
-                            .putExtra(CONSOLE_DESTINATION_EXTRA,TaraMenuDestination.SETUP_HOTSPOTS.name)
+                            .putExtra(CONSOLE_DESTINATION_EXTRA,if (managed != null) TaraMenuDestination.STATUS_UNITS.name else TaraMenuDestination.SETUP_HOTSPOTS.name)
                             .putExtra(UNIT_MANAGEMENT_REQUEST_EXTRA,true)
                             .putExtra(UNIT_MANAGEMENT_KEY_EXTRA,unit.key)
                             .putExtra(UNIT_MANAGEMENT_NAME_EXTRA,unit.name))
                     }) {
-                        val pending = SecureCredentialStore.get(this@MyUnitsActivity,"pending-manager-registration:${unit.key}")
-                        val managed = SecureCredentialStore.get(this@MyUnitsActivity,
-                            provider.key("manager-installation:$accountId:${unit.key}"))
                         Text(when {
                             managed != null -> "Manage"
                             pending != null -> "Check management approval"
