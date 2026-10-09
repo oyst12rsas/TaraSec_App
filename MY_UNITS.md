@@ -66,8 +66,17 @@ Those prerequisites above remain required for the existing Google unit-link flow
 
 ## One ownership and management entry
 
+**My units** is the only hamburger destination for nodes. The overlapping
+**Status / Units** and **AI / Assistance** menu entries are removed. Select a
+node and tap **Manage** to open its status, then use **Status**, **AI & Assistance**
+and **Access** inside that node's management screen. All three retain the same
+selected node. Older status/AI intents still resolve to the corresponding view.
+Linked nodes with saved management mappings appear once, rather than repeating
+in the managed-installations section. Saved management access opens Status and
+is checked on entry; unapproved and pending requests continue to open Access.
+
 The hamburger menu has one **My units** entry. It shows saved installations with
-Manage/Setup actions and linked nodes with a Request management access action, plus
+Manage actions and linked nodes with a Request management access action, plus
 account sign-in, gateway service discovery and linked-node status. The separate
 Setup / My hotspots menu entry is removed. Google sign-in started from My units
 returns to My units. Hotspot Internet sign-in remains in My access without the

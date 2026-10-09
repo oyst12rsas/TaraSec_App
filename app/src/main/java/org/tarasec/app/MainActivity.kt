@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -274,7 +276,7 @@ private fun TaraSecApp(initialDestination: String?) {
                                 selectedInstallationId = item.id
                                 InstallationStore.setSelected(activity, item.id)
                                 managerStatus = "MANAGER ACCESS ACTIVE on ${item.name}."
-                                page = AppPage.UNITS
+                                if (page == AppPage.SETUP) page = AppPage.UNITS
                             }
                         }
                         "logout" -> {
@@ -530,36 +532,27 @@ private fun TaraSecApp(initialDestination: String?) {
             Text("Threat watch: no active warning from ${installations.size} registered installation(s).", style = MaterialTheme.typography.bodySmall)
         }
 
-        if (linkedUnitKey == null && installations.isNotEmpty() && page != AppPage.DEMO && page != AppPage.MANAGER) {
-            Text("Current installation", style = MaterialTheme.typography.titleMedium)
-            installations.forEach { installation ->
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        selectedInstallationId = installation.id
-                        InstallationStore.setSelected(activity, installation.id)
+        if (page in listOf(AppPage.UNITS, AppPage.MANAGER, AppPage.SETUP)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(selectedInstallation?.name ?: linkedUnitName.ifBlank { "Node management" },
+                    modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = {
+                    activity.startActivity(android.content.Intent(activity, MyUnitsActivity::class.java))
+                }) { Text("My units") }
+            }
+            if (selectedInstallation != null || linkedUnitKey != null || managerRequestId != null) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(AppPage.UNITS to "Status", AppPage.MANAGER to "AI & Assistance", AppPage.SETUP to "Access").forEach { (target, label) ->
+                        FilterChip(selected = page == target, onClick = { page = target }, label = { Text(label) })
                     }
-                ) {
-                    Text((if (installation.id == selectedInstallationId) "✓ " else "") + installation.name)
                 }
             }
-            Text("The checked installation is the context for Status, Units, AI and Assistance. Demo 1 discovers its gateway from the chosen endpoint. Threat warnings still watch every registered installation.", style = MaterialTheme.typography.bodySmall)
         }
 
         HorizontalDivider()
 
         when (page) {
             AppPage.UNITS -> {
-                if (linkedUnitKey == null && managerRequestId == null) Button(enabled = !busy, onClick = {
-                    selectedInstallationId = null
-                    InstallationStore.setSelected(activity, null)
-                    registrationName = ""
-                    registrationBaseUrl = ""
-                    registrationServiceIp = ""
-                    managerCredential = ""
-                    resetManagerUi("Enter installation details and request access.")
-                    page = AppPage.SETUP
-                }) { Text("Add another installation") }
                 val installation = selectedInstallation
                 if (installation == null) {
                     if (managerRequestId != null) {
@@ -575,7 +568,6 @@ private fun TaraSecApp(initialDestination: String?) {
                         Button(onClick = { page = AppPage.SETUP }) { Text(if (linkedUnitKey != null) "Management access" else "Register an installation") }
                     }
                 } else {
-                    Text("${installation.name} — Status / Units", style = MaterialTheme.typography.titleLarge)
                     if (managerAuthenticated) {
                         ServerStatusPanel(
                             gatewayBaseUrl = installation.managementBaseUrl,
@@ -606,8 +598,6 @@ private fun TaraSecApp(initialDestination: String?) {
 
             AppPage.MANAGER -> {
                 val installation = selectedInstallation
-                Text("Current node: ${installation?.name ?: linkedUnitName.ifBlank { "None selected" }}", style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { activity.startActivity(android.content.Intent(activity, MyUnitsActivity::class.java)) }) { Text("Choose from My units") }
                 if (installation == null) {
                     Text("Select your linked node in My units, or register an installation first.")
                 } else if (!managerAuthenticated) {
@@ -668,7 +658,7 @@ private fun TaraSecApp(initialDestination: String?) {
             }
 
             AppPage.SETUP -> {
-                Text(if (linkedUnitKey != null) "Management access · $linkedUnitName" else "Installations", style = MaterialTheme.typography.titleLarge)
+                Text("Management access", style = MaterialTheme.typography.titleLarge)
                 Text("The global DB/control plane is discovered and checked in the background. Users normally do not need to configure it.", style = MaterialTheme.typography.bodySmall)
 
                 if (linkedUnitKey == null && managerRequestId == null) Button(enabled = !busy, onClick = {

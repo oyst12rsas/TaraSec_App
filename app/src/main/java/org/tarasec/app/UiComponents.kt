@@ -76,9 +76,9 @@ enum class TaraMenuDestination {
     MY_ACCESS,
     MY_UNITS,
     FIND_INTERNET,
-    STATUS_UNITS,
+    STATUS_UNITS, // Retained for existing intents; accessed inside node management.
     SECURITY_DEMO,
-    AI_ASSISTANCE,
+    AI_ASSISTANCE, // Retained for existing intents; accessed inside node management.
     CONTRIBUTE,
     RESEARCH,
     SETUP_HOTSPOTS
@@ -94,9 +94,7 @@ private val taraMenuItems = listOf(
     TaraMenuDestination.MY_ACCESS to "My access",
     TaraMenuDestination.MY_UNITS to "My units",
     TaraMenuDestination.FIND_INTERNET to "Find Internet access",
-    TaraMenuDestination.STATUS_UNITS to "Status / Units",
     TaraMenuDestination.SECURITY_DEMO to "Security Demo",
-    TaraMenuDestination.AI_ASSISTANCE to "AI / Assistance",
     TaraMenuDestination.CONTRIBUTE to "Contribute / TaraSec AI",
     TaraMenuDestination.RESEARCH to "Research"
 )
