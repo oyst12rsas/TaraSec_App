@@ -108,7 +108,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                     discoveredDeviceSession = found
                     if (participantToken.isBlank() && found != null) session = found.session
                 }
-                .onFailure { sharedDeviceNote += " Session discovery unavailable: ${it.message}" }
+                .onFailure { discoveredDeviceSession = discoveredDeviceSession?.copy(fresh = false); sharedDeviceNote += " Session discovery unavailable: ${it.message}" }
             delay(3000)
         }
     }
@@ -196,7 +196,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         }
     }
 
-    LaunchedEffect(session?.id, participantToken) {
+    LaunchedEffect(session?.id, participantToken, discoveredDeviceSession?.participantId) {
+        // Gateway observer snapshots must not become participant polling evidence.
+        if (participantToken.isBlank() && discoveredDeviceSession != null) return@LaunchedEffect
         val id = session?.id ?: return@LaunchedEffect
         while (true) {
             delay(2000)
