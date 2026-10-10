@@ -259,6 +259,17 @@ fun DemoPanel(
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val selectedBaseAtStart = selectedServiceBase
         val basicTargetAtStart = basicTarget
+        // Read the gateway's phone status before making receiver connections.
+        val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
+        val polledVpnGateway = selectedBaseAtStart?.let { DemoClient.threatStatusBase(it) }
+        val polledVpnPhone = selectedBaseAtStart?.let { DemoClient.localThreatStatusBase(it) }
+        activity.runOnUiThread {
+            if (generation == pollGeneration.get() && !actionInProgress.get()) {
+                localPhoneState = local
+                vpnGatewayState = polledVpnGateway
+                vpnPhoneState = polledVpnPhone
+            }
+        }
         val checkNodes = configuredTargets.isNotEmpty()
         val nodeResults = if (checkNodes) configuredTargets.distinctBy { it.ip }.map { endpoint ->
             endpoint.ip to DemoClient.threatStatus(endpoint)
@@ -295,13 +306,10 @@ fun DemoPanel(
         } else {
             DemoClient.threatStatus(t)
         }
-        val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
-        val vpnGateway = (routeBase ?: selectedBaseAtStart)?.let { DemoClient.threatStatusBase(it) }
-        // Phone status belongs to the selected gateway and must not be gated on
-        // appInfection.php, which describes a different status query.
-        val vpnPhone = (routeBase ?: selectedBaseAtStart)?.let {
-            DemoClient.localThreatStatusBase(it)
-        }
+        // Only initial route discovery can require a different gateway read.
+        val newlyDiscoveredBase = routeBase?.takeIf { it != selectedBaseAtStart }
+        val vpnGateway = newlyDiscoveredBase?.let { DemoClient.threatStatusBase(it) } ?: polledVpnGateway
+        val vpnPhone = newlyDiscoveredBase?.let { DemoClient.localThreatStatusBase(it) } ?: polledVpnPhone
 
         activity.runOnUiThread {
             // Ignore a poll that began before a Set CLEAN/INFECTED action.
@@ -429,6 +437,7 @@ fun DemoPanel(
 
         val usingDirectHotspot = directHotspotActive()
         val receiverTarget = basicTarget
+        val endpointsAtStart = configuredTargets.distinctBy { it.ip }
         Thread {
             val result = DemoClient.setGatewayInfected(base, infected)
 
@@ -436,7 +445,18 @@ fun DemoPanel(
             // connection. Its endpoint waits, for at most 1.5 seconds, until
             // tarakernel reports that exact TCP session to taralink.
             val updatedGatewayPhone = DemoClient.localThreatStatusBase(base)
-            val updatedReceiver = receiverTarget?.let { DemoClient.threatStatus(it) }
+            activity.runOnUiThread {
+                if (usingDirectHotspot) {
+                    localPhoneState = updatedGatewayPhone
+                } else {
+                    vpnPhoneState = updatedGatewayPhone
+                }
+            }
+            // Poll every endpoint after the phone; publish both endpoint views together.
+            val updatedNodes = endpointsAtStart.map { it.ip to DemoClient.threatStatus(it) }
+            val updatedReceiver = receiverTarget?.let { selected ->
+                updatedNodes.firstOrNull { it.first == selected.ip }?.second
+            }
             val updatedReceiverProbe = receiverTarget?.let {
                 DemoProbeResult(
                     target = it,
@@ -447,18 +467,14 @@ fun DemoPanel(
             }
 
             activity.runOnUiThread {
-                if (usingDirectHotspot) {
-                    localPhoneState = updatedGatewayPhone
-                } else {
-                    vpnPhoneState = updatedGatewayPhone
-                }
+                lastNodeCheckAt = System.currentTimeMillis()
+                nodeStatuses = updatedNodes.filter { it.second.reachable }.toMap()
+                nodeIssues = updatedNodes.filterNot { it.second.reachable }
+                    .associate { it.first to it.second.message.ifBlank { "Status unavailable" } }
                 if (receiverTarget != null) {
                     basicReceiverProbe = updatedReceiverProbe
                     basicReceiverState = updatedReceiver
-                    if (updatedReceiver?.reachable == true) {
-                        nodeStatuses = nodeStatuses + (receiverTarget.ip to updatedReceiver)
-                        nodeIssues = nodeIssues - receiverTarget.ip
-                    }
+                    basicReceiverFailureCount = if (updatedReceiver?.reachable == true) 0 else basicReceiverFailureCount + 1
                 }
                 if (!infected) auditApproved = false
                 message = result
