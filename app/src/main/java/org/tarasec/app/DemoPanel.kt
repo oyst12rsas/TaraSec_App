@@ -206,15 +206,10 @@ fun DemoPanel(
         else -> null
     }
 
-    // Live gateway state is authoritative only for nodes whose replies prove
-    // they use that same gateway. Keep reachability/issues and other routes intact.
-    fun endpointInfected(status: DemoThreatStatus?): Boolean? {
-        if (status?.reachable != true) return null
-        val live = activePhoneState()
-        return if (verifiedDemo1GatewayIp.isNotBlank() &&
-            status.publicIp == verifiedDemo1GatewayIp && live?.reachable == true
-        ) live.infected else status.infected
-    }
+    // Endpoint colours describe the receiver's own observed traffic evidence.
+    // A gateway update alone does not confirm that a receiver saw the tag.
+    fun endpointInfected(status: DemoThreatStatus?): Boolean? =
+        status?.takeIf { it.reachable }?.infected
 
     fun activeControlBase(): String? = when {
         directHotspotActive() -> localGatewayBase
@@ -264,12 +259,15 @@ fun DemoPanel(
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val selectedBaseAtStart = selectedServiceBase
         val basicTargetAtStart = basicTarget
-        val checkNodes = configuredTargets.isNotEmpty() && System.currentTimeMillis() - lastNodeCheckAt >= 15000L
+        val checkNodes = configuredTargets.isNotEmpty()
         val nodeResults = if (checkNodes) configuredTargets.distinctBy { it.ip }.map { endpoint ->
             endpoint.ip to DemoClient.threatStatus(endpoint)
         } else emptyList()
         val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
-        val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
+        // Reuse the selected endpoint's response in Live status and the list.
+        val basicReceiver = basicTargetAtStart?.let { selected ->
+            nodeResults.firstOrNull { it.first == selected.ip }?.second
+        }
         val basicEndpointName = basicIdentity?.takeIf { it.reachable }?.nodeName
             ?.takeIf { it.isNotBlank() }
             ?: basicTargetAtStart?.name.orEmpty()
@@ -363,10 +361,10 @@ fun DemoPanel(
                 }
             }
             if (basicTargetAtStart?.ip != basicTarget?.ip) return@runOnUiThread
-            if (basicIdentity?.reachable == true && basicReceiver?.reachable == true) {
+            if (basicReceiver?.reachable == true) {
                 basicReceiverProbe = basicIdentity
                 basicReceiverState = basicReceiver
-                basicReceiverFailureCount = 0
+                basicReceiverFailureCount = if (basicIdentity?.reachable == true) 0 else basicReceiverFailureCount + 1
             } else if (basicTargetAtStart != null) {
                 basicReceiverFailureCount += 1
                 // Do not replace a confirmed CLEAN/INFECTED state with
@@ -658,7 +656,7 @@ fun DemoPanel(
                                     basicReceiverState = null
                                 }
                             ) {
-                                val status = nodeStatuses[endpoint.ip]
+                                val status = if (endpoint.ip == basicTarget?.ip) basicReceiverState else nodeStatuses[endpoint.ip]
                                 val dot = when {
                                     nodeIssues.containsKey(endpoint.ip) -> "🟡"
                                     endpointInfected(status) == true -> "🔴"
@@ -987,9 +985,7 @@ fun DemoPanel(
                                         nodeStatus?.reachable == true -> "CLEAN"
                                         else -> "UNKNOWN"
                                     } +
-                                    "; state_source=" + (if (nodeStatus?.reachable == true && activePhoneState()?.reachable == true &&
-                                        verifiedDemo1GatewayIp.isNotBlank() && nodeStatus.publicIp == verifiedDemo1GatewayIp)
-                                        "live_gateway" else "node_reply") +
+                                    "; state_source=node_reply" +
                                     "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
                                     "; checked_at=" + (nodeStatus?.polledAt ?: "unknown") +
                                     "; issue=" + (issue ?: "none"))
