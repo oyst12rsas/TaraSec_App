@@ -206,15 +206,10 @@ fun DemoPanel(
         else -> null
     }
 
-    // Live gateway state is authoritative only for nodes whose replies prove
-    // they use that same gateway. Keep reachability/issues and other routes intact.
-    fun endpointInfected(status: DemoThreatStatus?): Boolean? {
-        if (status?.reachable != true) return null
-        val live = activePhoneState()
-        return if (verifiedDemo1GatewayIp.isNotBlank() &&
-            status.publicIp == verifiedDemo1GatewayIp && live?.reachable == true
-        ) live.infected else status.infected
-    }
+    // Endpoint colours describe the receiver's own observed traffic evidence.
+    // A gateway update alone does not confirm that a receiver saw the tag.
+    fun endpointInfected(status: DemoThreatStatus?): Boolean? =
+        status?.takeIf { it.reachable }?.infected
 
     fun activeControlBase(): String? = when {
         directHotspotActive() -> localGatewayBase
@@ -264,12 +259,26 @@ fun DemoPanel(
         val localConfig = localGatewayBase?.let { DemoClient.gatewayConfigurationBase(it) }
         val selectedBaseAtStart = selectedServiceBase
         val basicTargetAtStart = basicTarget
-        val checkNodes = configuredTargets.isNotEmpty() && System.currentTimeMillis() - lastNodeCheckAt >= 15000L
+        // Read the gateway's phone status before making receiver connections.
+        val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
+        val polledVpnGateway = selectedBaseAtStart?.let { DemoClient.threatStatusBase(it) }
+        val polledVpnPhone = selectedBaseAtStart?.let { DemoClient.localThreatStatusBase(it) }
+        activity.runOnUiThread {
+            if (generation == pollGeneration.get() && !actionInProgress.get()) {
+                localPhoneState = local
+                vpnGatewayState = polledVpnGateway
+                vpnPhoneState = polledVpnPhone
+            }
+        }
+        val checkNodes = configuredTargets.isNotEmpty()
         val nodeResults = if (checkNodes) configuredTargets.distinctBy { it.ip }.map { endpoint ->
             endpoint.ip to DemoClient.threatStatus(endpoint)
         } else emptyList()
         val basicIdentity = basicTargetAtStart?.let { DemoClient.probe(it) }
-        val basicReceiver = basicTargetAtStart?.let { DemoClient.threatStatus(it) }
+        // Reuse the selected endpoint's response in Live status and the list.
+        val basicReceiver = basicTargetAtStart?.let { selected ->
+            nodeResults.firstOrNull { it.first == selected.ip }?.second
+        }
         val basicEndpointName = basicIdentity?.takeIf { it.reachable }?.nodeName
             ?.takeIf { it.isNotBlank() }
             ?: basicTargetAtStart?.name.orEmpty()
@@ -297,13 +306,10 @@ fun DemoPanel(
         } else {
             DemoClient.threatStatus(t)
         }
-        val local = localGatewayBase?.let { DemoClient.localThreatStatusBase(it) }
-        val vpnGateway = (routeBase ?: selectedBaseAtStart)?.let { DemoClient.threatStatusBase(it) }
-        // Phone status belongs to the selected gateway and must not be gated on
-        // appInfection.php, which describes a different status query.
-        val vpnPhone = (routeBase ?: selectedBaseAtStart)?.let {
-            DemoClient.localThreatStatusBase(it)
-        }
+        // Only initial route discovery can require a different gateway read.
+        val newlyDiscoveredBase = routeBase?.takeIf { it != selectedBaseAtStart }
+        val vpnGateway = newlyDiscoveredBase?.let { DemoClient.threatStatusBase(it) } ?: polledVpnGateway
+        val vpnPhone = newlyDiscoveredBase?.let { DemoClient.localThreatStatusBase(it) } ?: polledVpnPhone
 
         activity.runOnUiThread {
             // Ignore a poll that began before a Set CLEAN/INFECTED action.
@@ -363,10 +369,10 @@ fun DemoPanel(
                 }
             }
             if (basicTargetAtStart?.ip != basicTarget?.ip) return@runOnUiThread
-            if (basicIdentity?.reachable == true && basicReceiver?.reachable == true) {
+            if (basicReceiver?.reachable == true) {
                 basicReceiverProbe = basicIdentity
                 basicReceiverState = basicReceiver
-                basicReceiverFailureCount = 0
+                basicReceiverFailureCount = if (basicIdentity?.reachable == true) 0 else basicReceiverFailureCount + 1
             } else if (basicTargetAtStart != null) {
                 basicReceiverFailureCount += 1
                 // Do not replace a confirmed CLEAN/INFECTED state with
@@ -431,6 +437,7 @@ fun DemoPanel(
 
         val usingDirectHotspot = directHotspotActive()
         val receiverTarget = basicTarget
+        val endpointsAtStart = configuredTargets.distinctBy { it.ip }
         Thread {
             val result = DemoClient.setGatewayInfected(base, infected)
 
@@ -438,7 +445,18 @@ fun DemoPanel(
             // connection. Its endpoint waits, for at most 1.5 seconds, until
             // tarakernel reports that exact TCP session to taralink.
             val updatedGatewayPhone = DemoClient.localThreatStatusBase(base)
-            val updatedReceiver = receiverTarget?.let { DemoClient.threatStatus(it) }
+            activity.runOnUiThread {
+                if (usingDirectHotspot) {
+                    localPhoneState = updatedGatewayPhone
+                } else {
+                    vpnPhoneState = updatedGatewayPhone
+                }
+            }
+            // Poll every endpoint after the phone; publish both endpoint views together.
+            val updatedNodes = endpointsAtStart.map { it.ip to DemoClient.threatStatus(it) }
+            val updatedReceiver = receiverTarget?.let { selected ->
+                updatedNodes.firstOrNull { it.first == selected.ip }?.second
+            }
             val updatedReceiverProbe = receiverTarget?.let {
                 DemoProbeResult(
                     target = it,
@@ -449,18 +467,14 @@ fun DemoPanel(
             }
 
             activity.runOnUiThread {
-                if (usingDirectHotspot) {
-                    localPhoneState = updatedGatewayPhone
-                } else {
-                    vpnPhoneState = updatedGatewayPhone
-                }
+                lastNodeCheckAt = System.currentTimeMillis()
+                nodeStatuses = updatedNodes.filter { it.second.reachable }.toMap()
+                nodeIssues = updatedNodes.filterNot { it.second.reachable }
+                    .associate { it.first to it.second.message.ifBlank { "Status unavailable" } }
                 if (receiverTarget != null) {
                     basicReceiverProbe = updatedReceiverProbe
                     basicReceiverState = updatedReceiver
-                    if (updatedReceiver?.reachable == true) {
-                        nodeStatuses = nodeStatuses + (receiverTarget.ip to updatedReceiver)
-                        nodeIssues = nodeIssues - receiverTarget.ip
-                    }
+                    basicReceiverFailureCount = if (updatedReceiver?.reachable == true) 0 else basicReceiverFailureCount + 1
                 }
                 if (!infected) auditApproved = false
                 message = result
@@ -658,7 +672,7 @@ fun DemoPanel(
                                     basicReceiverState = null
                                 }
                             ) {
-                                val status = nodeStatuses[endpoint.ip]
+                                val status = if (endpoint.ip == basicTarget?.ip) basicReceiverState else nodeStatuses[endpoint.ip]
                                 val dot = when {
                                     nodeIssues.containsKey(endpoint.ip) -> "🟡"
                                     endpointInfected(status) == true -> "🔴"
@@ -987,9 +1001,7 @@ fun DemoPanel(
                                         nodeStatus?.reachable == true -> "CLEAN"
                                         else -> "UNKNOWN"
                                     } +
-                                    "; state_source=" + (if (nodeStatus?.reachable == true && activePhoneState()?.reachable == true &&
-                                        verifiedDemo1GatewayIp.isNotBlank() && nodeStatus.publicIp == verifiedDemo1GatewayIp)
-                                        "live_gateway" else "node_reply") +
+                                    "; state_source=node_reply" +
                                     "; observed_gateway=" + (nodeStatus?.publicIp?.takeIf { validIpv4(it) } ?: "unknown") +
                                     "; checked_at=" + (nodeStatus?.polledAt ?: "unknown") +
                                     "; issue=" + (issue ?: "none"))
