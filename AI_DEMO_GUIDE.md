@@ -325,3 +325,18 @@ port remains independent.
 The app should display the SSH host, port, username, password, a copyable SSH command,
 and the live event sequence. If no embedded SSH implementation is present, it should
 let the user copy the command and use a laptop or installed SSH client.
+
+## Cross-platform Demo 3 discovery
+
+The updated Demo 3 panel polls gateway-local device state independently of DB
+heartbeats. Public participation is registered on the gateway for this caller's
+local IP. Opening the browser's demo hub or Demo 3 page then discovers that
+same session/participant, without joining or sending heartbeats for the app.
+The gateway-hosted Demo 3 observer remains reachable during DB containment.
+The reverse direction works too: the app can observe browser participation.
+Observers do not receive participant/controller tokens or automatically change
+gateway marks. Session choice and gateway-confirmed severity are shown separately.
+Update both gateway/DB web files and the Android client. Old running sessions
+need a fresh join with the updated client to register. Private group sessions
+are excluded from automatic cross-platform discovery. Different network routes
+may yield different client identities; compare the displayed gateway/client IPs.

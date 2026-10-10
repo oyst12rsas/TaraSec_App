@@ -40,7 +40,25 @@ data class DemoAssistanceSession(
 data class DemoAssistanceJoin(val participantId: Int, val participantToken: String, val session: DemoAssistanceSession)
 data class DemoAssistanceCreate(val controllerToken: String, val session: DemoAssistanceSession)
 
+data class DemoDeviceSession(val participantId: Int, val clientIp: String, val fresh: Boolean, val session: DemoAssistanceSession)
+
 object DemoAssistanceClient {
+    fun registerDeviceSession(gatewayBase: String, sessionId: Int, token: String) {
+        val c = URL("${normaliseBase(gatewayBase)}/script/appDemoDeviceSession.php").openConnection() as HttpURLConnection
+        try {
+            c.connectTimeout = 4000; c.readTimeout = 6000; c.requestMethod = "POST"; c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            c.outputStream.use { it.write("session_id=$sessionId&participant_token=${URLEncoder.encode(token, "UTF-8")}".toByteArray(StandardCharsets.UTF_8)) }
+            if (c.responseCode !in 200..299) error("Gateway session registration failed (HTTP ${c.responseCode})")
+        } finally { c.disconnect() }
+    }
+
+    fun deviceSession(gatewayBase: String): DemoDeviceSession? {
+        val json = request(gatewayBase, "script/appDemoDeviceSession.php", "GET")
+        val demo = json.optJSONObject("demo") ?: return null
+        return DemoDeviceSession(demo.getInt("participant_id"), json.optString("client_ip"), demo.optBoolean("fresh"), parseSession(demo.getJSONObject("session")))
+    }
+
     fun list(baseUrl: String, joinCode: String = ""): List<DemoAssistanceSession> {
         val suffix = if (joinCode.isBlank()) "" else "&join_code=" + URLEncoder.encode(joinCode, Charsets.UTF_8.name())
         val json = request(baseUrl, "script/appDemoAssistance.php?action=list$suffix", "GET")

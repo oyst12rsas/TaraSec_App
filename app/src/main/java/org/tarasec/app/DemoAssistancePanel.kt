@@ -90,6 +90,37 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var firstPostReleaseSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var appliedLocalSeverity by remember { mutableStateOf<Int?>(null) }
 
+    var sharedDeviceStatus by remember { mutableStateOf<DemoThreatStatus?>(null) }
+    var discoveredDeviceSession by remember { mutableStateOf<DemoDeviceSession?>(null) }
+    var sharedDeviceNote by remember { mutableStateOf("Checking shared device state…") }
+
+    // This local request remains independent of the deliberately blocked DB heartbeat.
+    LaunchedEffect(gatewayControlBase) {
+        val gateway = gatewayControlBase ?: return@LaunchedEffect
+        while (true) {
+            val local = withContext(Dispatchers.IO) { DemoClient.localThreatStatusBase(gateway) }
+            sharedDeviceStatus = local
+            sharedDeviceNote = if (local.reachable) {
+                "Gateway $gateway · client ${local.publicIp} · severity ${local.severity} · checked ${local.polledAt}. App and browser share this identity when routed the same way."
+            } else "Gateway state unavailable; no clean state inferred. ${local.message}"
+            runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.deviceSession(gateway) } }
+                .onSuccess { found ->
+                    discoveredDeviceSession = found
+                    if (participantToken.isBlank() && found != null) session = found.session
+                }
+                .onFailure { sharedDeviceNote += " Session discovery unavailable: ${it.message}" }
+            delay(3000)
+        }
+    }
+
+    LaunchedEffect(participantToken, gatewayControlBase) {
+        val gateway = gatewayControlBase ?: return@LaunchedEffect
+        val id = session?.id ?: return@LaunchedEffect
+        if (participantToken.isBlank() || session?.visibility != "public") return@LaunchedEffect
+        runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.registerDeviceSession(gateway, id, participantToken) } }
+            .onFailure { sharedDeviceNote = "Session joined, but cross-platform registration failed: ${it.message}" }
+    }
+
     val demo3GatewayIps = setOf("100.68.25.154", "100.68.153.251", "100.68.165.190")
 
     fun alignGatewayWithParticipant(joined: DemoAssistanceJoin) {
@@ -229,250 +260,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         val current = session ?: return@LaunchedEffect
         displayedRequestSeconds = current.secondsRemaining.coerceAtLeast(0)
         requestSentLocally = current.state != "active" || displayedRequestSeconds == 0
-        displayedReleaseSeconds = when {
-            current.state == "closed" -> 0
-            current.state != "active" -> current.releaseSecondsRemaining.coerceAtLeast(0)
-            requestSentLocally -> current.containmentSeconds
-            else -> 0
-        }
-
-        while (current.state != "closed") {
-            delay(1000)
-            if (!requestSentLocally) {
-                displayedRequestSeconds = (displayedRequestSeconds - 1).coerceAtLeast(0)
-                if (displayedRequestSeconds == 0) {
-                    requestSentLocally = true
-                    displayedReleaseSeconds = current.containmentSeconds
-                }
-            } else {
-                displayedReleaseSeconds = (displayedReleaseSeconds - 1).coerceAtLeast(0)
-            }
-        }
-    }
-
-    LaunchedEffect(
-        session?.id,
-        session?.participants?.map {
-            Triple(it.id, it.decision, it.secondsSinceSeen)
-        }
-    ) {
-        participantAgeTick = 0
-        while (session?.state != "closed") {
-            delay(1000)
-            participantAgeTick += 1
-        }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        startFailure?.let { failure ->
-            AlertDialog(
-                onDismissRequest = { startFailure = null },
-                title = { Text("Demo 3 could not start") },
-                text = {
-                    Text("$failure\n\nThis error will remain in Copy debug info for AI.")
-                },
-                confirmButton = {
-                    Button(onClick = { startFailure = null }) { Text("Close") }
-                }
-            )
-        }
-        Text("Anyone may join. Choose a demo with more than 15 seconds remaining, or start a new exercise lasting up to 5 minutes.")
-        Text(
-            "At zero the demo server issues a real TaraSec Request for Assistance. Units marked INFECTED should lose connectivity to the demo server, so their polling stops.",
-            style = MaterialTheme.typography.bodySmall
-        )
-
-        val current = session
-        if (current == null) {
-            TaraSectionCard(title = "Available assistance demos", subtitle = "Only demos with more than 15 seconds left are joinable") {
-                if (available.isEmpty()) Text("No joinable demos right now.")
-                available.forEach { demo ->
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            session = demo
-                            participantToken = ""
-                            participantId = 0
-                            controllerToken = ""
-                            message = "Selected ${demo.name}."
-                        }
-                    ) {
-                        Text("${demo.name}${if (demo.groupLabel.isBlank()) "" else " · ${demo.groupLabel}"} · #${demo.id} · ${demo.secondsRemaining}s left")
-                    }
-                }
-                OutlinedTextField(
-                    value = groupCode,
-                    onValueChange = { groupCode = it.take(64) },
-                    label = { Text("University/group code (optional)") },
-                    supportingText = { Text("Enter the shared code, then refresh to reveal that group's demos.") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { scope.launch { refreshAvailable() } }
-                ) { Text("Refresh available demos") }
-            }
-
-            TaraSectionCard(title = "Start a new Demo 3", subtitle = "Give it a name others can recognize") {
-                Text("Participants choose CLEAN or INFECTED. Infected units are contained when the request is sent.")
-                OutlinedTextField(
-                    value = newDemoName,
-                    onValueChange = { newDemoName = it.take(120) },
-                    label = { Text("Demo name (optional)") },
-                    placeholder = { Text("For example: UiA Grimstad – Table 2") },
-                    supportingText = {
-                        Text("Include a location, class or group if several demos may be running.")
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = groupLabel,
-                    onValueChange = { groupLabel = it.take(120) },
-                    label = { Text("University or group (optional)") },
-                    placeholder = { Text("For example: UiA") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = groupCode,
-                    onValueChange = { groupCode = it.take(64) },
-                    label = { Text("Private group code (optional)") },
-                    supportingText = { Text("With a code, only participants using the same code can discover or join this demo.") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Request countdown: $delaySeconds seconds")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf(30, 120, 300).forEach { seconds ->
-                        OutlinedButton(onClick = { delaySeconds = seconds }, modifier = Modifier.weight(1f)) {
-                            Text(if (delaySeconds == seconds) "✓ ${seconds}s" else "${seconds}s")
-                        }
-                    }
-                }
-
-                Text("Suggested observation before release: $containmentSeconds seconds")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf(30, 120, 300).forEach { seconds ->
-                        OutlinedButton(onClick = { containmentSeconds = seconds }, modifier = Modifier.weight(1f)) {
-                            Text(if (containmentSeconds == seconds) "✓ ${seconds}s" else "${seconds}s")
-                        }
-                    }
-                }
-
-                Button(
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            runCatching {
-                                withContext(Dispatchers.IO) {
-                                    gatewayControlBase
-                                        ?: error("Connect through a recognized TaraSec gateway first")
-                                    val created = DemoAssistanceClient.create(
-                                        baseUrl,
-                                        newDemoName.trim().ifBlank {
-                                            "Community infection exercise"
-                                        },
-                                        5,
-                                        delaySeconds,
-                                        containmentSeconds,
-                                        groupLabel.trim(),
-                                        groupCode.trim()
-                                    )
-                                    val joined = DemoAssistanceClient.join(
-                                        baseUrl,
-                                        created.session.id,
-                                        demo3ParticipantName(nickname),
-                                        groupCode.trim()
-                                    )
-                                    created to joined
-                                }
-                            }.onSuccess { (created, joined) ->
-                                alignGatewayWithParticipant(joined)
-                                session = joined.session
-                                controllerToken = created.controllerToken
-                                participantToken = joined.participantToken
-                                participantId = joined.participantId
-                                message = "${created.session.name} started and this unit joined demo #${created.session.id}. Choose whether this unit is CLEAN or INFECTED."
-                            }.onFailure {
-                                val failure = it.message ?: it.javaClass.simpleName
-                                message = "Could not start and join Demo 3: $failure"
-                                startFailure = failure
-                            }
-                            busy = false
-                        }
-                    }
-                ) { Text("Start new Demo 3") }
-            }
-        } else {
-            val ownParticipant = current.participants.firstOrNull { it.id == participantId }
-            val ownInfected = ownParticipant?.severity?.let { it > current.threshold } == true
-            val observedGatewayIp = ownParticipant?.observedIp?.takeIf { it in demo3GatewayIps }
-            val selectedGatewayIp = gatewayControlBase?.let { runCatching { URL(it).host }.getOrNull() }
-            val gatewayMismatch = observedGatewayIp != null && selectedGatewayIp != observedGatewayIp
-            val containmentExpected = participantToken.isNotBlank() &&
-                ownInfected &&
-                current.state == "active"
-            val assistanceRequestActive =
-                (current.assistanceRequestId ?: 0) > 0 && current.state == "contained"
-            val demoFinished = current.state == "closed"
-            val localBlockedSeconds = if (
-                ownInfected &&
-                requestSentLocally &&
-                lastHeartbeatSuccessEpochMs != null
-            ) {
-                ((System.currentTimeMillis() - lastHeartbeatSuccessEpochMs!!) / 1000L)
-                    .coerceAtLeast(0L).toInt()
-            } else 0
-
-            LaunchedEffect(
-                current.id,
-                current.state,
-                current.secondsRemaining,
-                containmentExpected
-            ) {
-                if (
-                    containmentExpected &&
-                    current.secondsRemaining in 1..15 &&
-                    containmentWarnedSessionId != current.id
-                ) {
-                    containmentWarnedSessionId = current.id
-                    containmentAlertVisible = true
-                }
-            }
-
-            // Infection is classification only. Keep the local gateway clean until
-            // the server confirms that a Request for Assistance is active; that
-            // request, not choosing INFECTED, is the containment boundary.
-            val desiredLocalSeverity = if (ownInfected && assistanceRequestActive) 10 else 0
-            LaunchedEffect(current.id, desiredLocalSeverity, gatewayControlBase) {
-                val gateway = gatewayControlBase ?: return@LaunchedEffect
-                if (appliedLocalSeverity == desiredLocalSeverity) return@LaunchedEffect
-                runCatching {
-                    withContext(Dispatchers.IO) {
-                        DemoAssistanceClient.setLocalSeverity(gateway, desiredLocalSeverity)
-                    }
-                }.onSuccess {
-                    appliedLocalSeverity = desiredLocalSeverity
-                    message = when {
-                        desiredLocalSeverity > 0 ->
-                            "Request for Assistance is active. This INFECTED unit is now contained."
-                        ownInfected && current.state == "releasing" ->
-                            "Release sent by the DB server. Polling should resume; post-release observation is in progress."
-                        ownInfected && current.state == "closed" ->
-                            "Demo complete. The DB server sent the release and polling should be restored."
-                        else -> message
-                    }
-                }.onFailure {
-                    message = "Could not synchronize local demo status: ${it.message}"
-                }
-            }
-
-            if (containmentAlertVisible && !demoFinished) {
+        display…3393 tokens truncated…        if (containmentAlertVisible && !demoFinished) {
                 AlertDialog(
                     onDismissRequest = { containmentAlertVisible = false },
                     title = { Text("TaraSec communication will pause") },
@@ -593,7 +381,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 ) { Text("Release assistance and observe recovery") }
             }
 
-            if (!demoFinished && participantToken.isBlank() && current.state == "active") {
+            if (!demoFinished && discoveredDeviceSession == null && participantToken.isBlank() && current.state == "active") {
                 TaraSectionCard(title = "Join the exercise", subtitle = "Nickname is optional") {
                     OutlinedTextField(nickname, { nickname = it.take(80) }, label = { Text("Nickname (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(
