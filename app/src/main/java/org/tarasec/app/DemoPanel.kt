@@ -125,7 +125,7 @@ fun DemoPanel(
     val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
         ?: configuredTargets.singleOrNull().takeIf { directHotspotDetected }
     var verifiedDemo1GatewayIp by remember { mutableStateOf("") }
-    var demo1RouteMessage by remember { mutableStateOf("Select an endpoint to discover its gateway.") }
+    var demo1RouteMessage by remember { mutableStateOf("Tap an endpoint below to get started and discover its gateway.") }
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var basicReceiverFailureCount by remember { mutableStateOf(0) }
@@ -575,6 +575,15 @@ fun DemoPanel(
                 title = "Demo 1 · Basic infection demo",
                 subtitle = "See a phone's security status follow it through TaraSec"
             ) {
+                Text(
+                    "Start here: tap an endpoint button below to begin Demo 1.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    "The app will check that endpoint and find its gateway. Once it is ready, tap Set INFECTED and then Set CLEAN to test how your phone's status is shared.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
                 TaraSectionCard(
                     title = "What this demonstrates",
                     subtitle = "One security status, shared across the protected path"
@@ -590,8 +599,8 @@ fun DemoPanel(
                 }
 
                 TaraSectionCard(
-                    title = "Demo configuration",
-                    subtitle = "Choose a destination; the endpoint identifies the gateway"
+                    title = "Choose an endpoint to start",
+                    subtitle = "Tap an endpoint button below; the app will find its gateway"
                 ) {
                     if (directHotspotDetected) {
                         Text(
@@ -619,7 +628,7 @@ fun DemoPanel(
                         }
                     }
                     if (configuredTargets.isNotEmpty()) {
-                        Text("Demo endpoint", style = MaterialTheme.typography.titleMedium)
+                        Text("Tap an endpoint below", style = MaterialTheme.typography.titleMedium)
                         configuredTargets.forEach { endpoint ->
                             OutlinedButton(
                                 modifier = Modifier.fillMaxWidth(),
@@ -830,7 +839,7 @@ fun DemoPanel(
                 if (basicTarget == null) {
                     TaraStatusRow("Receiver", if (directHotspotActive()) "No demo receivers configured" else "Select an endpoint")
                     Text(
-                        if (directHotspotActive()) "This TaraSec hotspot is valid, but its gateway has not configured any nodes for Demo 1." else "Select a listed node or enter an endpoint IP to discover its demo capabilities.",
+                        if (directHotspotActive()) "This TaraSec hotspot is valid, but its gateway has not configured any nodes for Demo 1." else "To start Demo 1, tap an endpoint button above, or enter an endpoint IP and tap Use this endpoint.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
