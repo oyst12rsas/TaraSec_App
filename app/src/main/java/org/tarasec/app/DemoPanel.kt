@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -575,11 +576,14 @@ fun DemoPanel(
                 title = "Demo 1 · Basic infection demo",
                 subtitle = "See a phone's security status follow it through TaraSec"
             ) {
-                Text(
-                    "Start here: tap an endpoint button below to begin Demo 1.",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                if (basicTarget == null && configuredTargets.isNotEmpty()) {
+                    Text(
+                        "Start here: tap an endpoint button below to begin Demo 1.",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Text(
                     "The app will check that endpoint and find its gateway. Once it is ready, tap Set INFECTED and then Set CLEAN to test how your phone's status is shared.",
                     style = MaterialTheme.typography.bodyMedium
@@ -599,8 +603,8 @@ fun DemoPanel(
                 }
 
                 TaraSectionCard(
-                    title = "Choose an endpoint to start",
-                    subtitle = "Tap an endpoint button below; the app will find its gateway"
+                    title = if (basicTarget == null) "Choose an endpoint to start" else "Demo endpoint",
+                    subtitle = if (basicTarget == null) "Tap an endpoint button below; the app will find its gateway" else "Tap another endpoint to switch destination"
                 ) {
                     if (directHotspotDetected) {
                         Text(
@@ -628,7 +632,14 @@ fun DemoPanel(
                         }
                     }
                     if (configuredTargets.isNotEmpty()) {
-                        Text("Tap an endpoint below", style = MaterialTheme.typography.titleMedium)
+                        if (basicTarget == null) {
+                            Text(
+                                "Tap an endpoint below",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         configuredTargets.forEach { endpoint ->
                             OutlinedButton(
                                 modifier = Modifier.fillMaxWidth(),
