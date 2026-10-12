@@ -120,7 +120,7 @@ fun DemoSshPanel(
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            "The current gateway carries the demonstration traffic. The DB server assigns Node A, Node B and a temporary shared classroom credential.",
+            "The gateway identifies this device so several participants can run Demo 2 together. Make both SSH attempts from this same device. The DB server assigns Node A, Node B and the shared classroom credential.",
             style = MaterialTheme.typography.bodySmall
         )
         TaraStatusRow(
@@ -261,7 +261,7 @@ fun DemoSshPanel(
                                 }
                             } else if (check.eligible) {
                                 val created = withContext(Dispatchers.IO) {
-                                    DemoSshClient.create(base, setupId)
+                                    DemoSshClient.create(base, setupId, "http://${gateway.address}")
                                 }
                                 session = if (created.sessionId > 0) created else null
                                 message = created.message.ifBlank {
@@ -293,6 +293,7 @@ fun DemoSshPanel(
             val demoComplete = current.state == "cleared"
             TaraSectionCard(title = "Live DB session", subtitle = "Session #${current.sessionId}") {
                 TaraStatusRow("State", stateLabel(current.state))
+                current.unitId?.let { TaraStatusRow("Verified source unit", it.toString()) }
                 TaraStatusRow("Node A report", nodeAStatus(current))
                 TaraStatusRow("Gateway/DB update", gatewayStatus(current))
                 TaraStatusRow("Node B report", nodeBStatus(current))
@@ -458,7 +459,8 @@ private fun buildDemoSshDebugReport(
     appendLine("generated_at_epoch_ms=" + System.currentTimeMillis())
     appendLine("app_version=" + BuildConfig.VERSION_NAME)
     appendLine("android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT)
-    appendLine("secrets=omitted (password and session token)")
+    appendLine("secrets=omitted (password, session token and identity proof)")
+    appendLine("verified_unit_id=${session?.unitId ?: "unavailable"}")
     appendLine()
     appendLine("[connection]")
     appendLine("db_endpoint=" + baseUrl.orEmpty().ifBlank { "not selected" })

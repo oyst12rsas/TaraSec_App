@@ -48,7 +48,8 @@ data class DemoSshSession(
     val nodeBObserved: Boolean = false,
     val nodeBLoginAccepted: Boolean? = null,
     val progressMessage: String = "",
-    val message: String = ""
+    val message: String = "",
+    val unitId: Long? = null
 ) : java.io.Serializable {
     fun nodeACommand(): String = "ssh -p $nodeAPort demo@$nodeA"
     fun nodeBCommand(): String = "ssh -p $nodeBPort $username@$nodeB"
@@ -166,8 +167,17 @@ object DemoSshClient {
         )
     }
 
-    fun create(baseUrl: String, setupId: Int): DemoSshSession {
+    fun create(baseUrl: String, setupId: Int, gatewayBaseUrl: String): DemoSshSession {
+        // The gateway observes this device's actual VPN/LAN peer and issues an
+        // opaque proof. The DB redeems it directly; never send a bare unit ID.
+        val proofReply = jsonRequest(gatewayBaseUrl, "script/appDemoSshIdentity.php", "POST",
+            JSONObject().put("action", "issue"))
+        val identity = proofReply.first ?: return failure(proofReply.second)
+        if (!identity.optBoolean("ok", false)) return failure(identity.optString("error", "Unable to identify this unit"))
+        val proof = identity.optString("identity_proof", "")
+        if (!Regex("[a-f0-9]{64}").matches(proof)) return failure("Gateway returned an invalid identity proof")
         val body = JSONObject().put("action", "create").put("setup_id", setupId)
+            .put("identity_proof", proof)
         val reply = jsonRequest(baseUrl, "script/appDemoSshSession.php", "POST", body)
         val json = reply.first ?: return failure(reply.second)
         if (!json.optBoolean("ok", false)) return failure(json.optString("error", "Unable to start demo"))
@@ -181,7 +191,8 @@ object DemoSshClient {
             nodeBPort = json.optInt("node_b_port", 22),
             username = json.optString("username", ""),
             password = json.optString("password", ""),
-            secondsRemaining = json.optInt("expires_in", 0)
+            secondsRemaining = json.optInt("expires_in", 0),
+            unitId = if (json.isNull("unit_id")) null else json.optLong("unit_id").takeIf { it > 0 }
         )
     }
 
@@ -196,6 +207,7 @@ object DemoSshClient {
         val json = outer.optJSONObject("session") ?: return current.copy(message = "Invalid demo status")
         return current.copy(
             state = json.optString("state", current.state),
+            unitId = if (json.isNull("unit_id")) current.unitId else json.optLong("unit_id").takeIf { it > 0 },
             nodeA = json.optString("node_a", current.nodeA),
             nodeAPort = json.optInt("node_a_port", current.nodeAPort),
             nodeB = json.optString("node_b", current.nodeB),
@@ -243,6 +255,7 @@ object DemoSshClient {
             connection.connectTimeout = 5000
             connection.readTimeout = 10000
             connection.useCaches = false
+            connection.instanceFollowRedirects = false
             connection.requestMethod = method
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Cache-Control", "no-cache")

@@ -285,20 +285,30 @@ will act in each role:
 - **DB server**: correlates all reports, reveals the demo only after the evidence is
   complete, and instructs the gateway to clear the unit.
 
-The app-side protocol is implemented in `DemoSshClient.kt`. The expected DB-server
-endpoints are:
+The app-side protocol is implemented in `DemoSshClient.kt`. The current endpoints are:
 
 ```text
-POST /script/appDemoSshStart.php
-GET  /script/appDemoSshStatus.php?session_id=...
-POST /script/appDemoSshFinish.php
+POST <gateway>/script/appDemoSshIdentity.php (issue a short-lived unit proof)
+POST <DB>/script/appDemoSshSession.php (create/cancel)
+GET  <DB>/script/appDemoSshSession.php?action=status&session_id=...&session_token=...
 ```
 
-The DB server owns the session and credential lifecycle. It returns the same
-`demoSshNodeB` username and password to every active session using that Node B.
-It must not rotate or retire the credential until the last linked session completes,
-expires, or is cancelled. Node B receives only the password hash. The app holds the
-plaintext password in memory and must not persist it.
+The gateway observes the app's network peer and issues an opaque proof. The DB
+redeems it directly from the registered gateway and records the verified local
+unit ID, scoped to that gateway. Different units behind the same NAT address can
+start simultaneous sessions. A second live session for the same unit/setup is
+rejected. A unit ID supplied by the app alone is never trusted.
+
+The DB returns a unique session ID and secret token. It returns the same
+non-executing Node B honeypot credential (`demo` / `1`) to concurrent testers.
+SSH evidence is attributed by translated IP/port tuple and owner-gateway unit ID;
+ambiguous traffic waits for attribution instead of selecting the newest session.
+Both SSH attempts must originate from the verified unit. Supervising a different
+laptop from a phone requires a separate verified source-selection flow.
+
+Deploy backend schema version 99 and the three participant API files on the DB
+and participating gateways before installing this Android build. See
+`taransvar/docs/DEMO2_PARTICIPANTS.md` for deployment and acceptance checks.
 
 The status response drives these app-visible stages:
 
