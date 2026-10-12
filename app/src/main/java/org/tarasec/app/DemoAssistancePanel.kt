@@ -90,6 +90,37 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
     var firstPostReleaseSuccessEpochMs by remember { mutableStateOf<Long?>(null) }
     var appliedLocalSeverity by remember { mutableStateOf<Int?>(null) }
 
+    var sharedDeviceStatus by remember { mutableStateOf<DemoThreatStatus?>(null) }
+    var discoveredDeviceSession by remember { mutableStateOf<DemoDeviceSession?>(null) }
+    var sharedDeviceNote by remember { mutableStateOf("Checking shared device state…") }
+
+    // This local request remains independent of the deliberately blocked DB heartbeat.
+    LaunchedEffect(gatewayControlBase) {
+        val gateway = gatewayControlBase ?: return@LaunchedEffect
+        while (true) {
+            val local = withContext(Dispatchers.IO) { DemoClient.localThreatStatusBase(gateway) }
+            sharedDeviceStatus = local
+            sharedDeviceNote = if (local.reachable) {
+                "Gateway $gateway · client ${local.publicIp} · severity ${local.severity} · checked ${local.polledAt}. App and browser share this identity when routed the same way."
+            } else "Gateway state unavailable; no clean state inferred. ${local.message}"
+            runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.deviceSession(gateway) } }
+                .onSuccess { found ->
+                    discoveredDeviceSession = found
+                    if (participantToken.isBlank() && found != null) session = found.session
+                }
+                .onFailure { discoveredDeviceSession = discoveredDeviceSession?.copy(fresh = false); sharedDeviceNote += " Session discovery unavailable: ${it.message}" }
+            delay(3000)
+        }
+    }
+
+    LaunchedEffect(participantToken, gatewayControlBase) {
+        val gateway = gatewayControlBase ?: return@LaunchedEffect
+        val id = session?.id ?: return@LaunchedEffect
+        if (participantToken.isBlank() || session?.visibility != "public") return@LaunchedEffect
+        runCatching { withContext(Dispatchers.IO) { DemoAssistanceClient.registerDeviceSession(gateway, id, participantToken) } }
+            .onFailure { sharedDeviceNote = "Session joined, but cross-platform registration failed: ${it.message}" }
+    }
+
     val demo3GatewayIps = setOf("100.68.25.154", "100.68.153.251", "100.68.165.190")
 
     fun alignGatewayWithParticipant(joined: DemoAssistanceJoin) {
@@ -165,7 +196,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
         }
     }
 
-    LaunchedEffect(session?.id, participantToken) {
+    LaunchedEffect(session?.id, participantToken, discoveredDeviceSession?.participantId) {
+        // Gateway observer snapshots must not become participant polling evidence.
+        if (participantToken.isBlank() && discoveredDeviceSession != null) return@LaunchedEffect
         val id = session?.id ?: return@LaunchedEffect
         while (true) {
             delay(2000)
@@ -282,6 +315,15 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             style = MaterialTheme.typography.bodySmall
         )
 
+        TaraSectionCard(title = "Shared device state", subtitle = "Gateway evidence from either platform") {
+            Text(sharedDeviceNote)
+            sharedDeviceStatus?.takeIf { it.reachable }?.let {
+                Text(if (it.infected) "🔴 This device is marked suspicious on the gateway" else "🟢 This device is locally clear")
+            }
+            if (participantToken.isBlank()) discoveredDeviceSession?.let {
+                Text("Already in Demo 3 #${it.session.id} as participant #${it.participantId}. Observing the existing participant; no extra heartbeats or controls." + if (it.fresh) "" else " Cached session; DB status unavailable.")
+            }
+        }
         val current = session
         if (current == null) {
             TaraSectionCard(title = "Available assistance demos", subtitle = "Only demos with more than 15 seconds left are joinable") {
@@ -451,6 +493,8 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
             val desiredLocalSeverity = if (ownInfected && assistanceRequestActive) 10 else 0
             LaunchedEffect(current.id, desiredLocalSeverity, gatewayControlBase) {
                 val gateway = gatewayControlBase ?: return@LaunchedEffect
+                if (participantToken.isBlank()) return@LaunchedEffect
+                if (desiredLocalSeverity == 0 && appliedLocalSeverity == null) return@LaunchedEffect
                 if (appliedLocalSeverity == desiredLocalSeverity) return@LaunchedEffect
                 runCatching {
                     withContext(Dispatchers.IO) {
@@ -593,7 +637,7 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                 ) { Text("Release assistance and observe recovery") }
             }
 
-            if (!demoFinished && participantToken.isBlank() && current.state == "active") {
+            if (!demoFinished && discoveredDeviceSession == null && participantToken.isBlank() && current.state == "active") {
                 TaraSectionCard(title = "Join the exercise", subtitle = "Nickname is optional") {
                     OutlinedTextField(nickname, { nickname = it.take(80) }, label = { Text("Nickname (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(
