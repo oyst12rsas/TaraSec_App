@@ -400,6 +400,9 @@ fun DemoAssistancePanel(baseUrl: String, initialGatewayControlBase: String? = nu
                                 message = "${created.session.name} started and this unit joined demo #${created.session.id}. Choose whether this unit is CLEAN or INFECTED."
                             }.onFailure {
                                 val failure = it.message ?: it.javaClass.simpleName
+                                // A competing start must leave its exercise intact.
+                                // Refresh the join list, then retain the useful failure.
+                                refreshAvailable()
                                 message = "Could not start and join Demo 3: $failure"
                                 startFailure = failure
                             }

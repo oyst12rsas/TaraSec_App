@@ -195,7 +195,7 @@ object DemoAssistanceClient {
             val text = (if (code in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             val json = runCatching { JSONObject(text) }.getOrElse { throw IllegalStateException("Demo 3 returned invalid JSON (HTTP $code)") }
-            if (code !in 200..299 || !json.optBoolean("ok", false)) throw IllegalStateException(json.optString("error", "Demo 3 failed (HTTP $code)"))
+            if (code !in 200..299 || !json.optBoolean("ok", false)) throw IllegalStateException(json.optString("message").ifBlank { json.optString("error", "Demo 3 failed (HTTP $code)") })
             return json
         } finally {
             connection.disconnect()
