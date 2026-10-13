@@ -719,7 +719,7 @@ private fun TaraSecApp(initialDestination: String?) {
                             Button(onClick = {
                                 val base = InstallationStore.normaliseBaseUrl(registrationBaseUrl)
                                 activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse("$base/gatekeeper/index.php?f=main")))
+                                    android.net.Uri.parse("$base/gatekeeper/index.php?f=managerApprovals&requestId=$managerRequestId")))
                             }) { Text("Open node approval page") }
                         }
                         if (!managerEmailVerified && !managerRejected) {
