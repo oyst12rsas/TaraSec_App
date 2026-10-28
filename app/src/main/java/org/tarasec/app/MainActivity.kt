@@ -128,6 +128,7 @@ private fun TaraSecApp(initialDestination: String?) {
     var managerRejected by remember { mutableStateOf(false) }
     var managerAuthenticated by remember { mutableStateOf(false) }
     var managerStatus by remember { mutableStateOf("No manager session loaded") }
+    var managerNeedsApproval by remember { mutableStateOf(false) }
 
     var assistancePort by remember { mutableStateOf("0") }
     var assistanceThreshold by remember { mutableStateOf("5") }
@@ -150,6 +151,7 @@ private fun TaraSecApp(initialDestination: String?) {
         managerCredentialReady = false
         managerRejected = false
         managerAuthenticated = false
+        managerNeedsApproval = false
         assistanceItems = emptyList()
         managerStatus = message
     }
@@ -194,6 +196,7 @@ private fun TaraSecApp(initialDestination: String?) {
         }
 
         busy = true
+        if (action == "login") managerNeedsApproval = false
         managerStatus = when (action) {
             "login" -> "Connecting to ${selectedInstallation?.name ?: registrationName.ifBlank { "installation" }}…"
             "session" -> "Checking management session…"
@@ -235,7 +238,16 @@ private fun TaraSecApp(initialDestination: String?) {
                     throw IllegalStateException("Installation returned an unexpected response (HTTP $code). Check its management address and service.")
                 }
                 if (code !in 200..299 || !json.optBoolean("ok", false)) {
-                    throw IllegalStateException(json.optString("error", "HTTP $code"))
+                    val error = json.optString("error", "HTTP $code")
+                    if (action == "login" && error == "manager_not_approved") {
+                        activity.runOnUiThread { managerNeedsApproval = true }
+                    }
+                    throw IllegalStateException(when (error) {
+                        "manager_not_approved" -> "This installation did not accept the saved management credential. Access may have expired, been revoked or rejected, or may no longer be recognized. Check the node's Manager access approvals, or request access again and complete email confirmation and administrator approval."
+                        "manager_auth_unavailable" -> "The installation's management login service is temporarily unavailable. Try again later or ask its administrator to check it."
+                        "request_not_found" -> "This approval request was not found or has expired. Request management access again."
+                        else -> error
+                    })
                 }
 
                 if (action == "login" && !json.optBoolean("authenticated", false)) {
@@ -574,8 +586,24 @@ private fun TaraSecApp(initialDestination: String?) {
                     ) {
                         Text(if (busy) "Connecting…" else "Reconnect management")
                     }
-                    Text("If the connection fails, check that this installation is reachable and any required VPN is connected.",
-                        style = MaterialTheme.typography.bodySmall)
+                    if (managerNeedsApproval) {
+                        Text("A saved installation is not proof of current approval. Registration requests currently expire after seven days, and the same expiry is checked at login.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Button(enabled = !busy, onClick = {
+                            activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("${disconnectedInstallation.managementBaseUrl}/gatekeeper/index.php?f=main")))
+                        }) { Text("Open node approval page") }
+                        Button(enabled = !busy, onClick = {
+                            selectedInstallationId = null
+                            managerCredential = ""
+                            resetManagerUi("Request management access again for this installation.")
+                            page = AppPage.SETUP
+                            managementStartVersion++
+                        }) { Text("Request management access again") }
+                    } else {
+                        Text("If the connection fails, check that this installation is reachable and any required VPN is connected.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                 } else {
                     Button(enabled = !busy, onClick = {
                         selectedInstallationId = null
