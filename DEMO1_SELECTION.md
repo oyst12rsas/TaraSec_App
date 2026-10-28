@@ -17,8 +17,14 @@ endpoint list is also reversed; it remains authoritative on a direct hotspot.
 
 An automatic fallback does not overwrite the last explicit choice. In particular,
 visiting a hotspot which does not advertise the saved endpoint must not forget it.
-Automatic selection only selects and probes a route; it never marks a unit clean
-or infected and does not bypass gateway verification.
+Selecting an endpoint probes its route and never bypasses gateway verification.
+When Demo 1 is open on its own, starting a verified gateway for the first time
+in this visit automatically requests a clean demo state using `demo=1`. The
+backend clears only DEMO records; genuine infections remain active. Confirmation
+still requires gateway and receiver evidence. Refreshing or selecting another
+receiver behind that gateway does not reset a subsequent INFECTED demonstration.
+A failed startup reset is not repeatedly retried; the visible Set CLEAN control
+can retry it. Other expanded demos suppress automatic preparation.
 
 Manual checks:
 
@@ -34,3 +40,13 @@ Manual checks:
   available fallback and restore the explicit choice when it becomes available.
 - A hotspot advertising no endpoints must show no selected endpoint or enabled
   state-changing controls.
+
+Clean-start checks:
+
+- Start with a stale Demo 1 infection, open the screen and wait for verification:
+  one demo-only reset is requested and CLEAN must be observed before confirmation.
+- Tap Set INFECTED, refresh and select a shared-gateway receiver: remain infected
+  until the user requests CLEAN; no repeated automatic reset.
+- Without a verified gateway or while another demo is expanded, send no startup
+  reset. With a genuine infection present, do not clear it or claim clean.
+- Simulate reset failure: show the failure and permit manual retry.

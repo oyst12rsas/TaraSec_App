@@ -166,6 +166,9 @@ fun DemoPanel(
     var intendedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var completedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var auditApproved by remember { mutableStateOf(false) }
+    // Once per gateway for this visit. Never clear a demo infection again on
+    // refresh or when selecting another receiver behind the same gateway.
+    var demo1StartedGateways by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
     var showDemo3 by remember { mutableStateOf(false) }
@@ -442,6 +445,7 @@ fun DemoPanel(
             message = "No TaraSec gateway is currently available for this phone."
             return
         }
+        demo1StartedGateways = demo1StartedGateways + base
         val gatewayLabel = activeGatewayLabel()
         intendedPhoneState = infected
         completedPhoneState = null
@@ -502,6 +506,18 @@ fun DemoPanel(
                 actionInProgress.set(false)
             }
         }.start()
+    }
+
+    val demo1StartupBase = demo1ControlBase()
+    LaunchedEffect(demo1StartupBase, showDemo1, showDemo2, showDemo3, showDemo4, showDemo5,
+        appInForeground, busy) {
+        if (showDemo1 && !showDemo2 && !showDemo3 && !showDemo4 && !showDemo5 &&
+            appInForeground && !busy && demo1StartupBase != null &&
+            demo1StartupBase !in demo1StartedGateways) {
+            // The existing request explicitly sends demo=1. The gateway clears
+            // DEMO rows only; it must leave genuine infection records intact.
+            setPhoneState(false)
+        }
     }
 
     DisposableEffect(
@@ -619,7 +635,7 @@ fun DemoPanel(
                     )
                 }
                 Text(
-                    "The app will check that endpoint and find its gateway. Once it is ready, tap Set INFECTED and then Set CLEAN to test how your phone's status is shared.",
+                    "The app checks the selected endpoint, finds its gateway and automatically requests a clean demo starting state. Once CLEAN is confirmed, tap Set INFECTED and then Set CLEAN to see the change. Genuine infection findings are not cleared by the demo reset.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 TaraSectionCard(
