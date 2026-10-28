@@ -129,6 +129,8 @@ private fun TaraSecApp(initialDestination: String?) {
     var managerAuthenticated by remember { mutableStateOf(false) }
     var managerStatus by remember { mutableStateOf("No manager session loaded") }
     var managerNeedsApproval by remember { mutableStateOf(false) }
+    var managerRequestStatusKnown by remember { mutableStateOf(false) }
+    var managerRequestUnavailable by remember { mutableStateOf(false) }
 
     var assistancePort by remember { mutableStateOf("0") }
     var assistanceThreshold by remember { mutableStateOf("5") }
@@ -152,6 +154,8 @@ private fun TaraSecApp(initialDestination: String?) {
         managerRejected = false
         managerAuthenticated = false
         managerNeedsApproval = false
+        managerRequestStatusKnown = false
+        managerRequestUnavailable = false
         assistanceItems = emptyList()
         managerStatus = message
     }
@@ -242,8 +246,21 @@ private fun TaraSecApp(initialDestination: String?) {
                     if (action == "login" && error == "manager_not_approved") {
                         activity.runOnUiThread { managerNeedsApproval = true }
                     }
+                    if (action == "status" && error == "request_not_found") {
+                        activity.runOnUiThread {
+                            managerRequestUnavailable = true
+                            managerRequestStatusKnown = true
+                        }
+                    }
                     throw IllegalStateException(when (error) {
-                        "manager_not_approved" -> "This installation did not accept the saved management credential. Access may have expired, been revoked or rejected, or may no longer be recognized. Check the node's Manager access approvals, or request access again and complete email confirmation and administrator approval."
+                        "manager_not_approved" -> when (json.optString("state")) {
+                            "expired" -> "Your management access has expired. Request access again."
+                            "revoked" -> "An administrator revoked this management access. Request access again if you still need it."
+                            "rejected" -> "This management request was rejected. Contact the administrator before requesting access again."
+                            "email_pending" -> "Email confirmation is incomplete. Start a new request to receive a verification email."
+                            "admin_pending" -> "Administrator approval is incomplete. Start a new request to resume the approval process."
+                            else -> "The saved management credential is no longer accepted. Request access again."
+                        }
                         "manager_auth_unavailable" -> "The installation's management login service is temporarily unavailable. Try again later or ask its administrator to check it."
                         "request_not_found" -> "This approval request was not found or has expired. Request management access again."
                         else -> error
@@ -268,11 +285,18 @@ private fun TaraSecApp(initialDestination: String?) {
                             managerGatewayApproved = json.optBoolean("gatewayApproved", false)
                             managerCredentialReady = json.optBoolean("credentialReady", false)
                             managerRejected = json.optBoolean("rejected", false)
+                            managerRequestStatusKnown = true
+                            managerRequestUnavailable = json.optString("state") in
+                                listOf("expired", "rejected", "revoked") ||
+                                json.optBoolean("expired", false) || managerRejected
                             val returnedCredential = json.optString("credential", "")
                             if (returnedCredential.isNotBlank()) managerCredential = returnedCredential
                             persistManagerRequest(base)
                             managerStatus = when {
+                                json.optBoolean("expired", false) || json.optString("state") == "expired" ->
+                                    "This management request has expired. Start a new request."
                                 managerRejected -> "Manager request was rejected."
+                                managerRequestUnavailable -> "This management request is no longer active. Start a new request."
                                 json.optBoolean("active", false) -> "Manager access is ready to activate."
                                 !managerEmailVerified -> "Confirm your email, then approve this request on the node’s web page."
                                 !managerGatewayApproved -> "Waiting for administrator approval on the node’s web page."
@@ -321,6 +345,7 @@ private fun TaraSecApp(initialDestination: String?) {
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
+                    if (action == "status" && !managerRequestUnavailable) managerRequestStatusKnown = false
                     if (action == "login" || action == "session") managerAuthenticated = false
                     managerStatus = "Management connection failed: ${e.message ?: e.javaClass.simpleName}"
                     busy = false
@@ -377,17 +402,17 @@ private fun TaraSecApp(initialDestination: String?) {
         onDispose { lifecycle.removeObserver(observer) }
     }
     val refreshApproval by rememberUpdatedState(newValue = {
-        if (!busy && !managerAuthenticated && !managerRejected &&
+        if (!busy && !managerAuthenticated && !managerRejected && !managerRequestUnavailable &&
             managerRequestId != null && managerRequestToken.isNotBlank()) {
             managerRequest("status")
         }
     })
     LaunchedEffect(foreground, managerRequestId, managerRequestToken,
-        managerAuthenticated, managerRejected, managerEmailVerified,
+        managerAuthenticated, managerRejected, managerRequestUnavailable, managerEmailVerified,
         managerGatewayApproved, managerCredentialReady) {
         if (foreground && managerRequestId != null &&
             managerRequestToken.isNotBlank() && !managerAuthenticated &&
-            !managerRejected) {
+            !managerRejected && !managerRequestUnavailable) {
             while (true) {
                 refreshApproval()
                 delay(5_000L)
@@ -504,6 +529,14 @@ private fun TaraSecApp(initialDestination: String?) {
         }
     }
 
+    val approvalUi = ManagerApprovalUiState(
+        requestExists = managerRequestId != null,
+        statusKnown = managerRequestStatusKnown,
+        emailVerified = managerEmailVerified,
+        gatewayApproved = managerGatewayApproved,
+        unavailable = managerRequestUnavailable || managerRejected
+    )
+
     val activeThreats = installations.mapNotNull { installation ->
         val state = threatStates[installation.id] ?: return@mapNotNull null
         if (state.infected || state.severity > 1) installation to state else null
@@ -587,12 +620,8 @@ private fun TaraSecApp(initialDestination: String?) {
                         Text(if (busy) "Connecting…" else "Reconnect management")
                     }
                     if (managerNeedsApproval) {
-                        Text("A saved installation is not proof of current approval. Registration requests currently expire after seven days, and the same expiry is checked at login.",
+                        Text("Create a new request first. The app will guide you through email confirmation and show the approval page when administrator approval is needed.",
                             style = MaterialTheme.typography.bodySmall)
-                        Button(enabled = !busy, onClick = {
-                            activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse("${disconnectedInstallation.managementBaseUrl}/gatekeeper/index.php?f=main")))
-                        }) { Text("Open node approval page") }
                         Button(enabled = !busy, onClick = {
                             selectedInstallationId = null
                             managerCredential = ""
@@ -622,8 +651,18 @@ private fun TaraSecApp(initialDestination: String?) {
                         Text("${registrationName.ifBlank { "Installation" }} — approval pending")
                         Text(managerStatus)
                         Text("Email: ${if (managerEmailVerified) "Confirmed" else "Waiting"} · Admin: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
-                        Button(enabled = !busy, onClick = { managerRequest("status") }) { Text("Check approval") }
-                        Button(onClick = { page = AppPage.SETUP }) { Text("View registration") }
+                        if (approvalUi.needsNewRequest) {
+                            Button(onClick = {
+                                SecureCredentialStore.remove(activity, pendingKey)
+                                managerCredential = ""
+                                resetManagerUi("Start a new management request.")
+                                page = AppPage.SETUP
+                                managementStartVersion++
+                            }) { Text("Request management access again") }
+                        } else {
+                            Button(enabled = !busy, onClick = { managerRequest("status") }) { Text("Check approval") }
+                            Button(onClick = { page = AppPage.SETUP }) { Text("View registration") }
+                        }
                     } else {
                         Text("No registered installation selected.")
                     }
@@ -716,7 +755,7 @@ private fun TaraSecApp(initialDestination: String?) {
                 if (installation == null) {
                     Text("Choose a node from My units first.")
                 } else {
-                    ManagerSshPanel(installation.managementBaseUrl)
+                    ManagerSshPanel(installation.name)
                 }
             }
 
@@ -759,15 +798,24 @@ private fun TaraSecApp(initialDestination: String?) {
                         Text("Email verification: ${if (managerEmailVerified) "Confirmed" else "Waiting"}")
                         Text("Installation admin approval: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
                         Text("The app checks automatically and activates management access after both confirmations.")
-                        Button(enabled = !busy && !managerRejected, onClick = { managerRequest("status") }) { Text("Check approval") }
-                        if (!managerRejected) {
+                        if (approvalUi.needsNewRequest) {
+                            Button(enabled = !busy, onClick = {
+                                SecureCredentialStore.remove(activity, pendingKey)
+                                managerCredential = ""
+                                resetManagerUi("Start a new management request.")
+                                managementStartVersion++
+                            }) { Text("Request management access again") }
+                        } else {
+                            Button(enabled = !busy, onClick = { managerRequest("status") }) { Text("Check approval") }
+                        }
+                        if (approvalUi.canOpenAdminApproval) {
                             Button(onClick = {
                                 val base = InstallationStore.normaliseBaseUrl(registrationBaseUrl)
                                 activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
                                     android.net.Uri.parse("$base/gatekeeper/index.php?f=main")))
                             }) { Text("Open node approval page") }
                         }
-                        if (!managerEmailVerified && !managerRejected) {
+                        if (approvalUi.canResendEmail) {
                             Button(enabled = !busy, onClick = { managerRequest("resend") }) { Text("Resend verification email") }
                         }
                     }

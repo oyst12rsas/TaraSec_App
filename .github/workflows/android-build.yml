@@ -26,4 +26,4 @@ jobs:
           sed -i 's/compileSdk = 37/compileSdk = 36/' app/build.gradle.kts
           sed -i 's/targetSdk = 37/targetSdk = 36/' app/build.gradle.kts
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
