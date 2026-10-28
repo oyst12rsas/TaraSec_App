@@ -113,20 +113,34 @@ fun DemoPanel(
     } else {
         DemoClient.presets
     }
-    var endpointIpDraft by remember { mutableStateOf("") }
-    var customEndpointIp by remember { mutableStateOf("") }
+    val registeredDemoInstallations = remember {
+        InstallationStore.load(activity).sortedBy { it.registeredAt }
+    }
+    val registeredDemoTargets = registeredDemoInstallations.mapNotNull { installation ->
+        val ip = InstallationStore.endpointHost(installation.serviceIp)
+        ip.takeIf { address ->
+            val octets = address.split('.')
+            octets.size == 4 && octets.all { octet -> octet.toIntOrNull()?.let { it in 0..255 } == true }
+        }
+            ?.let { DemoTarget(installation.name, it) }
+    }
+    val lastRegisteredDemoIp = registeredDemoTargets.lastOrNull()?.ip
+    var endpointIpDraft by remember { mutableStateOf(Demo1Preferences.customIp(activity)) }
+    var customEndpointIp by remember { mutableStateOf(Demo1Preferences.customIp(activity)) }
     var endpointNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val configuredTargets = (gatewayTargets + listOfNotNull(
+    val configuredTargets = (gatewayTargets +
+        (if (directHotspotDetected) emptyList() else registeredDemoTargets) + listOfNotNull(
         customEndpointIp.takeIf { !directHotspotDetected && it.isNotBlank() }
             ?.let { DemoTarget("Custom endpoint", it) }
-    )).map { endpoint ->
+    )).asReversed().distinctBy { it.ip }.map { endpoint ->
         endpointNames[endpoint.ip]?.let { endpoint.copy(name = it) } ?: endpoint
     }
-    var basicTargetIp by remember { mutableStateOf("") }
+    var basicTargetIp by remember { mutableStateOf(Demo1Preferences.selectedIp(activity)) }
     val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
-        ?: configuredTargets.singleOrNull().takeIf { directHotspotDetected }
+        ?: configuredTargets.firstOrNull { it.ip == lastRegisteredDemoIp }
+        ?: configuredTargets.firstOrNull()
     var verifiedDemo1GatewayIp by remember { mutableStateOf("") }
-    var demo1RouteMessage by remember { mutableStateOf("Tap an endpoint below to get started and discover its gateway.") }
+    var demo1RouteMessage by remember { mutableStateOf("Discovering the selected endpoint and its gateway…") }
     var basicReceiverState by remember { mutableStateOf<DemoThreatStatus?>(null) }
     var basicReceiverProbe by remember { mutableStateOf<DemoProbeResult?>(null) }
     var basicReceiverFailureCount by remember { mutableStateOf(0) }
@@ -152,6 +166,9 @@ fun DemoPanel(
     var intendedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var completedPhoneState by remember { mutableStateOf<Boolean?>(null) }
     var auditApproved by remember { mutableStateOf(false) }
+    // Once per gateway for this visit. Never clear a demo infection again on
+    // refresh or when selecting another receiver behind the same gateway.
+    var demo1StartedGateways by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDemo1 by remember { mutableStateOf(true) }
     var showDemo2 by remember { mutableStateOf(false) }
     var showDemo3 by remember { mutableStateOf(false) }
@@ -163,7 +180,8 @@ fun DemoPanel(
     LaunchedEffect(configuredTargets.map { it.ip }) {
         val available = configuredTargets.map { it.ip }
         if (basicTargetIp !in available) {
-            basicTargetIp = if (directHotspotDetected) configuredTargets.singleOrNull()?.ip.orEmpty() else ""
+            // Fall back for this available list without overwriting a saved choice
+            // that may reappear when switching between hotspot and VPN paths.
             verifiedDemo1GatewayIp = ""
             basicReceiverProbe = null
             basicReceiverState = null
@@ -413,7 +431,12 @@ fun DemoPanel(
     // Selecting an endpoint must resolve its route even when automatic checks
     // were paused after a previous demo result.
     LaunchedEffect(basicTarget?.ip) {
-        if (basicTarget != null) refresh("${basicTarget.name} route checked")
+        if (basicTarget != null) {
+            target = basicTarget
+            targetIp = basicTarget.ip
+            discoveredName = basicTarget.name
+            refresh("${basicTarget.name} route checked")
+        }
     }
 
     fun setPhoneState(infected: Boolean) {
@@ -422,6 +445,7 @@ fun DemoPanel(
             message = "No TaraSec gateway is currently available for this phone."
             return
         }
+        demo1StartedGateways = demo1StartedGateways + base
         val gatewayLabel = activeGatewayLabel()
         intendedPhoneState = infected
         completedPhoneState = null
@@ -482,6 +506,18 @@ fun DemoPanel(
                 actionInProgress.set(false)
             }
         }.start()
+    }
+
+    val demo1StartupBase = demo1ControlBase()
+    LaunchedEffect(demo1StartupBase, showDemo1, showDemo2, showDemo3, showDemo4, showDemo5,
+        appInForeground, busy) {
+        if (showDemo1 && !showDemo2 && !showDemo3 && !showDemo4 && !showDemo5 &&
+            appInForeground && !busy && demo1StartupBase != null &&
+            demo1StartupBase !in demo1StartedGateways) {
+            // The existing request explicitly sends demo=1. The gateway clears
+            // DEMO rows only; it must leave genuine infection records intact.
+            setPhoneState(false)
+        }
     }
 
     DisposableEffect(
@@ -599,7 +635,7 @@ fun DemoPanel(
                     )
                 }
                 Text(
-                    "The app will check that endpoint and find its gateway. Once it is ready, tap Set INFECTED and then Set CLEAN to test how your phone's status is shared.",
+                    "The app checks the selected endpoint, finds its gateway and automatically requests a clean demo starting state. Once CLEAN is confirmed, tap Set INFECTED and then Set CLEAN to see the change. Genuine infection findings are not cleared by the demo reset.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 TaraSectionCard(
@@ -661,6 +697,7 @@ fun DemoPanel(
                                 onClick = {
                                     pollGeneration.incrementAndGet()
                                     basicTargetIp = endpoint.ip
+                                    Demo1Preferences.select(activity, endpoint.ip)
                                     verifiedDemo1GatewayIp = ""
                                     intendedPhoneState = null
                                     completedPhoneState = null
@@ -738,6 +775,7 @@ fun DemoPanel(
                                 pollGeneration.incrementAndGet()
                                 customEndpointIp = requestedIp
                                 basicTargetIp = requestedIp
+                                Demo1Preferences.select(activity, requestedIp, custom = true)
                                 verifiedDemo1GatewayIp = ""
                                 intendedPhoneState = null
                                 completedPhoneState = null
