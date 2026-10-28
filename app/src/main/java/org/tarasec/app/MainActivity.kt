@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.net.CookieHandler
@@ -193,6 +194,11 @@ private fun TaraSecApp(initialDestination: String?) {
         }
 
         busy = true
+        managerStatus = when (action) {
+            "login" -> "Connecting to ${selectedInstallation?.name ?: registrationName.ifBlank { "installation" }}…"
+            "session" -> "Checking management session…"
+            else -> "Checking management access…"
+        }
         Thread {
             var connection: HttpURLConnection? = null
             try {
@@ -226,10 +232,14 @@ private fun TaraSecApp(initialDestination: String?) {
                 val json = try {
                     if (body.isBlank()) JSONObject() else JSONObject(body)
                 } catch (_: Exception) {
-                    throw IllegalStateException("Installation returned non-JSON response (HTTP $code): ${body.take(120)}")
+                    throw IllegalStateException("Installation returned an unexpected response (HTTP $code). Check its management address and service.")
                 }
                 if (code !in 200..299 || !json.optBoolean("ok", false)) {
                     throw IllegalStateException(json.optString("error", "HTTP $code"))
+                }
+
+                if (action == "login" && !json.optBoolean("authenticated", false)) {
+                    throw IllegalStateException("The installation did not activate a management session. Check that management access is still approved.")
                 }
 
                 activity.runOnUiThread {
@@ -299,7 +309,8 @@ private fun TaraSecApp(initialDestination: String?) {
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
-                    managerStatus = "Manager request failed: ${e.message ?: e.javaClass.simpleName}"
+                    if (action == "login" || action == "session") managerAuthenticated = false
+                    managerStatus = "Management connection failed: ${e.message ?: e.javaClass.simpleName}"
                     busy = false
                 }
             } finally {
@@ -453,17 +464,9 @@ private fun TaraSecApp(initialDestination: String?) {
             val saved = SecureCredentialStore.get(activity, installation.id)
             managerCredential = saved.orEmpty()
             if (!saved.isNullOrBlank()) {
-                Thread {
-                    val ok = InstallationClient.ensureManagerSession(activity, installation)
-                    activity.runOnUiThread {
-                        managerAuthenticated = ok
-                        managerStatus = if (ok) {
-                            "MANAGER ACCESS ACTIVE on ${installation.name}."
-                        } else {
-                            "Stored manager credential could not activate ${installation.name}."
-                        }
-                    }
-                }.start()
+                managerRequest("login")
+            } else {
+                managerStatus = "No stored management credential is available for ${installation.name}. Set up management access again."
             }
         }
     }
@@ -540,7 +543,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     activity.startActivity(android.content.Intent(activity, MyUnitsActivity::class.java))
                 }) { Text("My units") }
             }
-            if (selectedInstallation != null || linkedUnitKey != null || managerRequestId != null) {
+            if (selectedInstallation != null && managerAuthenticated) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(AppPage.UNITS to "Status", AppPage.MANAGER to "AI", AppPage.ASSISTANCE to "Assistance", AppPage.SSH to "SSH").forEach { (target, label) ->
                         FilterChip(selected = page == target, onClick = { page = target }, label = { Text(label) })
@@ -551,7 +554,39 @@ private fun TaraSecApp(initialDestination: String?) {
 
         HorizontalDivider()
 
-        when (page) {
+        val disconnectedInstallation = selectedInstallation?.takeIf {
+            !managerAuthenticated && page in listOf(
+                AppPage.UNITS, AppPage.MANAGER, AppPage.ASSISTANCE, AppPage.SSH, AppPage.SETUP
+            )
+        }
+        if (disconnectedInstallation != null) {
+            TaraSectionCard(
+                title = "Connect to ${disconnectedInstallation.name}",
+                subtitle = "Connect management access to use Status, AI, Assistance and SSH."
+            ) {
+                Text(disconnectedInstallation.managementBaseUrl, style = MaterialTheme.typography.bodySmall)
+                Text(managerStatus, modifier = Modifier.testTag("managementConnectionStatus"))
+                if (managerCredential.isNotBlank()) {
+                    Button(
+                        enabled = !busy,
+                        onClick = { managerRequest("login") },
+                        modifier = Modifier.testTag("managementReconnect")
+                    ) {
+                        Text(if (busy) "Connecting…" else "Reconnect management")
+                    }
+                    Text("If the connection fails, check that this installation is reachable and any required VPN is connected.",
+                        style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Button(enabled = !busy, onClick = {
+                        selectedInstallationId = null
+                        managerCredential = ""
+                        resetManagerUi("Set up management access for this installation.")
+                        page = AppPage.SETUP
+                        managementStartVersion++
+                    }) { Text("Set up management access") }
+                }
+            }
+        } else when (page) {
             AppPage.UNITS -> {
                 val installation = selectedInstallation
                 if (installation == null) {
@@ -573,11 +608,6 @@ private fun TaraSecApp(initialDestination: String?) {
                             gatewayBaseUrl = installation.managementBaseUrl,
                             managerAuthenticated = true
                         )
-                    } else {
-                        Text("Manager authentication is required to read this installation's status and units.")
-                        Button(enabled = managerCredential.isNotBlank() && !busy, onClick = { managerRequest("login") }) {
-                            Text("Unlock ${installation.name}")
-                        }
                     }
                 }
             }
@@ -600,13 +630,6 @@ private fun TaraSecApp(initialDestination: String?) {
                 val installation = selectedInstallation
                 if (installation == null) {
                     Text("Select your linked node in My units, or register an installation first.")
-                } else if (!managerAuthenticated) {
-                    Text("${installation.name} — Manager access", style = MaterialTheme.typography.titleLarge)
-                    if (managerCredential.isNotBlank()) {
-                        Button(enabled = !busy, onClick = { managerRequest("login") }) { Text("Reconnect with stored credential") }
-                    } else {
-                        Text("Manager access requires both email confirmation and approval by this installation's administrator.", style = MaterialTheme.typography.bodySmall)
-                    }
                 } else {
                     Text("${installation.name} — AI", style = MaterialTheme.typography.titleLarge)
                     ManagerAiPanel(
@@ -620,9 +643,6 @@ private fun TaraSecApp(initialDestination: String?) {
                 val installation = selectedInstallation
                 if (installation == null) {
                     Text("Choose a node from My units first.")
-                } else if (!managerAuthenticated) {
-                    Text("Management authentication is required to request assistance.")
-                    Button(enabled = !busy && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Reconnect management") }
                 } else {
                     Text("Assistance Request", style = MaterialTheme.typography.titleLarge)
                     Text("Ask the TaraSec network to help protect this installation against traffic matching the selected port and threat threshold. Creating a request does not prove partners have applied it.")
@@ -667,9 +687,6 @@ private fun TaraSecApp(initialDestination: String?) {
                 val installation = selectedInstallation
                 if (installation == null) {
                     Text("Choose a node from My units first.")
-                } else if (!managerAuthenticated) {
-                    Text("Management authentication is required for SSH controls.")
-                    Button(enabled = !busy && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Reconnect management") }
                 } else {
                     ManagerSshPanel(installation.managementBaseUrl)
                 }

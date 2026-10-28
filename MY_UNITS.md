@@ -111,3 +111,30 @@ to **Manage**. Read-only linking does not grant management permission.
 
 For a single endpoint paired through a gateway, its gateway address is not assumed
 to be that endpoint’s management address; the explicit management form remains.
+
+## Disconnected management workspace
+
+Opening **Manage** attempts login using the installation's stored credential.
+Until the node confirms management authentication, the app shows a single
+connection card instead of the Status, AI, Assistance and SSH tabs. Automatic
+connection and manual retry share progress and error reporting on that card.
+No credential means **Set up management access**, not a disabled reconnect button.
+The existing email and administrator approval flow still applies. A stored
+installation name does not prove reachability or permission.
+
+Regression checks (Android device/emulator):
+
+- Open Manage with a reachable node and approved credential: connection progress,
+  then the management tabs and selected panel.
+- Unreachable address or VPN disconnected: visible failure and enabled retry;
+  no management tabs. Restore connectivity and retry without registering again.
+- Rejected/expired credential, non-JSON response, or login response with
+  `authenticated=false`: a visible failure, never a blank panel or unlocked tabs.
+- Missing/unreadable credential: setup action opens the existing approval flow.
+- Open AI through the menu while disconnected: the same connection card.
+- Repeat with a second installation to verify selection and endpoint.
+
+`ManagementConnectionTest` covers missing credentials and failed connection/retry
+with loopback addresses and synthetic credentials. Run with
+`./gradlew :app:connectedDebugAndroidTest` on an emulator/test device; CI compiles
+the instrumentation APK but does not execute it.
