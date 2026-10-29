@@ -755,7 +755,7 @@ private fun TaraSecApp(initialDestination: String?) {
                 if (installation == null) {
                     Text("Choose a node from My units first.")
                 } else {
-                    ManagerSshPanel(installation.name)
+                    ManagerSshPanel(installation.managementBaseUrl, installation.name)
                 }
             }
 
