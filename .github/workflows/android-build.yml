@@ -25,5 +25,7 @@ jobs:
         run: |
           sed -i 's/compileSdk = 37/compileSdk = 36/' app/build.gradle.kts
           sed -i 's/targetSdk = 37/targetSdk = 36/' app/build.gradle.kts
-      - name: Build debug APK
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+      - name: Test, build and copy debug APK in one invocation
+        run: |
+          ./gradlew :app:testDebugUnitTest copyDebugApkToHome :app:assembleDebugAndroidTest --no-daemon
+          cmp app/build/outputs/apk/debug/app-debug.apk "$HOME/TaraSec-debug.apk"

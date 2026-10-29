@@ -4,13 +4,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
 }
 
-
-tasks.register<org.gradle.api.tasks.Copy>("copyDebugApkToHome") {
+tasks.register("copyDebugApkToHome") {
     group = "build"
     description = "Copies the debug APK to the user home directory"
-    doNotTrackState("Destination is outside the project and contains unrelated files")
     dependsOn(":app:assembleDebug")
-    from("app/build/outputs/apk/debug/app-debug.apk")
-    into(System.getProperty("user.home"))
-    rename { "TaraSec-debug.apk" }
+    val debugApk = layout.projectDirectory.file("app/build/outputs/apk/debug/app-debug.apk")
+    val homeApk = providers.systemProperty("user.home").map { java.io.File(it, "TaraSec-debug.apk") }
+    // Declare the one copied file, not the home directory containing this project.
+    inputs.file(debugApk)
+    outputs.file(homeApk)
+    doLast {
+        debugApk.asFile.copyTo(homeApk.get(), overwrite = true)
+    }
 }
