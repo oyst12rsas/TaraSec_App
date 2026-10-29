@@ -21,9 +21,8 @@ data class InstallationThreatState(
 
 object InstallationClient {
     fun ensureManagerSession(context: Context, installation: TaraSecInstallation): Boolean {
-        if (sessionActive(installation.managementBaseUrl)) return true
-        val credential = SecureCredentialStore.get(context, installation.id) ?: return false
-        return login(installation.managementBaseUrl, credential)
+        // Background status polling must never recreate management from a saved key.
+        return sessionActive(installation.managementBaseUrl)
     }
 
     fun login(baseUrl: String, credential: String): Boolean {

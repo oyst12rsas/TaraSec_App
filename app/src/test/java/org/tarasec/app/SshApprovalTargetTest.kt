@@ -35,4 +35,12 @@ class SshApprovalTargetTest {
         assertFalse(SshAppPairing("test", "secret-verifier").toString().contains("secret-verifier"))
         assertFalse(SshAppGrant("secret-token", 123).toString().contains("secret-token"))
     }
+    @Test fun managementLinkRequiresExactNodeAndFreshRequest() {
+        val link = SshApprovalTarget("https://example.test/ops/agent/", a).managementBrowserUrl("1".repeat(32))
+        assertTrue(link.startsWith("https://example.test/ops/agent/management.php?server=$a&locked=1"))
+        assertTrue(link.contains("mobile_request=" + "1".repeat(32)))
+        assertFalse(link.contains("token"))
+        try { SshApprovalTarget("https://example.test/ops/agent/", a).managementBrowserUrl("bad"); fail("Malformed request accepted") }
+        catch (_: IllegalArgumentException) { }
+    }
 }
