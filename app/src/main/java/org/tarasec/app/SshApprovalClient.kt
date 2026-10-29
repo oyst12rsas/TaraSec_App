@@ -21,6 +21,7 @@ data class SshApprovalTarget(val base: String, val serverRef: String) {
         return base + "?server=" + serverRef + "&locked=1" +
             (id?.let { "&mobile_request=$it" } ?: "")
     }
+    fun managementBrowserUrl(id: String): String = browserUrl(id).replace(base + "?", base + "management.php?")
 }
 data class SshAppPairing(val id: String, val verifier: String) {
     override fun toString() = "SshAppPairing(verifier=omitted)"
@@ -86,12 +87,6 @@ object SshApprovalClient {
             ?: error("This node has not published its SSH approval identity. Update its approval installer or enroll it before opening SSH.")
         return SshApprovalTarget(value.getString("approval_url"), value.getString("server_ref"))
     }
-    fun accountLogin(target: SshApprovalTarget, identity: String, accountToken: String): SshAppGrant {
-        require(SshSessionStore.trustsAccount(target, identity)) { "SSH uses a different account service. Connect through the browser." }
-        val json = request(target.base + "mobile.php?action=account_login",
-            JSONObject().put("server_ref", target.serverRef), accountToken = accountToken)
-        return readGrant(target, json)
-    }
     private fun readGrant(target: SshApprovalTarget, json: JSONObject): SshAppGrant {
         require(json.optString("server_ref") == target.serverRef) { "Sign-in returned a different node." }
         val token = json.getString("token")
@@ -100,13 +95,14 @@ object SshApprovalClient {
         require(token.matches(Regex("[a-f0-9]{64}")) && expiry > now && expiry <= now + 1860) { "Invalid app sign-in response." }
         return SshAppGrant(token, expiry)
     }
-    fun start(target: SshApprovalTarget): SshAppPairing {
+    fun start(target: SshApprovalTarget, binding: String): SshAppPairing {
+        require(binding.matches(Regex("[a-f0-9]{64}"))) { "Invalid management challenge." }
         val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
         val verifier = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
         val challenge = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
             .joinToString("") { "%02x".format(it.toInt() and 255) }
         val json = request(target.base + "mobile.php?action=start",
-            JSONObject().put("server_ref", target.serverRef).put("challenge", challenge))
+            JSONObject().put("server_ref", target.serverRef).put("challenge", challenge).put("binding", binding))
         val id = json.getString("id")
         require(id.matches(Regex("[a-f0-9]{32}"))) { "Invalid app sign-in response." }
         return SshAppPairing(id, verifier)

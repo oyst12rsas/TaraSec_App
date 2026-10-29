@@ -127,6 +127,14 @@ private fun TaraSecApp(initialDestination: String?) {
     var managerCredentialReady by remember { mutableStateOf(false) }
     var managerRejected by remember { mutableStateOf(false) }
     var managerAuthenticated by remember { mutableStateOf(false) }
+    val managementEntryId = remember { java.util.UUID.randomUUID().toString() }
+    var managementTarget by remember { mutableStateOf<SshApprovalTarget?>(null) }
+    var managementBinding by remember { mutableStateOf("") }
+    var managementPairing by remember { mutableStateOf<SshAppPairing?>(null) }
+    var managementGrant by remember { mutableStateOf<SshAppGrant?>(null) }
+    var managementInstallationId by remember { mutableStateOf<String?>(null) }
+    var managementUntil by remember { mutableStateOf(0L) }
+
     var managerStatus by remember { mutableStateOf("No manager session loaded") }
     var managerNeedsApproval by remember { mutableStateOf(false) }
     var managerRequestStatusKnown by remember { mutableStateOf(false) }
@@ -153,6 +161,7 @@ private fun TaraSecApp(initialDestination: String?) {
         managerCredentialReady = false
         managerRejected = false
         managerAuthenticated = false
+        managementTarget = null; managementBinding = ""; managementPairing = null; managementGrant = null; managementUntil = 0
         managerNeedsApproval = false
         managerRequestStatusKnown = false
         managerRequestUnavailable = false
@@ -172,7 +181,7 @@ private fun TaraSecApp(initialDestination: String?) {
         }.toString())
     }
 
-    fun managerRequest(action: String) {
+    fun managerRequest(action: String, googleProof: String? = null) {
         if (busy) return
         // Reopening or tapping again must resume the saved request, not create another.
         if (action == "request" && managerRequestId != null) {
@@ -227,7 +236,8 @@ private fun TaraSecApp(initialDestination: String?) {
                     val data = when (action) {
                         "request" -> "action=request&email=${URLEncoder.encode(managerEmail.trim(), Charsets.UTF_8.name())}"
                         "resend" -> "requestId=$managerRequestId&requestToken=${URLEncoder.encode(managerRequestToken, Charsets.UTF_8.name())}"
-                        "login" -> "action=login&key=${URLEncoder.encode(managerCredential, Charsets.UTF_8.name())}"
+                        "login" -> "action=login&key=${URLEncoder.encode(managerCredential, Charsets.UTF_8.name())}" +
+                            (googleProof?.let { "&google_proof=$it" } ?: "")
                         else -> "action=logout"
                     }
                     connection.outputStream.use { it.write(data.toByteArray(Charsets.UTF_8)) }
@@ -243,6 +253,20 @@ private fun TaraSecApp(initialDestination: String?) {
                 }
                 if (code !in 200..299 || !json.optBoolean("ok", false)) {
                     val error = json.optString("error", "HTTP $code")
+                    if (action == "login" && error == "manager_google_required") {
+                        val targetJson = json.getJSONObject("approvalTarget")
+                        val target = SshApprovalTarget(targetJson.getString("approval_url"), targetJson.getString("server_ref"))
+                        val binding = json.getString("binding")
+                        require(binding.matches(Regex("[a-f0-9]{64}"))) { "Invalid management challenge." }
+                        activity.runOnUiThread {
+                            managementTarget = target; managementBinding = binding
+                            managementPairing = null; managementGrant = null
+                            managerAuthenticated = false; threatStates = emptyMap()
+                            managerStatus = "Sign in with Google to manage this server. Server data stays hidden until verification."
+                            busy = false
+                        }
+                        return@Thread
+                    }
                     if (action == "login" && error == "manager_not_approved") {
                         activity.runOnUiThread { managerNeedsApproval = true }
                     }
@@ -261,12 +285,23 @@ private fun TaraSecApp(initialDestination: String?) {
                             "admin_pending" -> "Administrator approval is incomplete. Start a new request to resume the approval process."
                             else -> "The saved management credential is no longer accepted. Request access again."
                         }
+                        "manager_google_expired", "manager_google_verification_failed" -> "Fresh Google verification expired or could not be confirmed. Reconnect to start a new server sign-in."
+                        "management_identity_unavailable" -> "This server needs its Google management enrollment and approval identity configured."
                         "manager_auth_unavailable" -> "The installation's management login service is temporarily unavailable. Try again later or ask its administrator to check it."
                         "request_not_found" -> "This approval request was not found or has expired. Request management access again."
                         else -> error
                     })
                 }
 
+                if (action == "login" && json.optBoolean("authenticated", false)) {
+                    val target = managementTarget
+                    val now = System.currentTimeMillis() / 1000
+                    require(googleProof != null && managementGrant != null && target != null &&
+                        json.optString("serverRef") == target.serverRef &&
+                        json.optLong("googleVerifiedUntil") > now && json.optLong("googleVerifiedUntil") <= now + 960) {
+                        "This server needs the fresh Google management update before it can be managed."
+                    }
+                }
                 if (action == "login" && !json.optBoolean("authenticated", false)) {
                     throw IllegalStateException("The installation did not activate a management session. Check that management access is still approved.")
                 }
@@ -313,6 +348,10 @@ private fun TaraSecApp(initialDestination: String?) {
                                     managementBaseUrl = base,
                                     serviceIp = registrationServiceIp.ifBlank { selectedInstallation?.serviceIp ?: InstallationStore.endpointHost(base) }
                                 )
+                                managementInstallationId = item.id
+                                managementUntil = json.getLong("googleVerifiedUntil")
+                                val owner = SshSessionStore.owner(item.id, "management", managementEntryId)
+                                SshSessionStore.put(SshSessionKey(owner, managementTarget!!), SshSession(grant = managementGrant!!))
                                 SecureCredentialStore.put(activity, item.id, managerCredential)
                                 managementMappingKey?.let { SecureCredentialStore.put(activity, it, item.id) }
                                 SecureCredentialStore.remove(activity, pendingKey)
@@ -326,6 +365,7 @@ private fun TaraSecApp(initialDestination: String?) {
                             }
                         }
                         "logout" -> {
+                            managementGrant = null; managementPairing = null; managementUntil = 0; managementBinding = ""
                             SshSessionStore.clear()
                             managerAuthenticated = false
                             managerStatus = "Signed out. Installation registration is retained."
@@ -403,7 +443,7 @@ private fun TaraSecApp(initialDestination: String?) {
         onDispose { lifecycle.removeObserver(observer) }
     }
     val refreshApproval by rememberUpdatedState(newValue = {
-        if (!busy && !managerAuthenticated && !managerRejected && !managerRequestUnavailable &&
+        if (managementBinding.isBlank() && !busy && !managerAuthenticated && !managerRejected && !managerRequestUnavailable &&
             managerRequestId != null && managerRequestToken.isNotBlank()) {
             managerRequest("status")
         }
@@ -492,7 +532,42 @@ private fun TaraSecApp(initialDestination: String?) {
         }.start()
     }
 
+    LaunchedEffect(managementPairing, foreground) {
+        val pairing = managementPairing
+        val target = managementTarget
+        if (pairing != null && target != null && foreground) {
+            while (managementGrant == null) {
+                try {
+                    val grant = withContext(Dispatchers.IO) { SshApprovalClient.exchange(target, pairing) }
+                    if (grant != null) {
+                        managementGrant = grant; managementPairing = null
+                        managerRequest("login", grant.token)
+                        break
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) {
+                    managerStatus = e.message ?: "Management sign-in failed."
+                    managementPairing = null; break
+                }
+                delay(2000)
+            }
+        }
+    }
+    LaunchedEffect(managerAuthenticated, managementUntil, foreground) {
+        while (managerAuthenticated) {
+            if (managementUntil <= System.currentTimeMillis() / 1000) {
+                managerAuthenticated = false; managementGrant = null; managementPairing = null; managementBinding = ""; threatStates = emptyMap()
+                SshSessionStore.clear()
+                managerStatus = "Management session expired. Connect again for a fresh Google sign-in."
+                break
+            }
+            delay(1000)
+        }
+    }
+
     LaunchedEffect(selectedInstallationId) {
+        if (managerAuthenticated && managementInstallationId == selectedInstallationId &&
+            managementUntil > System.currentTimeMillis() / 1000) return@LaunchedEffect
         if (selectedInstallationId != null || managerRequestId == null) resetManagerUi()
         val installation = installations.firstOrNull { it.id == selectedInstallationId }
         if (installation != null) {
@@ -538,7 +613,30 @@ private fun TaraSecApp(initialDestination: String?) {
         unavailable = managerRequestUnavailable || managerRejected
     )
 
-    val activeThreats = installations.mapNotNull { installation ->
+    @androidx.compose.runtime.Composable
+    fun ManagementSignInAction() {
+                if (managementTarget != null && managementBinding.isNotBlank()) {
+                    Button(enabled = !busy, onClick = {
+                        val target = managementTarget ?: return@Button
+                        busy = true
+                        Thread {
+                            try {
+                                val pairing = SshApprovalClient.start(target, managementBinding)
+                                activity.runOnUiThread {
+                                    managementPairing = pairing; managementGrant = null; busy = false
+                                    activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(target.managementBrowserUrl(pairing.id))))
+                                    managerStatus = "Complete fresh Google sign-in, then return here."
+                                }
+                            } catch (e: Exception) { activity.runOnUiThread {
+                                busy = false; managerStatus = e.message ?: "Could not start Google sign-in."
+                            } }
+                        }.start()
+                    }) { Text("Sign in with Google to manage this server") }
+                }
+    }
+
+    val activeThreats = installations.filter { managerAuthenticated && it.id == selectedInstallationId }.mapNotNull { installation ->
         val state = threatStates[installation.id] ?: return@mapNotNull null
         if (state.infected || state.severity > 1) installation to state else null
     }
@@ -590,6 +688,10 @@ private fun TaraSecApp(initialDestination: String?) {
                 }) { Text("My units") }
             }
             if (selectedInstallation != null && managerAuthenticated) {
+                TextButton(enabled = !busy, onClick = {
+                    managerAuthenticated = false; threatStates = emptyMap(); SshSessionStore.clear()
+                    managerRequest("logout")
+                }) { Text("End management session") }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(AppPage.UNITS to "Status", AppPage.MANAGER to "AI", AppPage.ASSISTANCE to "Assistance", AppPage.SSH to "SSH").forEach { (target, label) ->
                         FilterChip(selected = page == target, onClick = { page = target }, label = { Text(label) })
@@ -612,6 +714,7 @@ private fun TaraSecApp(initialDestination: String?) {
             ) {
                 Text(disconnectedInstallation.managementBaseUrl, style = MaterialTheme.typography.bodySmall)
                 Text(managerStatus, modifier = Modifier.testTag("managementConnectionStatus"))
+                ManagementSignInAction()
                 if (managerCredential.isNotBlank()) {
                     Button(
                         enabled = !busy,
@@ -756,7 +859,10 @@ private fun TaraSecApp(initialDestination: String?) {
                 if (installation == null) {
                     Text("Choose a node from My units first.")
                 } else {
-                    ManagerSshPanel(installation.managementBaseUrl, installation.name, installation.id)
+                    ManagerSshPanel(installation.managementBaseUrl, installation.name,
+                        SshSessionStore.owner(installation.id, "management", managementEntryId),
+                        onSessionExpired = { managerAuthenticated = false; managementGrant = null; managementPairing = null; managementBinding = ""; threatStates = emptyMap()
+                            managerStatus = "Management authorization expired. Connect again for fresh Google verification." })
                 }
             }
 
@@ -823,6 +929,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     Text(managerStatus)
                 } else {
                     Text(managerStatus)
+                    ManagementSignInAction()
                     Button(enabled = !busy && managerCredential.isNotBlank(), onClick = { managerRequest("login") }) { Text("Reconnect management access") }
                 }
 

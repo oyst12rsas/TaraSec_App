@@ -1,45 +1,33 @@
-# Temporary SSH in the app
+# Fresh server management and SSH
 
-The selected gateway provides its enrolled server reference through the authenticated
-managerSsh API. If that identity is absent, there is no generic dashboard fallback.
+Opening Manage starts a new gateway-session challenge using the saved approved
+management credential. That credential alone never authorizes server data.
+The app offers a fresh Google verification on management.php, bound to the exact
+enrolled server reference and app verifier. Existing subscriber credentials and
+old operator cookies cannot satisfy that request. Google may use its own SSO;
+TaraSec requires a newly verified nonce-bound assertion, not a forced password prompt.
 
-Sign in with Google once using the browser handoff and explicitly connect the app
-to the displayed node. The handoff uses a short-lived S256 verifier exchange;
-the URL contains no verifier or reusable app token. Native tokens last at most
-30 minutes, remain in memory and authorize only this node's list/opening/approval.
+The selected node verifies a one-use proof using its existing Gatekeeper handoff
+credential. It checks the current local manager credential, matching Google email,
+node identity, session nonce and expiry before setting a management cookie.
+The same session lasts at most 15 minutes across Status, AI, Assistance and SSH.
+Sensitive endpoints enforce freshness and exact node identity server-side. The app
+hides management views on expiry, and background polling cannot log in with a saved
+credential. Opening SSH still requires a fresh Authenticator code and node-reported
+confirmation; switching tabs does not cause another Google sign-in.
 
-Choose 5, 10 or 15 minutes, enter the Authenticator code in the app and confirm.
-The existing server-side TOTP checks, replay protection, rate limits, local node
-policy and bounded execution still apply. Approval is not proof of opening:
-the app waits for the matching applied job and node-reported deadline.
+Native grants stay in process memory, scoped to the management entry, installation
+and exact approval target. No long-lived subscriber-token exchange is used.
+Existing legacy management cookies and native sessions are rejected after rollout.
 
-Deployment requires the matching Core and approval-service changes. Upgrade the
-node approval installer to publish metadata from its protected enrollment receipt.
-A node with no receipt requires explicit Google enrollment. Ports and private node
-IDs never enter the app. No live firewall migration is performed automatically.
+Deploy website first, Core management endpoints/helper second, app last. The node
+needs its existing Google enrollment and Gatekeeper handoff configuration. Use
+Core install_agent_approvals.sh --update-only for an already enrolled node; it
+deploys the complete management bundle. No SSH firewall policy or enrollment is
+automatically changed. No tarasec_payment deployment is required for this fix.
 
-Verify two nodes with different identities and duplicate/changed display names.
-Test unknown/unauthorized references, wrong codes, replay, expired sign-in, service
-failure, actual opening on only the selected node, countdown and expiry.
-
-The SSH screen first reuses the signed-in account through the approval service's
-`account_login` action. The account token is sent only when the selected account
-service and approval service have the same HTTPS origin, with redirects disabled.
-The approval service asks its configured central backend for a verified Google
-identity, checks pinned subjects and current per-node grants, then issues the same
-30-minute maximum, node-bound SSH token as browser pairing. Management cookies
-alone never authorize SSH. Authenticator approval is still required per opening.
-
-Tokens, pending browser pairing and the matching opening job survive tab/activity
-navigation in process memory, keyed by installation, account credential, approval
-origin and exact node reference. Logout/installation removal clears them. Expired
-sessions are verified again using the current account; process restart can also
-reuse that account without another browser visit. Different account services or
-accounts without a verified Google identity retain explicit browser connection.
-
-Deploy the account-service `identity/ssh-identity.php` first (the hosted-link
-installer includes it), then website `_account_identity.php` and `mobile.php`, then
-the app. No node reinstall or new enrollment is needed for this change. Check live
-Google-signed-in My units → Manage → SSH, tab away/back, expiry, logout/account
-switch, and two distinct node identities. The new local tests cover cache scope,
-expiry, pairing retention and preventing credentials reaching a foreign origin.
+Acceptance: open Manage with only saved credentials and confirm no server status
+is exposed; complete fresh Google verification; visit every tab, including SSH;
+verify only Authenticator approval is required for an opening; reject a different
+account/node, replayed proof, old cookie, expired session and long-lived account
+token. Live phone/Google/node acceptance remains required after deployment.
