@@ -326,6 +326,7 @@ private fun TaraSecApp(initialDestination: String?) {
                             }
                         }
                         "logout" -> {
+                            SshSessionStore.clear()
                             managerAuthenticated = false
                             managerStatus = "Signed out. Installation registration is retained."
                         }
@@ -755,7 +756,7 @@ private fun TaraSecApp(initialDestination: String?) {
                 if (installation == null) {
                     Text("Choose a node from My units first.")
                 } else {
-                    ManagerSshPanel(installation.managementBaseUrl, installation.name)
+                    ManagerSshPanel(installation.managementBaseUrl, installation.name, installation.id)
                 }
             }
 
