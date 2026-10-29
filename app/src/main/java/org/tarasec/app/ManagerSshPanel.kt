@@ -19,22 +19,29 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 
 @Composable
-fun ManagerSshPanel(baseUrl: String, installationName: String) {
+fun ManagerSshPanel(baseUrl: String, installationName: String, installationId: String) {
     val activity = LocalContext.current as Activity
     val scope = rememberCoroutineScope()
-    var target by remember(baseUrl) { mutableStateOf<SshApprovalTarget?>(null) }
-    var pairing by remember(baseUrl) { mutableStateOf<SshAppPairing?>(null) }
-    var grant by remember(baseUrl) { mutableStateOf<SshAppGrant?>(null) }
-    var status by remember(baseUrl) { mutableStateOf<JSONObject?>(null) }
-    var message by remember(baseUrl) { mutableStateOf("Checking this installation's SSH identity…") }
-    var busy by remember(baseUrl) { mutableStateOf(false) }
-    var duration by remember(baseUrl) { mutableStateOf(300) }
-    var code by remember(baseUrl) { mutableStateOf("") }
-    var jobId by remember(baseUrl) { mutableStateOf("") }
+    val identity = ServiceDiscovery.selected(activity).identity
+    val accountToken = SubscriberAccountClient.storedToken(activity)
+    val owner = SshSessionStore.owner(installationId, identity, accountToken)
+    fun currentAccount() = SubscriberAccountClient.storedToken(activity) == accountToken &&
+        ServiceDiscovery.selected(activity).identity == identity &&
+        SshSessionStore.owner(installationId, identity, accountToken) == owner
+    var target by remember(baseUrl, owner) { mutableStateOf<SshApprovalTarget?>(null) }
+    var pairing by remember(baseUrl, owner) { mutableStateOf<SshAppPairing?>(null) }
+    var grant by remember(baseUrl, owner) { mutableStateOf<SshAppGrant?>(null) }
+    var status by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
+    var message by remember(baseUrl, owner) { mutableStateOf("Checking this installation's SSH identity…") }
+    var loginAttempt by remember(baseUrl, owner) { mutableStateOf(0) }
+    var busy by remember(baseUrl, owner) { mutableStateOf(false) }
+    var duration by remember(baseUrl, owner) { mutableStateOf(300) }
+    var code by remember(baseUrl, owner) { mutableStateOf("") }
+    var jobId by remember(baseUrl, owner) { mutableStateOf("") }
     var foreground by remember { mutableStateOf(true) }
-    var remaining by remember(baseUrl) { mutableStateOf(0L) }
-    var deadline by remember(baseUrl) { mutableStateOf(0L) }
-    var offset by remember(baseUrl) { mutableStateOf(0L) }
+    var remaining by remember(baseUrl, owner) { mutableStateOf(0L) }
+    var deadline by remember(baseUrl, owner) { mutableStateOf(0L) }
+    var offset by remember(baseUrl, owner) { mutableStateOf(0L) }
 
     DisposableEffect(activity) {
         val wasSecure = activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
@@ -51,6 +58,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
         }
     }
     suspend fun refresh() {
+        if (!currentAccount()) { grant = null; status = null; deadline = 0; return }
         val t = target ?: return
         val g = grant ?: return
         try {
@@ -79,15 +87,41 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
         catch (e: Exception) {
             status = null; deadline = 0
             message = e.message ?: "SSH status is unavailable."
-            if (message == "Sign in with Google again.") { grant = null; pairing = null }
+            if (e is SshSignInRequiredException) {
+                SshSessionStore.remove(SshSessionKey(owner, t))
+                grant = null; pairing = null; code = ""
+            }
         }
     }
-    LaunchedEffect(baseUrl) {
+    LaunchedEffect(baseUrl, owner) {
         try {
-            target = withContext(Dispatchers.IO) { SshApprovalClient.discover(baseUrl) }
-            message = "Sign in with Google to control SSH for this installation."
+            val discovered = withContext(Dispatchers.IO) { SshApprovalClient.discover(baseUrl) }
+            if (!currentAccount()) return@LaunchedEffect
+            val saved = SshSessionStore.read(SshSessionKey(owner, discovered))
+            grant = saved?.grant; pairing = saved?.pairing; jobId = saved?.jobId.orEmpty()
+            target = discovered
+            message = if (grant != null) "Checking your existing SSH authorization…"
+                else "Connect your Google account to authorize SSH for this installation."
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { message = e.message ?: "SSH identity is unavailable." }
+    }
+    LaunchedEffect(target, grant, owner, loginAttempt) {
+        val t = target
+        if (t != null && grant == null && pairing == null && accountToken != null &&
+            SshSessionStore.trustsAccount(t, identity)) {
+            busy = true
+            message = "Verifying your signed-in account for this node…"
+            try {
+                val g = withContext(Dispatchers.IO) { SshApprovalClient.accountLogin(t, identity, accountToken) }
+                if (currentAccount()) {
+                    SshSessionStore.put(SshSessionKey(owner, t), SshSession(grant = g, jobId = jobId))
+                    grant = g
+                    message = "Account confirmed. Choose a duration and enter your Authenticator code."
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { message = e.message ?: "Account verification is unavailable." }
+            finally { busy = false }
+        }
     }
     LaunchedEffect(pairing, foreground) {
         val p = pairing
@@ -97,13 +131,18 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
                 try {
                     val g = withContext(Dispatchers.IO) { SshApprovalClient.exchange(t, p) }
                     if (g != null) {
+                        if (!currentAccount()) break
+                        SshSessionStore.put(SshSessionKey(owner, t), SshSession(grant = g, jobId = jobId))
                         grant = g; pairing = null
                         message = "Google sign-in confirmed. Choose a duration and enter your Authenticator code."
                         refresh()
                         break
                     }
                 } catch (e: CancellationException) { throw e }
-                catch (e: Exception) { message = e.message ?: "Sign-in failed."; pairing = null; break }
+                catch (e: Exception) {
+                    message = e.message ?: "Sign-in failed."; pairing = null
+                    SshSessionStore.remove(SshSessionKey(owner, t)); break
+                }
                 delay(3000)
             }
         }
@@ -127,11 +166,19 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
         if (remaining > 0) Text("Open — ${remaining / 60}m ${remaining % 60}s remaining")
         val t = target
         if (grant == null && t != null) {
+            if (accountToken != null && SshSessionStore.trustsAccount(t, identity)) {
+                TextButton(enabled = !busy && pairing == null, onClick = { loginAttempt++ }) {
+                    Text("Retry account connection")
+                }
+            }
             Button(enabled = !busy, onClick = {
                 busy = true
                 scope.launch {
                     try {
                         val p = withContext(Dispatchers.IO) { SshApprovalClient.start(t) }
+                        if (!currentAccount()) return@launch
+                        SshSessionStore.put(SshSessionKey(owner, t), SshSession(pairing = p,
+                            pairingUntil = System.currentTimeMillis() / 1000 + 300, jobId = jobId))
                         pairing = p
                         activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(t.browserUrl(p.id))))
                         message = "Complete Google sign-in and Connect app in the browser, then return here."
@@ -139,7 +186,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
                     catch (e: Exception) { message = e.message ?: "Could not start sign-in." }
                     finally { busy = false }
                 }
-            }) { Text(if (pairing == null) "Sign in with Google" else "Restart Google sign-in") }
+            }) { Text(if (pairing == null) "Connect Google account for SSH" else "Restart Google connection") }
         }
         if (grant != null) {
             val available = status?.optBoolean("totp_configured") == true &&
@@ -161,7 +208,10 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
                 val submittedCode = code; code = ""; busy = true
                 scope.launch {
                     try {
+                        check(currentAccount()) { "Account changed. Reopen SSH." }
                         jobId = withContext(Dispatchers.IO) { SshApprovalClient.open(selected, g, duration, submittedCode) }
+                        if (!currentAccount()) return@launch
+                        SshSessionStore.put(SshSessionKey(owner, selected), SshSession(grant = g, jobId = jobId))
                         message = "Approved. Waiting for this node to confirm the opening."
                         refresh()
                     } catch (e: CancellationException) { throw e }
@@ -177,7 +227,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String) {
             }
             TextButton(enabled = !busy, onClick = { scope.launch { refresh() } }) { Text("Refresh status") }
         }
-        Text("Google sign-in may open the browser. The duration, Authenticator code and opening request stay here. SSH ports are not displayed.",
+        Text("Your signed-in account is reused when available. Opening SSH still requires your Authenticator code for this node.",
             style = MaterialTheme.typography.bodySmall)
     }
 }

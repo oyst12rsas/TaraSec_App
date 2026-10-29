@@ -53,6 +53,7 @@ object SubscriberAccountClient {
     fun storedToken(context: Context): String? = SecureCredentialStore.get(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY))
 
     fun clearToken(context: Context) {
+        SshSessionStore.clear()
         SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key(SUBSCRIBER_TOKEN_KEY))
         SecureCredentialStore.remove(context, ServiceDiscovery.selected(context).key("subscriber-account-id"))
     }

@@ -84,6 +84,7 @@ object InstallationStore {
     }
 
     fun remove(context: Context, id: String) {
+        SshSessionStore.clear()
         val updated = load(context).filterNot { it.id == id }
         save(context, updated)
         if (selectedId(context) == id) {

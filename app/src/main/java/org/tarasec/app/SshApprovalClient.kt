@@ -29,13 +29,16 @@ data class SshAppGrant(val token: String, val expiresAt: Long) {
     override fun toString() = "SshAppGrant(token=omitted)"
 }
 
+class SshSignInRequiredException : IllegalStateException("Sign in with Google again.")
+
 object SshApprovalClient {
-    private fun request(url: String, body: JSONObject? = null, token: String? = null): JSONObject {
+    private fun request(url: String, body: JSONObject? = null, token: String? = null, accountToken: String? = null): JSONObject {
         val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.instanceFollowRedirects = false
             c.connectTimeout = 5000; c.readTimeout = 8000; c.useCaches = false
             c.setRequestProperty("Accept", "application/json")
+            accountToken?.let { c.setRequestProperty("X-TaraSec-Subscriber-Token", it) }
             token?.let { c.setRequestProperty("Authorization", "Bearer $it") }
             if (body != null) {
                 c.requestMethod = "POST"; c.doOutput = true
@@ -57,8 +60,12 @@ object SshApprovalClient {
                 throw IllegalStateException("The approval service returned an unexpected response (HTTP $code).")
             }
             if (code !in 200..299 || !json.optBoolean("ok")) {
+                if (json.optString("error") in listOf("app_login_required", "operator_login_required"))
+                    throw SshSignInRequiredException()
                 throw IllegalStateException(when (json.optString("error")) {
                     "app_login_required", "operator_login_required" -> "Sign in with Google again."
+                    "account_sign_in_required" -> "Your account cannot authorize SSH yet. Connect your Google account below."
+                    "account_service_unavailable" -> "Account verification is unavailable. Retry or connect through the browser."
                     "authenticator_not_configured" -> "Set up your Authenticator on the secure sign-in page first."
                     "six_digit_code_required" -> "Enter the six-digit Authenticator code."
                     "invalid_code_or_proposal_not_pending" -> "The code was not accepted, or this request is no longer pending. Refresh and try a new code."
@@ -79,6 +86,20 @@ object SshApprovalClient {
             ?: error("This node has not published its SSH approval identity. Update its approval installer or enroll it before opening SSH.")
         return SshApprovalTarget(value.getString("approval_url"), value.getString("server_ref"))
     }
+    fun accountLogin(target: SshApprovalTarget, identity: String, accountToken: String): SshAppGrant {
+        require(SshSessionStore.trustsAccount(target, identity)) { "SSH uses a different account service. Connect through the browser." }
+        val json = request(target.base + "mobile.php?action=account_login",
+            JSONObject().put("server_ref", target.serverRef), accountToken = accountToken)
+        return readGrant(target, json)
+    }
+    private fun readGrant(target: SshApprovalTarget, json: JSONObject): SshAppGrant {
+        require(json.optString("server_ref") == target.serverRef) { "Sign-in returned a different node." }
+        val token = json.getString("token")
+        val expiry = json.getLong("expires_at")
+        val now = System.currentTimeMillis() / 1000
+        require(token.matches(Regex("[a-f0-9]{64}")) && expiry > now && expiry <= now + 1860) { "Invalid app sign-in response." }
+        return SshAppGrant(token, expiry)
+    }
     fun start(target: SshApprovalTarget): SshAppPairing {
         val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
         val verifier = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -94,10 +115,7 @@ object SshApprovalClient {
         val json = request(target.base + "mobile.php?action=exchange",
             JSONObject().put("id", pairing.id).put("verifier", pairing.verifier))
         if (json.optBoolean("pending")) return null
-        require(json.optString("server_ref") == target.serverRef) { "Sign-in returned a different node." }
-        val token = json.getString("token")
-        require(token.matches(Regex("[a-f0-9]{64}"))) { "Invalid app sign-in response." }
-        return SshAppGrant(token, json.getLong("expires_at"))
+        return readGrant(target, json)
     }
     fun status(target: SshApprovalTarget, grant: SshAppGrant): JSONObject {
         val json = request(target.base + "mobile.php?action=list&server=" + target.serverRef, token = grant.token)
