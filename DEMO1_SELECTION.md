@@ -15,6 +15,14 @@ Porsche, Tomato: the three Standard-gateway endpoints are together at the top.
 Registered IPv4 installations are included newest first. The hotspot's advertised
 endpoint list is also reversed; it remains authoritative on a direct hotspot.
 
+Locally registered and manually entered endpoints have a **Remove … from Demo 1**
+button. Removal is remembered across restarts and does not delete the saved
+installation, credentials, or gateway connection. This also lets users remove a
+gateway which was included through its saved installation. Removed addresses are
+excluded from the local demo list and its polling; entering the address again
+with **Use this endpoint** restores it. A direct hotspot's advertised list remains
+controlled by the hotspot.
+
 An automatic fallback does not overwrite the last explicit choice. In particular,
 visiting a hotspot which does not advertise the saved endpoint must not forget it.
 Selecting an endpoint probes its route and never bypasses gateway verification.
@@ -40,6 +48,12 @@ Manual checks:
   available fallback and restore the explicit choice when it becomes available.
 - A hotspot advertising no endpoints must show no selected endpoint or enabled
   state-changing controls.
+- Remove a registered gateway endpoint and restart: it stays absent from Demo 1,
+  while its saved installation remains available for management/VPN use.
+- Remove the selected custom endpoint: its draft and saved custom address clear,
+  another available endpoint is selected, and old receiver evidence is cleared.
+- Remove an unselected local endpoint: the current selection remains unchanged.
+- Re-enter a removed address: it becomes visible and selected again.
 
 Clean-start checks:
 
