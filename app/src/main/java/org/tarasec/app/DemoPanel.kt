@@ -127,12 +127,14 @@ fun DemoPanel(
     val lastRegisteredDemoIp = registeredDemoTargets.lastOrNull()?.ip
     var endpointIpDraft by remember { mutableStateOf(Demo1Preferences.customIp(activity)) }
     var customEndpointIp by remember { mutableStateOf(Demo1Preferences.customIp(activity)) }
+    var removedEndpointIps by remember { mutableStateOf(Demo1Preferences.removedIps(activity)) }
     var endpointNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val configuredTargets = (gatewayTargets +
         (if (directHotspotDetected) emptyList() else registeredDemoTargets) + listOfNotNull(
         customEndpointIp.takeIf { !directHotspotDetected && it.isNotBlank() }
             ?.let { DemoTarget("Custom endpoint", it) }
-    )).asReversed().distinctBy { it.ip }.map { endpoint ->
+    )).filter { directHotspotDetected || it.ip !in removedEndpointIps }
+        .asReversed().distinctBy { it.ip }.map { endpoint ->
         endpointNames[endpoint.ip]?.let { endpoint.copy(name = it) } ?: endpoint
     }
     var basicTargetIp by remember { mutableStateOf(Demo1Preferences.selectedIp(activity)) }
@@ -719,6 +721,34 @@ fun DemoPanel(
                                 Text("$dot " + (if (endpoint.ip == basicTarget?.ip) "✓ " else "") +
                                     "${endpoint.name} · ${endpoint.ip}")
                             }
+                            if (!directHotspotDetected &&
+                                (registeredDemoTargets.any { it.ip == endpoint.ip } || customEndpointIp == endpoint.ip)) {
+                                OutlinedButton(
+                                    enabled = !busy,
+                                    onClick = {
+                                        pollGeneration.incrementAndGet()
+                                        val removingSelected = basicTarget?.ip == endpoint.ip
+                                        Demo1Preferences.remove(activity, endpoint.ip)
+                                        removedEndpointIps = Demo1Preferences.removedIps(activity)
+                                        if (customEndpointIp == endpoint.ip) customEndpointIp = ""
+                                        if (endpointIpDraft.trim() == endpoint.ip) endpointIpDraft = ""
+                                        nodeStatuses = nodeStatuses - endpoint.ip
+                                        nodeIssues = nodeIssues - endpoint.ip
+                                        if (removingSelected) {
+                                            basicTargetIp = ""
+                                            verifiedDemo1GatewayIp = ""
+                                            basicReceiverProbe = null
+                                            basicReceiverState = null
+                                            basicReceiverFailureCount = 0
+                                            intendedPhoneState = null
+                                            completedPhoneState = null
+                                            demo1RouteMessage = "Discovering the next endpoint and its gateway…"
+                                        }
+                                        secondsUntilRefresh = 0
+                                        message = "Removed ${endpoint.name} from Demo 1. Saved server connections are unchanged."
+                                    }
+                                ) { Text("Remove ${endpoint.name} from Demo 1") }
+                            }
                         }
                         Text("Green = clean · Red = infected · Yellow = checking or status issue",
                             style = MaterialTheme.typography.bodySmall)
@@ -776,6 +806,7 @@ fun DemoPanel(
                                 customEndpointIp = requestedIp
                                 basicTargetIp = requestedIp
                                 Demo1Preferences.select(activity, requestedIp, custom = true)
+                                removedEndpointIps = Demo1Preferences.removedIps(activity)
                                 verifiedDemo1GatewayIp = ""
                                 intendedPhoneState = null
                                 completedPhoneState = null
