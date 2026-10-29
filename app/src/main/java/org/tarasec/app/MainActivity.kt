@@ -675,8 +675,12 @@ private fun TaraSecApp(initialDestination: String?) {
             activeThreats.forEach { (installation, state) ->
                 Text("${installation.name}: severity ${state.severity} — ${state.summary}")
             }
+        } else if (managerAuthenticated && selectedInstallation != null) {
+            val checked = threatStates[selectedInstallation.id]
+            Text(if (checked?.authenticated == true) "Threat watch: no active warning reported by ${selectedInstallation.name}."
+                else "Checking this server's status…", style = MaterialTheme.typography.bodySmall)
         } else if (installations.isNotEmpty()) {
-            Text("Threat watch: no active warning from ${installations.size} registered installation(s).", style = MaterialTheme.typography.bodySmall)
+            Text("Server status is hidden until fresh Google verification.", style = MaterialTheme.typography.bodySmall)
         }
 
         if (page in listOf(AppPage.UNITS, AppPage.MANAGER, AppPage.ASSISTANCE, AppPage.SSH, AppPage.SETUP)) {
