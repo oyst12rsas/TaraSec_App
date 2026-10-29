@@ -36,7 +36,18 @@ class SecureLauncherActivity : FragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    startActivity(Intent(this@SecureLauncherActivity, SubscriberHomeActivity::class.java))
+                    // The browser link only resumes the app. The pending management
+                    // challenge still has to be exchanged and verified by the node.
+                    val managementReturn = intent?.action == Intent.ACTION_VIEW &&
+                        intent?.data?.scheme == "tarasec" && intent?.data?.host == "management-return"
+                    val destination = if (managementReturn) MainActivity::class.java else SubscriberHomeActivity::class.java
+                    val next = Intent(this@SecureLauncherActivity, destination)
+                    if (managementReturn) {
+                        // Preserve the existing Compose state and pairing verifier.
+                        // No URI query parameters or external extras are forwarded.
+                        next.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                    startActivity(next)
                     finish()
                 }
 
