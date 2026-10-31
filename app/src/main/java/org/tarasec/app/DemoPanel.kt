@@ -267,8 +267,9 @@ fun DemoPanel(
         else -> "No active gateway"
     }
 
-    fun pollAll(after: String? = null) {
+    fun pollAll(after: String? = null, isCurrent: () -> Boolean = { true }) {
         val generation = pollGeneration.get()
+        val pollingThread = Thread.currentThread()
         val t = currentTarget()
         if (!validIpv4(t.ip)) {
             activity.runOnUiThread { message = "Enter a valid IPv4 address for the Demo 2 receiving node." }
@@ -284,7 +285,7 @@ fun DemoPanel(
         val polledVpnGateway = selectedBaseAtStart?.let { DemoClient.threatStatusBase(it) }
         val polledVpnPhone = selectedBaseAtStart?.let { DemoClient.localThreatStatusBase(it) }
         activity.runOnUiThread {
-            if (generation == pollGeneration.get() && !actionInProgress.get()) {
+            if (isCurrent() && !pollingThread.isInterrupted && generation == pollGeneration.get() && !actionInProgress.get()) {
                 localPhoneState = local
                 vpnGatewayState = polledVpnGateway
                 vpnPhoneState = polledVpnPhone
@@ -334,7 +335,7 @@ fun DemoPanel(
         activity.runOnUiThread {
             // Ignore a poll that began before a Set CLEAN/INFECTED action.
             // Otherwise its older responses can overwrite the targeted result.
-            if (generation != pollGeneration.get() || actionInProgress.get()) {
+            if (!isCurrent() || pollingThread.isInterrupted || generation != pollGeneration.get() || actionInProgress.get()) {
                 return@runOnUiThread
             }
             // Keep names by address so another endpoint or a later failed probe
@@ -389,22 +390,12 @@ fun DemoPanel(
                 }
             }
             if (basicTargetAtStart?.ip != basicTarget?.ip) return@runOnUiThread
-            if (basicReceiver?.reachable == true) {
-                basicReceiverProbe = basicIdentity
-                basicReceiverState = basicReceiver
-                basicReceiverFailureCount = if (basicIdentity?.reachable == true) 0 else basicReceiverFailureCount + 1
-            } else if (basicTargetAtStart != null) {
-                basicReceiverFailureCount += 1
-                // Do not replace a confirmed CLEAN/INFECTED state with
-                // "checking" or a timeout from one later request.
-                if (
-                    basicReceiverProbe?.reachable != true ||
-                    basicReceiverState?.reachable != true
-                ) {
-                    basicReceiverProbe = basicIdentity
-                    basicReceiverState = basicReceiver
-                }
-            }
+            // Publish the latest outcome, including failures. A previous red or
+            // green response must not masquerade as a successful current check.
+            basicReceiverProbe = basicIdentity
+            basicReceiverState = basicReceiver
+            basicReceiverFailureCount = if (basicReceiver?.reachable == true &&
+                basicIdentity?.reachable == true) 0 else basicReceiverFailureCount + 1
             receiverProbe = identity
             discoveredName = identity.nodeName
             localPhoneState = local
@@ -470,11 +461,13 @@ fun DemoPanel(
             // The receiver status request is itself the real tagged
             // connection. Its endpoint waits, for at most 1.5 seconds, until
             // tarakernel reports that exact TCP session to taralink.
+            val updatedGateway = DemoClient.threatStatusBase(base)
             val updatedGatewayPhone = DemoClient.localThreatStatusBase(base)
             activity.runOnUiThread {
                 if (usingDirectHotspot) {
                     localPhoneState = updatedGatewayPhone
                 } else {
+                    vpnGatewayState = updatedGateway
                     vpnPhoneState = updatedGatewayPhone
                 }
             }
@@ -538,7 +531,7 @@ fun DemoPanel(
             val worker = Thread {
                 while (running.get()) {
                     if (!actionInProgress.get()) {
-                        pollAll()
+                        pollAll(isCurrent = { running.get() })
                     }
                     // Each full check already waits for the receiver's fresh
                     // traffic evidence. Keep the gap between checks short so
@@ -569,7 +562,9 @@ fun DemoPanel(
         else -> verifiedDemo1GatewayIp.isNotBlank() && selectedGatewayConfig?.reachable == true
     }
     val phase = when {
-        phoneState == null || !phoneState.reachable -> "CHECKING"
+        busy -> "UPDATING"
+        phoneState == null -> "CHECKING"
+        !phoneState.reachable -> "UNAVAILABLE"
         phoneState.infected && auditApproved -> "REASSESSING"
         phoneState.infected -> "INFECTED"
         auditApproved -> "REHABILITATED"
@@ -581,8 +576,10 @@ fun DemoPanel(
         phoneState,
         gatewayReachable,
         basicTarget?.ip,
-        basicReceiverState
+        basicReceiverState,
+        busy
     ) {
+        if (busy) return@LaunchedEffect
         val intended = intendedPhoneState ?: return@LaunchedEffect
         val phoneReached = phoneState?.reachable == true && phoneState.infected == intended
         val receiverReached = basicTarget == null ||
@@ -591,10 +588,8 @@ fun DemoPanel(
         if (phoneReached && gatewayReachable && receiverReached) {
             intendedPhoneState = null
             completedPhoneState = intended
-            automaticChecksEnabled = false
-            secondsUntilRefresh = 0
             message = "Requested " + (if (intended) "INFECTED" else "CLEAN") +
-                " state confirmed across the active demo path. Automatic checks paused."
+                " state confirmed across the active demo path. Monitoring continues."
         }
     }
 
@@ -906,7 +901,8 @@ fun DemoPanel(
                 TaraStatusRow(
                     "Phone / unit",
                     when {
-                        phoneState?.reachable != true -> "Checking…"
+                        phoneState == null -> "Checking…"
+                        !phoneState.reachable -> "🟡 Status unavailable: ${phoneState.message}"
                         phoneState.infected -> "🔴 INFECTED"
                         else -> "🟢 CLEAN"
                     }
@@ -915,7 +911,7 @@ fun DemoPanel(
                     "Gateway",
                     when {
                         !gatewayReachable -> "$gatewayLabel · unavailable/checking"
-                        phoneState?.reachable != true -> "🟢 $gatewayLabel · reachable; phone status unavailable"
+                        phoneState?.reachable != true -> "🟡 $gatewayLabel · reachable; phone status unavailable"
                         phoneState.infected -> "🔴 $gatewayLabel · phone marked infected"
                         else -> "🟢 $gatewayLabel · phone clean"
                     }
