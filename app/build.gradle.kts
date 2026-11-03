@@ -20,8 +20,8 @@ android {
         applicationId = "org.tarasec.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 21
-        versionName = "0.4.8"
+        versionCode = 22
+        versionName = "0.4.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
