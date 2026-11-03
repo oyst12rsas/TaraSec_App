@@ -7,6 +7,13 @@ internal object SshClientCommands {
 
     private fun quote(value: String) = "'" + value.replace("'", "'\\''") + "'"
 
+    fun connect(gateway: String, user: String, port: Int = 5822): String {
+        require(user.matches(Regex("[a-z_][a-z0-9_-]{0,31}")) && port in 1..65535)
+        require(gateway.isNotBlank())
+        return run + " --connect --gateway " + quote(gateway) + " --user " + quote(user) +
+            if (port == 5822) "" else " --port " + port
+    }
+
     fun setup(gateway: String, service: String): String {
         require(gateway.isNotBlank() && service.isNotBlank())
         val options = " --install --gateway " + quote(gateway) +

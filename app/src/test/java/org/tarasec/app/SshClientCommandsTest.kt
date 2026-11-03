@@ -32,6 +32,15 @@ class SshClientCommandsTest {
         }
     }
 
+    @Test fun connectionUsesSelectedServerAndAccountWithoutKeyFilename() {
+        assertEquals("~/.local/bin/tarasec-client --connect --gateway 'http://100.68.165.190' --user 'ubuntu'",
+            SshClientCommands.connect("http://100.68.165.190", "ubuntu"))
+        assertTrue(SshClientCommands.connect("http://100.68.126.0", "dbserver1", 4810).endsWith(" --port 4810"))
+        assertFalse(SshClientCommands.connect("http://100.68.165.190", "ubuntu").contains("id_ed25519"))
+        assertTrue(runCatching { SshClientCommands.connect("http://gateway", "-oProxyCommand=bad") }.isFailure)
+        assertTrue(runCatching { SshClientCommands.connect("http://gateway", "ubuntu", 0) }.isFailure)
+    }
+
     @Test fun setupFillsOnlyRequiredServerOptionForDefaultService() {
         assertEquals(listOf("--install", "--gateway", "http://100.68.165.190"),
             executeSetup("http://100.68.165.190", "https://tarasec.org/ops/agent/"))
