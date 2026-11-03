@@ -2,10 +2,14 @@
 
 Opening Manage starts a new gateway-session challenge using the saved approved
 management credential. That credential alone never authorizes server data.
-The app offers a fresh Google verification on management.php, bound to the exact
+The app automatically opens Google verification on management.php, bound to the exact
 enrolled server reference and app verifier. Existing subscriber credentials and
 old operator cookies cannot satisfy that request. Google may use its own SSO;
 TaraSec requires a newly verified nonce-bound assertion, not a forced password prompt.
+The hosted page attempts automatic Google account selection and keeps an interactive
+fallback when Google requires confirmation. A challenge is opened once automatically;
+returning from the browser does not reopen it. Both pending-approval screens expose
+Continue server verification for retry, reusing an existing pairing when present.
 
 The selected node verifies a one-use proof using its existing Gatekeeper handoff
 credential. It checks the current local manager credential, matching Google email,
