@@ -908,7 +908,7 @@ private fun TaraSecApp(initialDestination: String?) {
                         Text("Request #$managerRequestId · $managerEmail")
                         Text("Email verification: ${if (managerEmailVerified) "Confirmed" else "Waiting"}")
                         Text("Installation admin approval: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
-                        Text("The app checks automatically and activates management access after both confirmations.")
+                        Text("The app checks approval automatically. After both confirmations, complete Google sign-in to activate management access.")
                         if (approvalUi.needsNewRequest) {
                             Button(enabled = !busy, onClick = {
                                 SecureCredentialStore.remove(activity, pendingKey)
@@ -931,6 +931,7 @@ private fun TaraSecApp(initialDestination: String?) {
                         }
                     }
                     Text(managerStatus)
+                    ManagementSignInAction()
                 } else {
                     Text(managerStatus)
                     ManagementSignInAction()
