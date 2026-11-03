@@ -7,6 +7,7 @@ import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -166,7 +167,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             Text("Add an SSH device", style = MaterialTheme.typography.titleMedium)
             Text("Pair Acer or Termux, then approve its exact public key on the secure website. Existing SSH settings stay unchanged.")
             OutlinedTextField(value = enrollmentUser, onValueChange = { enrollmentUser = it.take(32) },
-                label = { Text("SSH account on this server") }, singleLine = true, enabled = !busy)
+                label = { Text("Linux username on this server") }, singleLine = true, enabled = !busy)
             OutlinedTextField(value = enrollmentDevice, onValueChange = { enrollmentDevice = it.take(48) },
                 label = { Text("Device name, for example Acer or Termux") }, singleLine = true, enabled = !busy)
             Button(enabled = !busy && enrollmentUser.isNotBlank() && enrollmentDevice.isNotBlank(), onClick = {
@@ -206,7 +207,14 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             }
             if (pairingCode.isNotBlank()) {
                 Text("On Acer or Termux, run the pairing helper from the updated taransvar checkout:")
-                Text("python3 ~/taransvar/misc/pair_ssh_device.py --service " + target!!.base)
+                val pairingCommand = "python3 ~/taransvar/misc/pair_ssh_device.py --service '" +
+                    target!!.base.replace("'", "'\\''") + "'"
+                SelectionContainer { Text(pairingCommand) }
+                TextButton(onClick = {
+                    val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TaraSec SSH pairing command", pairingCommand))
+                    android.widget.Toast.makeText(activity, "Pairing command copied", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("Copy pairing command") }
                 Text("Paste this short-lived pairing code when prompted. It expires after 10 minutes:")
                 Text(pairingCode)
                 TextButton(onClick = {
