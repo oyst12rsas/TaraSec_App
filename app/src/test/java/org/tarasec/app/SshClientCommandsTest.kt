@@ -4,7 +4,6 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.nio.file.Files
-import java.nio.file.Path
 
 class SshClientCommandsTest {
     private fun executeSetup(gateway: String, service: String): List<String> {
@@ -15,9 +14,9 @@ class SshClientCommandsTest {
             val capture = root.resolve("arguments")
             val curl = "#!/usr/bin/env bash\nwhile ((\$#)); do\nif [[ \$1 == -o ]]; then output=\$2; shift 2; else shift; fi\ndone\n" +
                 "printf '%s\\n' '#!/usr/bin/env bash' 'printf \"%s\\n\" \"\$@\" > \"\$TARASEC_ARGS_CAPTURE\"' > \"\$output\"\n"
-            Files.writeString(bin.resolve("curl"), curl)
+            Files.write(bin.resolve("curl"), curl.toByteArray(Charsets.UTF_8))
             bin.resolve("curl").toFile().setExecutable(true)
-            Files.writeString(bin.resolve("clear"), "#!/bin/sh\nexit 0\n")
+            Files.write(bin.resolve("clear"), "#!/bin/sh\nexit 0\n".toByteArray(Charsets.UTF_8))
             bin.resolve("clear").toFile().setExecutable(true)
             val process = ProcessBuilder("bash", "-c", SshClientCommands.setup(gateway, service))
                 .redirectErrorStream(true)
@@ -51,7 +50,7 @@ class SshClientCommandsTest {
         try {
             val client = home.resolve(".local/bin/tarasec-client")
             Files.createDirectories(client.parent)
-            Files.writeString(client, "#!/bin/bash\nprintf '%s' \"\$#\"\n")
+            Files.write(client, "#!/bin/bash\nprintf '%s' \"\$#\"\n".toByteArray(Charsets.UTF_8))
             client.toFile().setExecutable(true)
             val process = ProcessBuilder("bash", "-c", SshClientCommands.run)
             process.environment()["HOME"] = home.toString()
