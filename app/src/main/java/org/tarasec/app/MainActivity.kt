@@ -130,6 +130,7 @@ private fun TaraSecApp(initialDestination: String?) {
     val managementEntryId = remember { java.util.UUID.randomUUID().toString() }
     var managementTarget by remember { mutableStateOf<SshApprovalTarget?>(null) }
     var managementBinding by remember { mutableStateOf("") }
+    var managementAttemptedBinding by remember { mutableStateOf("") }
     var managementPairing by remember { mutableStateOf<SshAppPairing?>(null) }
     var managementGrant by remember { mutableStateOf<SshAppGrant?>(null) }
     var managementInstallationId by remember { mutableStateOf<String?>(null) }
@@ -208,6 +209,11 @@ private fun TaraSecApp(initialDestination: String?) {
             return
         }
 
+        // Approval polling must not replace a challenge while Google is handling it.
+        if (action == "status" && managementBinding.isNotBlank()) {
+            managerStatus = "Server verification is pending. Use Continue server verification if you need to reopen it."
+            return
+        }
         busy = true
         if (action == "login") managerNeedsApproval = false
         managerStatus = when (action) {
@@ -262,7 +268,7 @@ private fun TaraSecApp(initialDestination: String?) {
                             managementTarget = target; managementBinding = binding
                             managementPairing = null; managementGrant = null
                             managerAuthenticated = false; threatStates = emptyMap()
-                            managerStatus = "Sign in with Google to manage this server. Server data stays hidden until verification."
+                            managerStatus = "Approvals confirmed. Continuing server verification using your Google session…"
                             busy = false
                         }
                         return@Thread
@@ -397,6 +403,41 @@ private fun TaraSecApp(initialDestination: String?) {
         }.start()
     }
 
+    fun beginManagementVerification() {
+        val target = managementTarget ?: return
+        val binding = managementBinding
+        if (busy || binding.isBlank() || managerAuthenticated) return
+        val existingPairing = managementPairing
+        busy = true
+        managerStatus = "Verifying your Google account for this server…"
+        Thread {
+            try {
+                val pairing = existingPairing ?: SshApprovalClient.start(target, binding)
+                activity.runOnUiThread {
+                    if (managementTarget != target || managementBinding != binding) return@runOnUiThread
+                    try {
+                        managementPairing = pairing
+                        managementGrant = null
+                        activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(target.managementBrowserUrl(pairing.id))))
+                        managerStatus = "Completing server verification using your Google session. If Google asks for confirmation, complete it and return here."
+                    } catch (e: Exception) {
+                        managerStatus = "Could not open server verification. Tap Continue server verification to retry."
+                    } finally {
+                        busy = false
+                    }
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    if (managementTarget == target && managementBinding == binding) {
+                        busy = false
+                        managerStatus = e.message ?: "Could not verify this server. Tap Continue server verification to retry."
+                    }
+                }
+            }
+        }.start()
+    }
+
     var managementStartVersion by remember { mutableStateOf(0) }
     LaunchedEffect(linkedUnitKey, managementStartVersion) {
         if (linkedGateway != null && selectedInstallationId == null && managerRequestId == null &&
@@ -441,6 +482,16 @@ private fun TaraSecApp(initialDestination: String?) {
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
+    }
+    // Start once per server challenge. Returning from the browser or a failed
+    // attempt must not launch another browser; the visible action allows retry.
+    LaunchedEffect(foreground, managementTarget, managementBinding, busy) {
+        if (foreground && !busy && !managerAuthenticated &&
+            managementTarget != null && managementBinding.isNotBlank() &&
+            managementAttemptedBinding != managementBinding) {
+            managementAttemptedBinding = managementBinding
+            beginManagementVerification()
+        }
     }
     val refreshApproval by rememberUpdatedState(newValue = {
         if (managementBinding.isBlank() && !busy && !managerAuthenticated && !managerRejected && !managerRequestUnavailable &&
@@ -616,23 +667,9 @@ private fun TaraSecApp(initialDestination: String?) {
     @androidx.compose.runtime.Composable
     fun ManagementSignInAction() {
                 if (managementTarget != null && managementBinding.isNotBlank()) {
-                    Button(enabled = !busy, onClick = {
-                        val target = managementTarget ?: return@Button
-                        busy = true
-                        Thread {
-                            try {
-                                val pairing = SshApprovalClient.start(target, managementBinding)
-                                activity.runOnUiThread {
-                                    managementPairing = pairing; managementGrant = null; busy = false
-                                    activity.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                                        android.net.Uri.parse(target.managementBrowserUrl(pairing.id))))
-                                    managerStatus = "Complete fresh Google sign-in, then return here."
-                                }
-                            } catch (e: Exception) { activity.runOnUiThread {
-                                busy = false; managerStatus = e.message ?: "Could not start Google sign-in."
-                            } }
-                        }.start()
-                    }) { Text("Sign in with Google to manage this server") }
+                    Button(enabled = !busy, onClick = { beginManagementVerification() }) {
+                        Text("Continue server verification")
+                    }
                 }
     }
 
@@ -758,6 +795,7 @@ private fun TaraSecApp(initialDestination: String?) {
                     if (managerRequestId != null) {
                         Text("${registrationName.ifBlank { "Installation" }} — approval pending")
                         Text(managerStatus)
+                        ManagementSignInAction()
                         Text("Email: ${if (managerEmailVerified) "Confirmed" else "Waiting"} · Admin: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
                         if (approvalUi.needsNewRequest) {
                             Button(onClick = {
@@ -908,7 +946,7 @@ private fun TaraSecApp(initialDestination: String?) {
                         Text("Request #$managerRequestId · $managerEmail")
                         Text("Email verification: ${if (managerEmailVerified) "Confirmed" else "Waiting"}")
                         Text("Installation admin approval: ${if (managerGatewayApproved) "Confirmed" else "Waiting"}")
-                        Text("The app checks approval automatically. After both confirmations, complete Google sign-in to activate management access.")
+                        Text("The app checks approval automatically. After both confirmations, server verification continues automatically using your Google session.")
                         if (approvalUi.needsNewRequest) {
                             Button(enabled = !busy, onClick = {
                                 SecureCredentialStore.remove(activity, pendingKey)
