@@ -25,6 +25,8 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
     val owner = managementOwner
     var enrollmentUser by remember(baseUrl, owner) { mutableStateOf("") }
     var enrollmentDevice by remember(baseUrl, owner) { mutableStateOf("") }
+    var pairingMessage by remember(baseUrl, owner) { mutableStateOf("") }
+    var pairingBusy by remember(baseUrl, owner) { mutableStateOf(false) }
     var pairingCode by remember(baseUrl, owner) { mutableStateOf("") }
     var pairingUntil by remember(baseUrl, owner) { mutableStateOf(0L) }
     var target by remember(baseUrl, owner) { mutableStateOf<SshApprovalTarget?>(null) }
@@ -109,6 +111,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
         if (pairingUntil > 0) {
             delay(maxOf(0L, pairingUntil * 1000 - System.currentTimeMillis()))
             pairingCode = ""; pairingUntil = 0
+            pairingMessage = "Device pairing expired. Start device pairing again."
         }
     }
     LaunchedEffect(deadline, offset) {
@@ -167,20 +170,40 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             OutlinedTextField(value = enrollmentDevice, onValueChange = { enrollmentDevice = it.take(48) },
                 label = { Text("Device name, for example Acer or Termux") }, singleLine = true, enabled = !busy)
             Button(enabled = !busy && enrollmentUser.isNotBlank() && enrollmentDevice.isNotBlank(), onClick = {
-                val selected = target ?: return@Button
-                val g = grant ?: return@Button
-                busy = true; pairingCode = ""
+                val selected = target ?: run {
+                    pairingMessage = "This server's SSH identity is unavailable. Refresh status and try again."
+                    return@Button
+                }
+                val g = grant ?: run {
+                    pairingMessage = "Management authorization expired. Reconnect from Manage."
+                    return@Button
+                }
+                val submittedUser = enrollmentUser.trim()
+                val submittedDevice = enrollmentDevice.trim()
+                busy = true; pairingBusy = true; pairingCode = ""; pairingUntil = 0
+                pairingMessage = "Starting device pairing for $installationName…"
                 scope.launch {
                     try {
-                        val result = withContext(Dispatchers.IO) { SshApprovalClient.pairDevice(selected, g, enrollmentUser, enrollmentDevice) }
+                        val result = withContext(Dispatchers.IO) { SshApprovalClient.pairDevice(selected, g, submittedUser, submittedDevice) }
                         pairingUntil = result.getLong("expires_at")
                         pairingCode = result.getString("pairing_token")
-                        message = "Pairing ready for this server. Submit the device key, then approve on the website."
+                        pairingMessage = "Pairing ready for this server. Submit the device key, then approve on the website."
                     } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { message = e.message ?: "SSH pairing unavailable. Update the approval service." }
-                    finally { busy = false }
+                    catch (e: Exception) {
+                        pairingMessage = e.message ?: "SSH pairing unavailable. Update the approval service."
+                        if (e is SshSignInRequiredException) {
+                            SshSessionStore.remove(SshSessionKey(owner, selected))
+                            grant = null; code = ""
+                            message = pairingMessage
+                            onSessionExpired()
+                        }
+                    }
+                    finally { pairingBusy = false; busy = false }
                 }
-            }) { Text("Start device pairing") }
+            }) { Text(if (pairingBusy) "Starting device pairing…" else "Start device pairing") }
+            if (pairingMessage.isNotBlank()) {
+                Text(pairingMessage)
+            }
             if (pairingCode.isNotBlank()) {
                 Text("On Acer or Termux, run the pairing helper from the updated taransvar checkout:")
                 Text("python3 ~/taransvar/misc/pair_ssh_device.py --service " + target!!.base)
