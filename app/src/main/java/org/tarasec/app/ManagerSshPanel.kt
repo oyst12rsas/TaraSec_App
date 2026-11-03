@@ -24,6 +24,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
     val activity = LocalContext.current as Activity
     val scope = rememberCoroutineScope()
     val owner = managementOwner
+    var connectionPort by remember(baseUrl, owner) { mutableStateOf("5822") }
     var enrollmentUser by remember(baseUrl, owner) { mutableStateOf("") }
     var queueState by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
     var queueError by remember(baseUrl, owner) { mutableStateOf("") }
@@ -215,9 +216,25 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
                     "waiting_client" -> "Waiting for the client helper's next check."
                     "waiting_approval" -> "Key received. Finalize with Google and Authenticator at TaraSec Ops."
                     "approved", "running" -> "Approved. Waiting for this server to install the key."
-                    "done" -> "Key installed — confirmed by this server."
+                    "done" -> "Registration installed — confirmed by this server. Open the timed SSH window above, then test the connection from the registered device."
                     else -> "Registration: " + request.optString("state")
                 })
+                if (request.optString("state") == "done") {
+                    OutlinedTextField(value = connectionPort,
+                        onValueChange = { connectionPort = it.filter(Char::isDigit).take(5) },
+                        label = { Text("SSH port (standard: 5822)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    val port = connectionPort.toIntOrNull()
+                    val user = request.optString("ssh_user")
+                    if (port != null && port in 1..65535 && user.matches(Regex("[a-z_][a-z0-9_-]{0,31}"))) {
+                        val command = SshClientCommands.connect(baseUrl, user, port)
+                        Text("Run on the registered device with the updated client helper. It selects the saved key automatically. A successful login still needs to be tested.")
+                        SelectionContainer { Text(command) }
+                        TextButton(onClick = { copyClientCommand(command, "Connection command copied") }) {
+                            Text("Copy connection command")
+                        }
+                    }
+                }
                 request.optString("fingerprint").takeIf { it.isNotBlank() && it != "null" }?.let {
                     SelectionContainer { Text("Key fingerprint: " + it) }
                 }
