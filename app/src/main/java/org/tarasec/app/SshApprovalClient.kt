@@ -67,6 +67,7 @@ object SshApprovalClient {
                     "app_login_required", "operator_login_required" -> "Sign in with Google again."
                     "ssh_pairing_limit" -> "Finish or wait for an existing device pairing to expire."
                     "invalid_ssh_device" -> "Enter the local SSH account and a device name using letters, numbers, spaces, dots, underscores or hyphens."
+                    "ssh_client_unavailable" -> "This client is unavailable or its NetBird identity is stale. Refresh and select it again."
                     "ssh_enrollment_unavailable" -> "SSH device enrollment is unavailable. Update the hosted approval service and target worker."
                     "account_sign_in_required" -> "Your account cannot authorize SSH yet. Connect your Google account below."
                     "account_service_unavailable" -> "Account verification is unavailable. Retry or connect through the browser."
@@ -136,6 +137,16 @@ object SshApprovalClient {
         require(until > now && until <= now + 660) { "Invalid pairing expiry." }
         return value
     }
+    fun clientQueue(target: SshApprovalTarget, grant: SshAppGrant): JSONObject =
+        request(target.base + "ssh-device.php?action=queue_list",
+            JSONObject().put("server_ref", target.serverRef), grant.token)
+    fun queueClient(target: SshApprovalTarget, grant: SshAppGrant, clientId: String, user: String) {
+        require(clientId.matches(Regex("[a-f0-9]{64}")) && user.matches(Regex("[a-z_][a-z0-9_-]{0,31}"))) {
+            "Select a connecting client and enter this server's Linux username."
+        }
+        request(target.base + "ssh-device.php?action=queue_start",
+            JSONObject().put("server_ref", target.serverRef).put("client_id", clientId).put("ssh_user", user), grant.token)
+    }
     fun decideDevice(target: SshApprovalTarget, grant: SshAppGrant, id: String, code: String, approve: Boolean) {
         require(id.matches(Regex("[a-f0-9]{32}")) && (!approve || code.matches(Regex("[0-9]{6}"))))
         request(target.base + "mobile.php?action=decide",
@@ -154,4 +165,5 @@ object SshApprovalClient {
         return id
     }
 }
+
 

@@ -25,10 +25,12 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
     val scope = rememberCoroutineScope()
     val owner = managementOwner
     var enrollmentUser by remember(baseUrl, owner) { mutableStateOf("") }
-    var enrollmentDevice by remember(baseUrl, owner) { mutableStateOf("") }
+    var enrollmentClient by remember(baseUrl, owner) { mutableStateOf("") }
+    var clientMenu by remember(baseUrl, owner) { mutableStateOf(false) }
+    var queueState by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
+    var queueError by remember(baseUrl, owner) { mutableStateOf("") }
     var pairingMessage by remember(baseUrl, owner) { mutableStateOf("") }
     var pairingBusy by remember(baseUrl, owner) { mutableStateOf(false) }
-    var deviceOtp by remember(baseUrl, owner) { mutableStateOf("") }
     var target by remember(baseUrl, owner) { mutableStateOf<SshApprovalTarget?>(null) }
     var grant by remember(baseUrl, owner) { mutableStateOf<SshAppGrant?>(null) }
     var status by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
@@ -62,6 +64,15 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
         try {
             val value = withContext(Dispatchers.IO) { SshApprovalClient.status(t, g) }
             status = value
+            try {
+                queueState = withContext(Dispatchers.IO) { SshApprovalClient.clientQueue(t, g) }
+                queueError = ""
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                queueState = null
+                queueError = e.message ?: "Client enrollment queue is unavailable."
+                if (e is SshSignInRequiredException) throw e
+            }
             val now = value.optLong("server_time")
             offset = now - System.currentTimeMillis() / 1000
             val node = value.getJSONArray("checks").getJSONObject(0)
@@ -157,82 +168,67 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             }
             HorizontalDivider()
             Text("Add an SSH device", style = MaterialTheme.typography.titleMedium)
-            Text("Run setup once on Acer or Termux. Its public key is submitted automatically, then its request appears below for approval.")
+            Text("Select the connecting client and this server's Linux username. Its Bash helper picks up the request on its next check; finalize approval at TaraSec Ops.")
             OutlinedTextField(value = enrollmentUser, onValueChange = { enrollmentUser = it.take(32) },
                 label = { Text("Linux username on this server") }, singleLine = true, enabled = !busy)
-            OutlinedTextField(value = enrollmentDevice, onValueChange = { enrollmentDevice = it.take(48) },
-                label = { Text("Device name (optional; defaults to its hostname)") }, singleLine = true, enabled = !busy)
-            fun shellQuote(value: String) = "'" + value.replace("'", "'\\''") + "'"
-            val setupCommand = "python3 ~/taransvar/misc/pair_ssh_device.py --server " + shellQuote(baseUrl) +
-                (t?.let { " --service " + shellQuote(it.base) } ?: "") +
-                enrollmentUser.trim().takeIf { it.isNotBlank() }?.let { " --user " + shellQuote(it) }.orEmpty() +
-                enrollmentDevice.trim().takeIf { it.isNotBlank() }?.let { " --device " + shellQuote(it) }.orEmpty()
-            SelectionContainer { Text(setupCommand) }
-            TextButton(enabled = t != null, onClick = {
-                val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TaraSec SSH device setup", setupCommand))
-                android.widget.Toast.makeText(activity, "Device setup command copied", android.widget.Toast.LENGTH_SHORT).show()
-            }) { Text("Copy device setup command") }
-            Text("No pairing codes to copy. Keep setup running until this server confirms installation.")
-            if (pairingMessage.isNotBlank()) Text(pairingMessage)
-            val proposals = status?.optJSONArray("proposals")
-            val devices = (0 until (proposals?.length() ?: 0)).mapNotNull { proposals?.optJSONObject(it) }
-                .filter { it.optString("operation") == "install_ssh_device_key" && it.optString("server_ref") == t?.serverRef }
-                .take(20)
-            Text("Device requests", style = MaterialTheme.typography.titleMedium)
-            if (devices.isEmpty()) Text("Waiting for a device setup request. Requests refresh automatically.")
-            if (devices.any { it.optString("state") == "pending" && it.optLong("expires") > System.currentTimeMillis() / 1000 + offset }) {
-                Text("Match the fingerprint shown by your device before approving.")
-                OutlinedTextField(value = deviceOtp, onValueChange = { deviceOtp = it.filter(Char::isDigit).take(6) },
-                    label = { Text("Authenticator code for device approval") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), enabled = !busy)
+            val peerRows = queueState?.optJSONArray("clients")
+            val clients = (0 until (peerRows?.length() ?: 0)).mapNotNull { peerRows?.optJSONObject(it) }
+            val selectedClient = clients.firstOrNull { it.optString("id") == enrollmentClient }
+            Button(enabled = !busy && clients.isNotEmpty(), onClick = { clientMenu = true }) {
+                Text(selectedClient?.let { it.optString("name") + " · " + it.optString("ip") } ?: "Select connecting client")
             }
-            devices.forEach { device ->
-                HorizontalDivider()
-                Text("Device: " + device.optString("device_name"))
-                Text("Linux username: " + device.optString("ssh_user"))
-                SelectionContainer { Text("Key fingerprint: " + device.optString("fingerprint")) }
-                val state = device.optString("state")
-                val expired = device.optLong("expires") <= System.currentTimeMillis() / 1000 + offset
-                Text(when {
-                    state == "done" -> "Key installed — confirmed by this server."
-                    state == "pending" && expired -> "Request expired. Run device setup again."
-                    state == "pending" -> "Waiting for your approval."
-                    state in listOf("approved", "running") -> "Approved — waiting for this server to confirm installation."
-                    else -> "Device request: $state"
-                })
-                if (state == "pending" && !expired) {
-                    fun decideDevice(approve: Boolean) {
-                        val selected = target ?: return
-                        val g = grant ?: return
-                        val otp = deviceOtp; deviceOtp = ""; busy = true; pairingBusy = true
-                        pairingMessage = if (approve) "Approving this device…" else "Rejecting this device…"
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) { SshApprovalClient.decideDevice(selected, g, device.getString("id"), otp, approve) }
-                                pairingMessage = if (approve) "Device approved. Waiting for server installation confirmation." else "Device request rejected."
-                                refresh()
-                            } catch (e: CancellationException) { throw e }
-                            catch (e: Exception) {
-                                pairingMessage = e.message ?: "Device approval failed."
-                                if (e is SshSignInRequiredException) {
-                                    SshSessionStore.remove(SshSessionKey(owner, selected))
-                                    grant = null; onSessionExpired()
-                                }
-                            } finally { pairingBusy = false; busy = false }
-                        }
-                    }
-                    Button(enabled = !busy && deviceOtp.length == 6, onClick = { decideDevice(true) }) {
-                        Text(if (pairingBusy) "Working…" else "Approve this device")
-                    }
-                    TextButton(enabled = !busy, onClick = { decideDevice(false) }) { Text("Reject this device") }
+            DropdownMenu(expanded = clientMenu, onDismissRequest = { clientMenu = false }) {
+                clients.forEach { client ->
+                    DropdownMenuItem(text = { Text(client.optString("name") + " · " + client.optString("ip")) }, onClick = {
+                        enrollmentClient = client.getString("id"); clientMenu = false
+                    })
                 }
             }
+            if (clients.isEmpty() && queueError.isBlank()) Text("Waiting for this gateway's fresh NetBird client list. Update its approval helper if the list remains empty.")
+            if (queueError.isNotBlank()) Text(queueError)
+            Button(enabled = !busy && selectedClient != null && enrollmentUser.isNotBlank(), onClick = {
+                val selected = target ?: return@Button
+                val g = grant ?: return@Button
+                val client = selectedClient ?: return@Button
+                val user = enrollmentUser.trim(); val clientId = client.getString("id")
+                busy = true; pairingBusy = true; pairingMessage = "Queuing client registration…"
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { SshApprovalClient.queueClient(selected, g, clientId, user) }
+                        pairingMessage = "Request queued. The client will register its key on its next check. Finalize at TaraSec Ops when ready."
+                        refresh()
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { pairingMessage = e.message ?: "Could not queue client registration." }
+                    finally { busy = false; pairingBusy = false }
+                }
+            }) { Text(if (pairingBusy) "Queuing…" else "Request client registration") }
+            if (pairingMessage.isNotBlank()) Text(pairingMessage)
+            Text("The standalone Bash client is installed once on Acer or Termux. No per-request commands or pairing codes are needed.")
+            val requestRows = queueState?.optJSONArray("requests")
+            val requests = (0 until (requestRows?.length() ?: 0)).mapNotNull { requestRows?.optJSONObject(it) }
+            requests.take(20).forEach { request ->
+                HorizontalDivider()
+                Text(request.optString("client_name") + " → " + request.optString("ssh_user") + " on " + installationName)
+                Text(when (request.optString("state")) {
+                    "waiting_client" -> "Waiting for the client helper's next check."
+                    "waiting_approval" -> "Key received. Finalize with Google and Authenticator at TaraSec Ops."
+                    "approved", "running" -> "Approved. Waiting for this server to install the key."
+                    "done" -> "Key installed — confirmed by this server."
+                    else -> "Registration: " + request.optString("state")
+                })
+                request.optString("fingerprint").takeIf { it.isNotBlank() && it != "null" }?.let {
+                    SelectionContainer { Text("Key fingerprint: " + it) }
+                }
+            }
+            TextButton(enabled = t != null, onClick = {
+                val selected = target ?: return@TextButton
+                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(selected.browserUrl())))
+            }) { Text("Finalize at TaraSec Ops") }
             TextButton(enabled = !busy, onClick = { scope.launch { refresh() } }) { Text("Refresh status") }
         }
         Text("Your fresh management sign-in covers SSH for this server. Opening SSH still requires your Authenticator code.",
             style = MaterialTheme.typography.bodySmall)
     }
 }
+
 
