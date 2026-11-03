@@ -136,6 +136,12 @@ object SshApprovalClient {
         require(until > now && until <= now + 660) { "Invalid pairing expiry." }
         return value
     }
+    fun decideDevice(target: SshApprovalTarget, grant: SshAppGrant, id: String, code: String, approve: Boolean) {
+        require(id.matches(Regex("[a-f0-9]{32}")) && (!approve || code.matches(Regex("[0-9]{6}"))))
+        request(target.base + "mobile.php?action=decide",
+            JSONObject().put("csrf", grant.token).put("id", id).put("decision", if (approve) "approve" else "reject")
+                .put("totp", code), grant.token)
+    }
     fun open(target: SshApprovalTarget, grant: SshAppGrant, seconds: Int, code: String): String {
         require(seconds in listOf(300, 600, 900) && code.matches(Regex("[0-9]{6}")))
         val request = request(target.base + "mobile.php?action=request_ssh",
@@ -148,3 +154,4 @@ object SshApprovalClient {
         return id
     }
 }
+
