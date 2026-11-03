@@ -65,6 +65,9 @@ object SshApprovalClient {
                     throw SshSignInRequiredException()
                 throw IllegalStateException(when (json.optString("error")) {
                     "app_login_required", "operator_login_required" -> "Sign in with Google again."
+                    "ssh_pairing_limit" -> "Finish or wait for an existing device pairing to expire."
+                    "invalid_ssh_device" -> "Enter the local SSH account and a device name using letters, numbers, spaces, dots, underscores or hyphens."
+                    "ssh_enrollment_unavailable" -> "SSH device enrollment is unavailable. Update the hosted approval service and target worker."
                     "account_sign_in_required" -> "Your account cannot authorize SSH yet. Connect your Google account below."
                     "account_service_unavailable" -> "Account verification is unavailable. Retry or connect through the browser."
                     "authenticator_not_configured" -> "Set up your Authenticator on the secure sign-in page first."
@@ -121,6 +124,17 @@ object SshApprovalClient {
             "The approval service returned a different node. SSH controls are unavailable."
         }
         return json
+    }
+    fun pairDevice(target: SshApprovalTarget, grant: SshAppGrant, user: String, device: String): JSONObject {
+        require(user.matches(Regex("[a-z_][a-z0-9_-]{0,31}")) &&
+            device.matches(Regex("[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}"))) { "Enter a valid local account and device name." }
+        val value = request(target.base + "ssh-device.php?action=start",
+            JSONObject().put("server_ref", target.serverRef).put("ssh_user", user).put("device_name", device), grant.token)
+        require(value.getString("pairing_token").matches(Regex("[a-f0-9]{64}"))) { "Invalid pairing response." }
+        val until = value.getLong("expires_at")
+        val now = System.currentTimeMillis() / 1000
+        require(until > now && until <= now + 660) { "Invalid pairing expiry." }
+        return value
     }
     fun open(target: SshApprovalTarget, grant: SshAppGrant, seconds: Int, code: String): String {
         require(seconds in listOf(300, 600, 900) && code.matches(Regex("[0-9]{6}")))
