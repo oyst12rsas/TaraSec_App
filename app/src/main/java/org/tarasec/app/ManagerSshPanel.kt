@@ -23,6 +23,10 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
     val activity = LocalContext.current as Activity
     val scope = rememberCoroutineScope()
     val owner = managementOwner
+    var enrollmentUser by remember(baseUrl, owner) { mutableStateOf("") }
+    var enrollmentDevice by remember(baseUrl, owner) { mutableStateOf("") }
+    var pairingCode by remember(baseUrl, owner) { mutableStateOf("") }
+    var pairingUntil by remember(baseUrl, owner) { mutableStateOf(0L) }
     var target by remember(baseUrl, owner) { mutableStateOf<SshApprovalTarget?>(null) }
     var grant by remember(baseUrl, owner) { mutableStateOf<SshAppGrant?>(null) }
     var status by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
@@ -101,6 +105,12 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             while (true) { if (!busy) refresh(); delay(5000) }
         }
     }
+    LaunchedEffect(pairingUntil) {
+        if (pairingUntil > 0) {
+            delay(maxOf(0L, pairingUntil * 1000 - System.currentTimeMillis()))
+            pairingCode = ""; pairingUntil = 0
+        }
+    }
     LaunchedEffect(deadline, offset) {
         while (true) {
             remaining = maxOf(0, deadline - (System.currentTimeMillis() / 1000 + offset))
@@ -148,6 +158,44 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
                 TextButton(onClick = { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(t.browserUrl()))) }) {
                     Text("Set up Authenticator")
                 }
+            }
+            HorizontalDivider()
+            Text("Add an SSH device", style = MaterialTheme.typography.titleMedium)
+            Text("Pair Acer or Termux, then approve its exact public key on the secure website. Existing SSH settings stay unchanged.")
+            OutlinedTextField(value = enrollmentUser, onValueChange = { enrollmentUser = it.take(32) },
+                label = { Text("SSH account on this server") }, singleLine = true, enabled = !busy)
+            OutlinedTextField(value = enrollmentDevice, onValueChange = { enrollmentDevice = it.take(48) },
+                label = { Text("Device name, for example Acer or Termux") }, singleLine = true, enabled = !busy)
+            Button(enabled = !busy && enrollmentUser.isNotBlank() && enrollmentDevice.isNotBlank(), onClick = {
+                val selected = target ?: return@Button
+                val g = grant ?: return@Button
+                busy = true; pairingCode = ""
+                scope.launch {
+                    try {
+                        val result = withContext(Dispatchers.IO) { SshApprovalClient.pairDevice(selected, g, enrollmentUser, enrollmentDevice) }
+                        pairingUntil = result.getLong("expires_at")
+                        pairingCode = result.getString("pairing_token")
+                        message = "Pairing ready for this server. Submit the device key, then approve on the website."
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { message = e.message ?: "SSH pairing unavailable. Update the approval service." }
+                    finally { busy = false }
+                }
+            }) { Text("Start device pairing") }
+            if (pairingCode.isNotBlank()) {
+                Text("On Acer or Termux, run the pairing helper from the updated taransvar checkout:")
+                Text("python3 ~/taransvar/misc/pair_ssh_device.py --service " + target!!.base)
+                Text("Paste this short-lived pairing code when prompted. It expires after 10 minutes:")
+                Text(pairingCode)
+                TextButton(onClick = {
+                    val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("TaraSec SSH pairing", pairingCode)
+                    clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+                    clipboard.setPrimaryClip(clip)
+                }) { Text("Copy pairing code") }
+                TextButton(onClick = { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target!!.browserUrl()))) }) {
+                    Text("Approve device on website")
+                }
+                Text("Only the public key is sent. After approval, test a new SSH login before requiring key + password.")
             }
             TextButton(enabled = !busy, onClick = { scope.launch { refresh() } }) { Text("Refresh status") }
         }
