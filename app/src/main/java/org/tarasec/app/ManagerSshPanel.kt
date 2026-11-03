@@ -27,6 +27,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
     var enrollmentUser by remember(baseUrl, owner) { mutableStateOf("") }
     var queueState by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
     var queueError by remember(baseUrl, owner) { mutableStateOf("") }
+    var showClientSetup by remember(baseUrl, owner) { mutableStateOf(false) }
     var pairingMessage by remember(baseUrl, owner) { mutableStateOf("") }
     var pairingBusy by remember(baseUrl, owner) { mutableStateOf(false) }
     var target by remember(baseUrl, owner) { mutableStateOf<SshApprovalTarget?>(null) }
@@ -186,7 +187,25 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
                 }
             }) { Text(if (pairingBusy) "Queuing…" else "Request SSH registration") }
             if (pairingMessage.isNotBlank()) Text(pairingMessage)
-            Text("The standalone Bash client is installed once on Acer or Termux. No per-request commands or pairing codes are needed.")
+            Text("Already installed? Run the saved client on the connecting device with no parameters, or wait for its scheduled check.")
+            SelectionContainer { Text(SshClientCommands.run) }
+            fun copyClientCommand(text: String, confirmation: String) {
+                val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TaraSec client command", text))
+                android.widget.Toast.makeText(activity, confirmation, android.widget.Toast.LENGTH_SHORT).show()
+            }
+            TextButton(onClick = { copyClientCommand(SshClientCommands.run, "Run command copied") }) {
+                Text("Copy run command")
+            }
+            TextButton(enabled = t != null, onClick = { showClientSetup = !showClientSetup }) {
+                Text(if (showClientSetup) "Hide client setup" else "First-time setup, update or add this server")
+            }
+            if (showClientSetup && t != null) {
+                val setupCommand = SshClientCommands.setup(baseUrl, t.base)
+                Text("Run this once in Termux or a Linux terminal. The selected server address is filled in automatically; saved gateways and keys are retained. Requires Bash, curl, jq, OpenSSH and cron.")
+                SelectionContainer { Text(setupCommand) }
+                TextButton(onClick = { copyClientCommand(setupCommand, "Client setup copied") }) { Text("Copy client setup") }
+            }
             val requestRows = queueState?.optJSONArray("requests")
             val requests = (0 until (requestRows?.length() ?: 0)).mapNotNull { requestRows?.optJSONObject(it) }
             requests.take(20).forEach { request ->
@@ -213,6 +232,7 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             style = MaterialTheme.typography.bodySmall)
     }
 }
+
 
 
 
