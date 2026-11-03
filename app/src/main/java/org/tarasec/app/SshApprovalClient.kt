@@ -140,12 +140,12 @@ object SshApprovalClient {
     fun clientQueue(target: SshApprovalTarget, grant: SshAppGrant): JSONObject =
         request(target.base + "ssh-device.php?action=queue_list",
             JSONObject().put("server_ref", target.serverRef), grant.token)
-    fun queueClient(target: SshApprovalTarget, grant: SshAppGrant, clientId: String, user: String) {
-        require(clientId.matches(Regex("[a-f0-9]{64}")) && user.matches(Regex("[a-z_][a-z0-9_-]{0,31}"))) {
-            "Select a connecting client and enter this server's Linux username."
+    fun queueClient(target: SshApprovalTarget, grant: SshAppGrant, user: String) {
+        require(user.matches(Regex("[a-z_][a-z0-9_-]{0,31}"))) {
+            "Enter this server's Linux username."
         }
         request(target.base + "ssh-device.php?action=queue_start",
-            JSONObject().put("server_ref", target.serverRef).put("client_id", clientId).put("ssh_user", user), grant.token)
+            JSONObject().put("server_ref", target.serverRef).put("ssh_user", user), grant.token)
     }
     fun decideDevice(target: SshApprovalTarget, grant: SshAppGrant, id: String, code: String, approve: Boolean) {
         require(id.matches(Regex("[a-f0-9]{32}")) && (!approve || code.matches(Regex("[0-9]{6}"))))
@@ -165,5 +165,6 @@ object SshApprovalClient {
         return id
     }
 }
+
 
 
