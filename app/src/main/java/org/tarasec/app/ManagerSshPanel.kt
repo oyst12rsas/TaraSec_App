@@ -25,8 +25,6 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
     val scope = rememberCoroutineScope()
     val owner = managementOwner
     var enrollmentUser by remember(baseUrl, owner) { mutableStateOf("") }
-    var enrollmentClient by remember(baseUrl, owner) { mutableStateOf("") }
-    var clientMenu by remember(baseUrl, owner) { mutableStateOf(false) }
     var queueState by remember(baseUrl, owner) { mutableStateOf<JSONObject?>(null) }
     var queueError by remember(baseUrl, owner) { mutableStateOf("") }
     var pairingMessage by remember(baseUrl, owner) { mutableStateOf("") }
@@ -168,47 +166,32 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             }
             HorizontalDivider()
             Text("Add an SSH device", style = MaterialTheme.typography.titleMedium)
-            Text("Select the connecting client and this server's Linux username. Its Bash helper picks up the request on its next check; finalize approval at TaraSec Ops.")
+            Text("Enter this server's Linux username. Run the Bash helper on the device you want to connect from; its key and observed source will appear for final approval at TaraSec Ops.")
             OutlinedTextField(value = enrollmentUser, onValueChange = { enrollmentUser = it.take(32) },
                 label = { Text("Linux username on this server") }, singleLine = true, enabled = !busy)
-            val peerRows = queueState?.optJSONArray("clients")
-            val clients = (0 until (peerRows?.length() ?: 0)).mapNotNull { peerRows?.optJSONObject(it) }
-            val selectedClient = clients.firstOrNull { it.optString("id") == enrollmentClient }
-            Button(enabled = !busy && clients.isNotEmpty(), onClick = { clientMenu = true }) {
-                Text(selectedClient?.let { it.optString("name") + " · " + it.optString("ip") } ?: "Select connecting client")
-            }
-            DropdownMenu(expanded = clientMenu, onDismissRequest = { clientMenu = false }) {
-                clients.forEach { client ->
-                    DropdownMenuItem(text = { Text(client.optString("name") + " · " + client.optString("ip")) }, onClick = {
-                        enrollmentClient = client.getString("id"); clientMenu = false
-                    })
-                }
-            }
-            if (clients.isEmpty() && queueError.isBlank()) Text("Waiting for this gateway's fresh NetBird client list. Update its approval helper if the list remains empty.")
             if (queueError.isNotBlank()) Text(queueError)
-            Button(enabled = !busy && selectedClient != null && enrollmentUser.isNotBlank(), onClick = {
+            Button(enabled = !busy && enrollmentUser.isNotBlank(), onClick = {
                 val selected = target ?: return@Button
                 val g = grant ?: return@Button
-                val client = selectedClient ?: return@Button
-                val user = enrollmentUser.trim(); val clientId = client.getString("id")
+                val user = enrollmentUser.trim()
                 busy = true; pairingBusy = true; pairingMessage = "Queuing client registration…"
                 scope.launch {
                     try {
-                        withContext(Dispatchers.IO) { SshApprovalClient.queueClient(selected, g, clientId, user) }
+                        withContext(Dispatchers.IO) { SshApprovalClient.queueClient(selected, g, user) }
                         pairingMessage = "Request queued. The client will register its key on its next check. Finalize at TaraSec Ops when ready."
                         refresh()
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { pairingMessage = e.message ?: "Could not queue client registration." }
                     finally { busy = false; pairingBusy = false }
                 }
-            }) { Text(if (pairingBusy) "Queuing…" else "Request client registration") }
+            }) { Text(if (pairingBusy) "Queuing…" else "Request SSH registration") }
             if (pairingMessage.isNotBlank()) Text(pairingMessage)
             Text("The standalone Bash client is installed once on Acer or Termux. No per-request commands or pairing codes are needed.")
             val requestRows = queueState?.optJSONArray("requests")
             val requests = (0 until (requestRows?.length() ?: 0)).mapNotNull { requestRows?.optJSONObject(it) }
             requests.take(20).forEach { request ->
                 HorizontalDivider()
-                Text(request.optString("client_name") + " → " + request.optString("ssh_user") + " on " + installationName)
+                Text(request.optString("client_name") + " · " + request.optString("client_ip") + " → " + request.optString("ssh_user") + " on " + installationName)
                 Text(when (request.optString("state")) {
                     "waiting_client" -> "Waiting for the client helper's next check."
                     "waiting_approval" -> "Key received. Finalize with Google and Authenticator at TaraSec Ops."
@@ -230,5 +213,6 @@ fun ManagerSshPanel(baseUrl: String, installationName: String, managementOwner: 
             style = MaterialTheme.typography.bodySmall)
     }
 }
+
 
 
