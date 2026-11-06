@@ -113,24 +113,11 @@ fun DemoPanel(
     } else {
         DemoClient.presets
     }
-    val registeredDemoInstallations = remember {
-        InstallationStore.load(activity).sortedBy { it.registeredAt }
-    }
-    val registeredDemoTargets = registeredDemoInstallations.mapNotNull { installation ->
-        val ip = InstallationStore.endpointHost(installation.serviceIp)
-        ip.takeIf { address ->
-            val octets = address.split('.')
-            octets.size == 4 && octets.all { octet -> octet.toIntOrNull()?.let { it in 0..255 } == true }
-        }
-            ?.let { DemoTarget(installation.name, it) }
-    }
-    val lastRegisteredDemoIp = registeredDemoTargets.lastOrNull()?.ip
     var endpointIpDraft by remember { mutableStateOf(Demo1Preferences.customIp(activity)) }
     var customEndpointIp by remember { mutableStateOf(Demo1Preferences.customIp(activity)) }
     var removedEndpointIps by remember { mutableStateOf(Demo1Preferences.removedIps(activity)) }
     var endpointNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val configuredTargets = (gatewayTargets +
-        (if (directHotspotDetected) emptyList() else registeredDemoTargets) + listOfNotNull(
+    val configuredTargets = (gatewayTargets + listOfNotNull(
         customEndpointIp.takeIf { !directHotspotDetected && it.isNotBlank() }
             ?.let { DemoTarget("Custom endpoint", it) }
     )).filter { directHotspotDetected || it.ip !in removedEndpointIps }
@@ -139,7 +126,6 @@ fun DemoPanel(
     }
     var basicTargetIp by remember { mutableStateOf(Demo1Preferences.selectedIp(activity)) }
     val basicTarget = configuredTargets.firstOrNull { it.ip == basicTargetIp }
-        ?: configuredTargets.firstOrNull { it.ip == lastRegisteredDemoIp }
         ?: configuredTargets.firstOrNull()
     var verifiedDemo1GatewayIp by remember { mutableStateOf("") }
     var demo1RouteMessage by remember { mutableStateOf("Discovering the selected endpoint and its gateway…") }
@@ -716,8 +702,7 @@ fun DemoPanel(
                                 Text("$dot " + (if (endpoint.ip == basicTarget?.ip) "✓ " else "") +
                                     "${endpoint.name} · ${endpoint.ip}")
                             }
-                            if (!directHotspotDetected &&
-                                (registeredDemoTargets.any { it.ip == endpoint.ip } || customEndpointIp == endpoint.ip)) {
+                            if (!directHotspotDetected && customEndpointIp == endpoint.ip) {
                                 OutlinedButton(
                                     enabled = !busy,
                                     onClick = {
