@@ -415,6 +415,12 @@ private fun TaraSecApp(initialDestination: String?) {
                 val pairing = existingPairing ?: SshApprovalClient.start(target, binding)
                 activity.runOnUiThread {
                     if (managementTarget != target || managementBinding != binding) return@runOnUiThread
+                    if (page == AppPage.DEMO) {
+                        managementPairing = pairing
+                        managementAttemptedBinding = ""
+                        busy = false
+                        return@runOnUiThread
+                    }
                     try {
                         managementPairing = pairing
                         managementGrant = null
@@ -485,8 +491,8 @@ private fun TaraSecApp(initialDestination: String?) {
     }
     // Start once per server challenge. Returning from the browser or a failed
     // attempt must not launch another browser; the visible action allows retry.
-    LaunchedEffect(foreground, managementTarget, managementBinding, busy) {
-        if (foreground && !busy && !managerAuthenticated &&
+    LaunchedEffect(page, foreground, managementTarget, managementBinding, busy) {
+        if (page != AppPage.DEMO && foreground && !busy && !managerAuthenticated &&
             managementTarget != null && managementBinding.isNotBlank() &&
             managementAttemptedBinding != managementBinding) {
             managementAttemptedBinding = managementBinding
