@@ -72,6 +72,7 @@ struct SubscriberAccountView: View {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) { MaintenanceNotice() }
             .navigationTitle("TaraSec")
             .task {
                 if client.account == nil && client.hasStoredSession() {

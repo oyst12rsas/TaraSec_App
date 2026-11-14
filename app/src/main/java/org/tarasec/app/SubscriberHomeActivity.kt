@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,18 +63,23 @@ class SubscriberHomeActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    SubscriberHome(
-                        initialDestination = intent.getStringExtra(CONSOLE_DESTINATION_EXTRA),
-                        identityCode = identityCode,
-                        identityCodeConsumed = { identityCode = null },
-                        openConsole = { destination ->
-                            AppRoleStore.save(this, AppRole.HOTSPOT_OWNER)
-                            startActivity(
-                                Intent(this, MainActivity::class.java)
-                                    .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                    Column {
+                        MaintenanceNotice()
+                        Box(Modifier.weight(1f)) {
+                            SubscriberHome(
+                                initialDestination = intent.getStringExtra(CONSOLE_DESTINATION_EXTRA),
+                                identityCode = identityCode,
+                                identityCodeConsumed = { identityCode = null },
+                                openConsole = { destination ->
+                                    AppRoleStore.save(this, AppRole.HOTSPOT_OWNER)
+                                    startActivity(
+                                        Intent(this, MainActivity::class.java)
+                                            .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
+                                    )
+                                }
                             )
                         }
-                    )
+                    }
                 }
             }
         }
