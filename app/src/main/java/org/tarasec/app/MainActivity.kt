@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,7 +59,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    TaraSecApp(intent.getStringExtra(CONSOLE_DESTINATION_EXTRA))
+                    Column {
+                        MaintenanceNotice()
+                        Box(Modifier.weight(1f)) {
+                            TaraSecApp(intent.getStringExtra(CONSOLE_DESTINATION_EXTRA))
+                        }
+                    }
                 }
             }
         }
