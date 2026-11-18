@@ -71,9 +71,9 @@ class SubscriberHomeActivity : ComponentActivity() {
                                 identityCode = identityCode,
                                 identityCodeConsumed = { identityCode = null },
                                 openConsole = { destination ->
-                                    AppRoleStore.save(this, AppRole.HOTSPOT_OWNER)
+                                    AppRoleStore.save(this@SubscriberHomeActivity, AppRole.HOTSPOT_OWNER)
                                     startActivity(
-                                        Intent(this, MainActivity::class.java)
+                                        Intent(this@SubscriberHomeActivity, MainActivity::class.java)
                                             .putExtra(CONSOLE_DESTINATION_EXTRA, destination.name)
                                     )
                                 }
